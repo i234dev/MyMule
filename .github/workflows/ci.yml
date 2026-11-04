@@ -23,13 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # Hosted macOS runners are often scarce. A macOS test failure or a job
-    # that never gets a runner must not block builds and releases (macOS
-    # binaries are cross-compiled on Linux anyway).
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +48,22 @@ jobs:
 
       - name: Test
         run: go test -count=1 -timeout 5m ./...
+
+  # Hosted macOS runners are often scarce: when none is free the job is
+  # cancelled. It runs on its own so it never blocks builds or releases
+  # (macOS binaries are cross-compiled on Linux anyway).
+  test-macos:
+    name: Test (macos-latest, informative)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -count=1 -timeout 5m ./...
 
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}

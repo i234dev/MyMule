@@ -10,7 +10,7 @@ import (
 	"mymule/internal/config"
 )
 
-const version = "0.3.0-dev"
+const version = "0.4.0-dev"
 
 const usage = `mymule - eD2K network client
 
@@ -18,7 +18,7 @@ Usage:
   mymule <command> [flags] [args]
 
 Daemon (recommended):
-  start [flags]               Start the engine in the background (flags are remembered)
+  start [flags]               Start the engine in the background
   stop                        Stop it, saving all progress
   status [-w 5s]              Server, speed and progress of every download
   add [-source ip:port] <link>...  Add ed2k links
@@ -38,10 +38,17 @@ Standalone:
   version                     Print version
 
 Run 'mymule <command> -h' for command flags.
-Data directory: $MYMULE_HOME or the OS config dir (e.g. %AppData%\mymule).
+
+Everything lives next to the mymule executable (or in $MYMULE_HOME):
+  mymule.conf   settings (port, server, nick, folders...); flags override it
+  temp/         partial downloads      downloads/   completed files
 `
 
 var exitCode int
+
+// settings is loaded from mymule.conf before any command runs; flag
+// defaults come from it.
+var settings = config.Defaults()
 
 func main() {
 	run()
@@ -74,6 +81,23 @@ func run() {
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
+	switch cmd {
+	case "version", "-v", "--version", "help", "-h", "--help":
+	default:
+		if settings, err = config.LoadSettings(); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			exitCode = 1
+			return
+		}
+		for _, dir := range []string{settings.TempDir, settings.DownloadDir} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				fmt.Fprintln(os.Stderr, "warning: cannot create", dir+":", err)
+			}
+		}
+		for _, note := range config.ImportLegacy(settings.TempDir) {
+			fmt.Fprintln(os.Stderr, note)
+		}
+	}
 	switch cmd {
 	case "start":
 		err = cmdStart(args)

@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -49,9 +48,9 @@ type engineFlags struct {
 func addEngineFlags(fs *flag.FlagSet) engineFlags {
 	return engineFlags{
 		conn:     addConnFlags(fs),
-		port:     fs.Uint("port", 4662, "TCP port for incoming peer connections (0 = disabled); forward it in your router to get HighID"),
-		out:      fs.String("o", defaultIncoming(), "directory for completed files"),
-		maxConns: fs.Int("max-conns", 40, "maximum simultaneous peer connections"),
+		port:     fs.Uint("port", uint(settings.Port), "TCP port for incoming peer connections (0 = disabled); forward it in your router to get HighID"),
+		out:      fs.String("o", settings.DownloadDir, "directory for completed files"),
+		maxConns: fs.Int("max-conns", settings.MaxConns, "maximum simultaneous peer connections"),
 	}
 }
 
@@ -114,7 +113,8 @@ func cmdDaemon(args []string) error {
 		return fmt.Errorf("control API: %w", err)
 	}
 	defer srv.Close()
-	logf("daemon started (pid %d), %d downloads, data dir %s", os.Getpid(), len(pfs), dir)
+	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
+		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 
 	err = m.Run(ctx)
 	logf("daemon stopped; progress saved")
@@ -126,8 +126,8 @@ func cmdDaemon(args []string) error {
 
 // ---- start / stop ----
 
-func daemonArgsPath() (string, error) { return config.Path("daemon-args.json") }
-
+// cmdStart launches 'mymule daemon' in the background. Settings come from
+// mymule.conf; flags given here override them for this run only.
 func cmdStart(args []string) error {
 	if c, err := daemonClient(); err == nil {
 		fmt.Printf("daemon already running (pid %d)\n", c.PID())
@@ -135,22 +135,8 @@ func cmdStart(args []string) error {
 	}
 	// Validate flags now, so mistakes are reported here and not in the log.
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	addEngineFlags(fs)
+	ef := addEngineFlags(fs)
 	fs.Parse(args)
-
-	argsPath, err := daemonArgsPath()
-	if err != nil {
-		return err
-	}
-	if len(args) > 0 {
-		data, _ := json.Marshal(args)
-		os.WriteFile(argsPath, data, 0o644)
-	} else if data, err := os.ReadFile(argsPath); err == nil {
-		json.Unmarshal(data, &args)
-		if len(args) > 0 {
-			fmt.Printf("using saved options: %s\n", strings.Join(args, " "))
-		}
-	}
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -180,7 +166,9 @@ func cmdStart(args []string) error {
 	for time.Now().Before(deadline) {
 		time.Sleep(300 * time.Millisecond)
 		if _, err := daemonClient(); err == nil {
-			fmt.Printf("daemon started (pid %d); log: %s\n", pid, logPath)
+			conf, _ := config.SettingsPath()
+			fmt.Printf("daemon started (pid %d)\n  config:    %s\n  temp:      %s\n  downloads: %s\n  log:       %s\n",
+				pid, conf, settings.TempDir, *ef.out, logPath)
 			return nil
 		}
 	}

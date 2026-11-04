@@ -26,8 +26,8 @@ type connFlags struct {
 
 func addConnFlags(fs *flag.FlagSet) connFlags {
 	return connFlags{
-		server:  fs.String("server", "", "server ip:port (default: try known servers in order)"),
-		nick:    fs.String("nick", "MyMule", "nickname sent to the server"),
+		server:  fs.String("server", settings.Server, "server ip:port (empty: try known servers in order)"),
+		nick:    fs.String("nick", settings.Nick, "nickname sent to the server"),
 		timeout: fs.Duration("timeout", 10*time.Second, "per-server connect/login timeout"),
 		verbose: fs.Bool("v", false, "verbose: show server messages"),
 	}

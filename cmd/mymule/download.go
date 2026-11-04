@@ -10,22 +10,13 @@ import (
 	"time"
 
 	"mymule/internal/api"
-	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 )
 
 func tempDir() (string, error) {
-	p, err := config.Path("temp")
-	if err != nil {
-		return "", err
-	}
+	p := settings.TempDir
 	return p, os.MkdirAll(p, 0o755)
-}
-
-func defaultIncoming() string {
-	p, _ := config.Path("incoming")
-	return p
 }
 
 func logf(format string, args ...any) {

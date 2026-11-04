@@ -10,21 +10,35 @@ import (
 	"mymule/internal/ed2k"
 )
 
-// Dir returns the data directory, creating it if needed.
-// Override with the MYMULE_HOME environment variable.
+// Dir returns the base directory: the folder containing the mymule
+// executable (portable mode), or MYMULE_HOME when set. Config, identity,
+// server list, log, and by default temp/ and downloads/ live here.
 func Dir() (string, error) {
 	dir := os.Getenv("MYMULE_HOME")
 	if dir == "" {
-		base, err := os.UserConfigDir()
+		exe, err := os.Executable()
 		if err != nil {
 			return "", err
 		}
-		dir = filepath.Join(base, "mymule")
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		dir = filepath.Dir(exe)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+// LegacyDir is where versions before portable mode kept their data
+// (%AppData%\mymule, ~/.config/mymule...).
+func LegacyDir() string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, "mymule")
 }
 
 // Path returns a file path inside the data directory.

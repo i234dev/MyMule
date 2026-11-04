@@ -11,6 +11,7 @@ import (
 
 	"mymule/internal/api"
 	"mymule/internal/download"
+	"mymule/internal/ed2k"
 	"mymule/internal/share"
 	"mymule/internal/upload"
 )
@@ -29,6 +30,7 @@ func sampleStatus(nFiles int) *api.Status {
 	}
 	for i := 0; i < nFiles; i++ {
 		st.Files = append(st.Files, download.FileStatus{
+			Hash: ed2k.Hash{byte(i), 0x77},
 			Name: fmt.Sprintf("Download number %d with a name that is much too long for narrow terminals.iso", i),
 			Size: 4 << 30, Done: int64(i) << 28, Speed: float64(i * 50000), Sources: 12, Downloading: 3, Queued: 5, BestRank: 14,
 			Finished: i == 0, Paused: i == 1,

@@ -22,6 +22,7 @@ const (
 	keyCtrlC
 	keyCtrlG
 	keyCtrlU
+	keyDelete
 )
 
 type key struct {
@@ -76,6 +77,8 @@ func parseKeys(b []byte) []key {
 				keys = append(keys, key{kind: keyPgUp})
 			case final == '~' && (params == "6"):
 				keys = append(keys, key{kind: keyPgDn})
+			case final == '~' && params == "3":
+				keys = append(keys, key{kind: keyDelete})
 			case final == '~' && (params == "1" || params == "7"):
 				keys = append(keys, key{kind: keyHome})
 			case final == '~' && (params == "4" || params == "8"):

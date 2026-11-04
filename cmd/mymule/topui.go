@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"mymule/internal/api"
+	"mymule/internal/download"
 	"mymule/internal/ed2k"
 )
 
@@ -14,6 +15,7 @@ import (
 //
 //	view    --/ or s-->  input  --Enter-->  results  --Enter--> add downloads
 //	view   <----Esc----  input  <---Esc---  results
+//	view    ----d---->  downloads (p pause/resume, c cancel, x clear)
 //
 // Key handling only changes state and records requests (wantSearch,
 // wantAdd); the top loop runs them in the background and reports back
@@ -25,7 +27,15 @@ const (
 	modeView uiMode = iota
 	modeInput
 	modeResults
+	modeDownloads
 )
+
+// dlAction is a change to a download requested from the downloads mode.
+type dlAction struct {
+	kind string // "pause", "resume", "cancel", "clear"
+	hash string
+	name string
+}
 
 var searchTypes = []string{"", "video", "audio", "iso", "doc", "archive", "program", "image"}
 
@@ -57,9 +67,43 @@ type searchUI struct {
 	msgStyle string
 	quit     bool
 
+	// Downloads mode.
+	files   []download.FileStatus // latest status, refreshed by the loop
+	dlSel   ed2k.Hash             // selected download (by hash: survives refreshes)
+	dlOff   int
+	confirm *dlAction // cancel waiting for y/n
+
 	wantSearch *api.SearchRequest
 	wantAdd    []api.SearchResult
+	wantAction *dlAction
 }
+
+// dlIndex is the position of the selected download, or 0.
+func (u *searchUI) dlIndex() int {
+	for i, f := range u.files {
+		if f.Hash == u.dlSel {
+			return i
+		}
+	}
+	return 0
+}
+
+// setFiles updates the download list, keeping the selection valid.
+func (u *searchUI) setFiles(files []download.FileStatus) {
+	u.files = files
+	if len(files) == 0 {
+		u.dlSel = ed2k.Hash{}
+		return
+	}
+	for _, f := range files {
+		if f.Hash == u.dlSel {
+			return
+		}
+	}
+	u.dlSel = files[min(u.dlOffSafe(), len(files)-1)].Hash
+}
+
+func (u *searchUI) dlOffSafe() int { return max(u.dlOff, 0) }
 
 func newSearchUI() *searchUI {
 	return &searchUI{global: true, selected: map[ed2k.Hash]bool{}, added: map[ed2k.Hash]bool{}}
@@ -87,7 +131,13 @@ func (u *searchUI) handleKey(k key, h int) {
 			if u.query != "" {
 				u.mode = modeResults
 			}
+		case 'd', 'D':
+			u.mode, u.confirm, u.msg = modeDownloads, nil, ""
+			u.setFiles(u.files)
 		}
+
+	case modeDownloads:
+		u.handleDownloadsKey(k, h)
 
 	case modeInput:
 		switch k.kind {
@@ -258,13 +308,19 @@ func (u *searchUI) addDone(items []api.SearchResult, resp api.AddResponse, err e
 
 func (u *searchUI) render(st *api.Status, fetchErr error, w, h int, now time.Time) []string {
 	w, h = max(w, 20), max(h, 5)
+	if u.mode == modeDownloads {
+		return u.renderDownloads(st, w, h, now)
+	}
 	var frame []string
 	if u.mode == modeResults || (u.mode == modeInput && (len(u.results) > 0 || u.searching)) {
 		frame = u.renderResults(st, w, h, now)
 	} else {
 		frame = renderTop(st, fetchErr, w, h, now)
-		frame[len(frame)-1] = fit([]seg{{" /", sBold}, {" search   ", sDim}, {"r", sBold}, {" last results   ", sDim},
-			{"q", sBold}, {" quit   ", sDim}, {"Ctrl+C", sBold}, {" quit", sDim}}, w, false)
+		frame[len(frame)-1] = fit([]seg{{" /", sBold}, {" search   ", sDim}, {"d", sBold}, {" manage downloads   ", sDim},
+			{"r", sBold}, {" last results   ", sDim}, {"q", sBold}, {" quit", sDim}}, w, false)
+		if u.msg != "" && u.mode == modeView {
+			frame[len(frame)-2] = fit([]seg{{" " + u.msg, u.msgStyle}}, w, false)
+		}
 	}
 	if u.mode == modeInput {
 		flags := "type: " + typeLabel(u.typeIdx)
@@ -361,6 +417,27 @@ func (u *searchUI) renderResults(st *api.Status, w, h int, now time.Time) []stri
 type searchBackend interface {
 	search(req api.SearchRequest) ([]api.SearchResult, error)
 	add(items []api.SearchResult) (api.AddResponse, error)
+	// action pauses, resumes, cancels or removes a download, or clears
+	// finished ones; n is the number of downloads cleared.
+	action(a dlAction) (n int, err error)
+}
+
+func (daemonBackend) action(a dlAction) (int, error) {
+	c, err := mustDaemon()
+	if err != nil {
+		return 0, err
+	}
+	switch a.kind {
+	case "pause":
+		_, err = c.Pause(a.hash)
+	case "resume":
+		_, err = c.Resume(a.hash)
+	case "cancel", "remove":
+		_, err = c.Cancel(a.hash)
+	case "clear":
+		return c.Clear()
+	}
+	return 0, err
 }
 
 type daemonBackend struct{}
@@ -387,9 +464,63 @@ func (daemonBackend) add(items []api.SearchResult) (api.AddResponse, error) {
 }
 
 // demoBackend invents results for screenshots; nothing touches the network.
-type demoBackend struct{}
+// Download actions change what the demo shows.
+type demoBackend struct {
+	paused  map[ed2k.Hash]bool
+	removed map[ed2k.Hash]bool
+	cleared bool
+}
 
-func (demoBackend) search(req api.SearchRequest) ([]api.SearchResult, error) {
+func newDemoBackend() *demoBackend {
+	return &demoBackend{paused: map[ed2k.Hash]bool{}, removed: map[ed2k.Hash]bool{}}
+}
+
+func (d *demoBackend) action(a dlAction) (int, error) {
+	time.Sleep(150 * time.Millisecond)
+	h, _ := ed2k.ParseHash(a.hash)
+	switch a.kind {
+	case "pause":
+		d.paused[h] = true
+	case "resume":
+		d.paused[h] = false
+	case "cancel", "remove":
+		d.removed[h] = true
+	case "clear":
+		n := 0
+		for _, df := range demoFiles {
+			if df.finished {
+				n++
+			}
+		}
+		if d.cleared {
+			n = 0
+		}
+		d.cleared = true
+		return n, nil
+	}
+	return 0, nil
+}
+
+// apply reflects demo actions in a demo status.
+func (d *demoBackend) apply(st *api.Status) *api.Status {
+	var files []download.FileStatus
+	for _, f := range st.Files {
+		if d.removed[f.Hash] || (d.cleared && f.Finished) {
+			continue
+		}
+		if p, ok := d.paused[f.Hash]; ok && !f.Finished {
+			f.Paused = p
+			if p {
+				f.Speed = 0
+			}
+		}
+		files = append(files, f)
+	}
+	st.Files = files
+	return st
+}
+
+func (*demoBackend) search(req api.SearchRequest) ([]api.SearchResult, error) {
 	time.Sleep(700 * time.Millisecond)
 	topic := strings.TrimSpace(req.Query)
 	if topic == "" {
@@ -416,11 +547,162 @@ func (demoBackend) search(req api.SearchRequest) ([]api.SearchResult, error) {
 	return out, nil
 }
 
-func (demoBackend) add(items []api.SearchResult) (api.AddResponse, error) {
+func (*demoBackend) add(items []api.SearchResult) (api.AddResponse, error) {
 	time.Sleep(200 * time.Millisecond)
 	var r api.AddResponse
 	for _, it := range items {
 		r.Added = append(r.Added, it.Name)
 	}
 	return r, nil
+}
+
+// ---- downloads mode ----
+
+func (u *searchUI) handleDownloadsKey(k key, h int) {
+	if u.confirm != nil {
+		if k.kind == keyRune && (k.r == 'y' || k.r == 'Y' || k.r == 's' || k.r == 'S') {
+			u.wantAction = u.confirm
+			u.msg, u.msgStyle = "Cancelling "+u.confirm.name+"...", sYellow
+		} else {
+			u.msg, u.msgStyle = "Nothing cancelled.", sDim
+		}
+		u.confirm = nil
+		return
+	}
+	n, page := len(u.files), pageSize(h)
+	i := u.dlIndex()
+	switch k.kind {
+	case keyEsc:
+		u.mode, u.msg = modeView, ""
+		return
+	case keyUp:
+		i--
+	case keyDown:
+		i++
+	case keyPgUp:
+		i -= page
+	case keyPgDn:
+		i += page
+	case keyHome:
+		i = 0
+	case keyEnd:
+		i = n - 1
+	case keyDelete:
+		u.askCancel()
+		return
+	case keyRune:
+		switch k.r {
+		case 'q', 'Q', 'd', 'D':
+			u.mode, u.msg = modeView, ""
+			return
+		case 'p', 'P':
+			if n == 0 {
+				return
+			}
+			f := u.files[i]
+			switch {
+			case f.Finished:
+				u.msg, u.msgStyle = f.Name+" is already finished.", sDim
+			case f.Paused:
+				u.wantAction = &dlAction{kind: "resume", hash: f.Hash.String(), name: f.Name}
+			default:
+				u.wantAction = &dlAction{kind: "pause", hash: f.Hash.String(), name: f.Name}
+			}
+			return
+		case 'c', 'C':
+			u.askCancel()
+			return
+		case 'x', 'X':
+			u.wantAction = &dlAction{kind: "clear"}
+			return
+		}
+	}
+	if n == 0 {
+		return
+	}
+	i = max(0, min(i, n-1))
+	u.dlSel = u.files[i].Hash
+	if i < u.dlOff {
+		u.dlOff = i
+	}
+	if i >= u.dlOff+page {
+		u.dlOff = i - page + 1
+	}
+}
+
+func (u *searchUI) askCancel() {
+	if len(u.files) == 0 {
+		return
+	}
+	f := u.files[u.dlIndex()]
+	u.confirm = &dlAction{kind: "cancel", hash: f.Hash.String(), name: f.Name}
+	if f.Finished {
+		u.confirm.kind = "remove"
+	}
+}
+
+// actionDone reports the result of a download action.
+func (u *searchUI) actionDone(a *dlAction, n int, err error) {
+	if err != nil {
+		u.msg, u.msgStyle = "Failed: "+err.Error(), sRed
+		return
+	}
+	switch a.kind {
+	case "pause":
+		u.msg, u.msgStyle = "Paused "+a.name, sYellow
+	case "resume":
+		u.msg, u.msgStyle = "Resumed "+a.name, sGreen
+	case "cancel":
+		u.msg, u.msgStyle = "Cancelled "+a.name+" (data deleted)", sYellow
+	case "remove":
+		u.msg, u.msgStyle = "Removed "+a.name+" from the list (the file is kept)", sGreen
+	case "clear":
+		u.msg, u.msgStyle = fmt.Sprintf("Removed %d finished downloads from the list", n), sGreen
+	}
+}
+
+func (u *searchUI) renderDownloads(st *api.Status, w, h int, now time.Time) []string {
+	lines := []string{headerLine(st, w, now), ""}
+	add := func(segs ...seg) { lines = append(lines, fit(segs, w, false)) }
+	add(seg{fmt.Sprintf(" DOWNLOADS · manage (%d)", len(u.files)), sBold + sCyan},
+		seg{"   select one and press a key", sDim})
+	add()
+
+	wide, barW := w >= 100, 20
+	if w < 80 {
+		barW = 10
+	}
+	if len(u.files) == 0 {
+		add(seg{"  No downloads. Press Esc, then / to search for something.", sDim})
+	}
+	page := pageSize(h)
+	sel := u.dlIndex()
+	end := min(u.dlOff+page, len(u.files))
+	for i := u.dlOff; i < end; i++ {
+		lines = append(lines, downloadRow(u.files[i], w, barW, wide, i == sel))
+	}
+	if len(u.files) > page {
+		add(seg{fmt.Sprintf("  showing %d-%d of %d", u.dlOff+1, end, len(u.files)), sDim})
+	}
+
+	for len(lines) < h-2 {
+		lines = append(lines, "")
+	}
+	lines = lines[:h-2]
+	if c := u.confirm; c != nil {
+		// The warning and y/n come first; the name gets the room left.
+		head, tail := " Cancel and DELETE the downloaded data? y/n  ", ""
+		if c.kind == "remove" {
+			head, tail = " Remove from the list? y/n  ", "  (the file is kept)"
+		}
+		room := w - utf8.RuneCountInString(head+tail) - 2
+		name := "\"" + padRight(c.name, max(min(utf8.RuneCountInString(c.name), room), 4)) + "\""
+		lines = append(lines, fit([]seg{{head, sBold + sRed}, {name, sBold}, {tail, sDim}}, w, false))
+	} else {
+		lines = append(lines, fit([]seg{{" " + u.msg, u.msgStyle}}, w, false))
+	}
+	lines = append(lines, fit([]seg{{" ↑↓", sBold}, {" select  ", sDim}, {"p", sBold}, {" pause/resume  ", sDim},
+		{"c", sBold}, {"/", sDim}, {"Del", sBold}, {" cancel  ", sDim}, {"x", sBold}, {" clear finished  ", sDim},
+		{"Esc", sBold}, {" back", sDim}}, w, false))
+	return lines
 }

@@ -169,11 +169,11 @@ func TestRenderSearchScreens(t *testing.T) {
 }
 
 func TestDemoSearch(t *testing.T) {
-	res, err := demoBackend{}.search(api.SearchRequest{Query: "Linux"})
+	res, err := newDemoBackend().search(api.SearchRequest{Query: "Linux"})
 	if err != nil || len(res) < 20 || !strings.Contains(res[0].Name, "Example Linux") {
 		t.Fatalf("demo results: %d %v", len(res), err)
 	}
-	r, _ := demoBackend{}.add(res[:2])
+	r, _ := newDemoBackend().add(res[:2])
 	if len(r.Added) != 2 {
 		t.Fatalf("demo add: %+v", r)
 	}

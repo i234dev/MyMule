@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"mymule/internal/api"
+	"mymule/internal/download"
 )
 
 // ANSI styles.
@@ -171,6 +172,53 @@ func headerLine(st *api.Status, w int, now time.Time) string {
 	return fit([]seg{{header, sReverse + sBold}}, w, true)
 }
 
+// downloadRow renders one download: bar, percentage, size, speed, state,
+// ETA and name. A selected row gets a pointer and reverse video.
+func downloadRow(f download.FileStatus, w, barW int, wide, selected bool) string {
+	frac := float64(f.Done) / float64(max(f.Size, 1))
+	style := sGreen
+	state := fmt.Sprintf("src %d ↓%d q%d", f.Sources, f.Downloading, f.Queued)
+	if f.BestRank > 0 {
+		state += fmt.Sprintf(" #%d", f.BestRank)
+	}
+	eta := ""
+	switch {
+	case f.Finished:
+		state = "done"
+	case f.Paused:
+		state, style = "paused", sYellow
+	case f.Speed > 512:
+		eta = fmtETA(time.Duration(float64(f.Size-f.Done)/f.Speed) * time.Second)
+	}
+	pointer, row := "  ", ""
+	if selected {
+		pointer, row = "▶ ", sReverse
+	}
+	segs := []seg{{pointer, row + sCyan}}
+	for _, b := range bar(frac, barW, style) {
+		segs = append(segs, seg{b.text, row + b.style})
+	}
+	segs = append(segs, seg{padLeft(fmt.Sprintf("%.1f%%", 100*frac), 7) + " ", row + sBold})
+	if wide {
+		segs = append(segs, seg{padLeft(humanSize(uint64(f.Size)), 10) + " ", row + sDim})
+	}
+	spStyle := row
+	if f.Speed > 0 {
+		spStyle += sGreen
+	}
+	segs = append(segs, seg{padLeft(speed(f.Speed), 12) + "  ", spStyle})
+	segs = append(segs, seg{padRight(state, 18) + " ", row})
+	if wide {
+		segs = append(segs, seg{padLeft(eta, 7) + "  ", row + sDim})
+	}
+	used := 0
+	for _, s := range segs {
+		used += utf8.RuneCountInString(s.text)
+	}
+	segs = append(segs, seg{padRight(f.Name, max(w-used, 1)), row})
+	return fit(segs, w, selected)
+}
+
 // renderBody draws downloads, uploads and shared files below the header.
 func renderBody(st *api.Status, lines []string, w, h int) []string {
 	add := func(segs ...seg) { lines = append(lines, fit(segs, w, false)) }
@@ -196,42 +244,7 @@ func renderBody(st *api.Status, lines []string, w, h int) []string {
 		dlLines = append(dlLines, fit([]seg{{`  No downloads. Add one with: mymule add "ed2k://|file|...|/"`, sDim}}, w, false))
 	}
 	for _, f := range st.Files {
-		frac := float64(f.Done) / float64(max(f.Size, 1))
-		style := sGreen
-		state := fmt.Sprintf("src %d ↓%d q%d", f.Sources, f.Downloading, f.Queued)
-		if f.BestRank > 0 {
-			state += fmt.Sprintf(" #%d", f.BestRank)
-		}
-		eta := ""
-		switch {
-		case f.Finished:
-			state = "done"
-		case f.Paused:
-			state, style = "paused", sYellow
-		case f.Speed > 512:
-			eta = fmtETA(time.Duration(float64(f.Size-f.Done)/f.Speed) * time.Second)
-		}
-		segs := []seg{{"  ", ""}}
-		segs = append(segs, bar(frac, barW, style)...)
-		segs = append(segs, seg{padLeft(fmt.Sprintf("%.1f%%", 100*frac), 7) + " ", sBold})
-		if wide {
-			segs = append(segs, seg{padLeft(humanSize(uint64(f.Size)), 10) + " ", sDim})
-		}
-		spStyle := ""
-		if f.Speed > 0 {
-			spStyle = sGreen
-		}
-		segs = append(segs, seg{padLeft(speed(f.Speed), 12) + "  ", spStyle})
-		segs = append(segs, seg{padRight(state, 18) + " ", ""})
-		if wide {
-			segs = append(segs, seg{padLeft(eta, 7) + "  ", sDim})
-		}
-		used := 0
-		for _, s := range segs {
-			used += utf8.RuneCountInString(s.text)
-		}
-		segs = append(segs, seg{padRight(f.Name, max(w-used, 1)), ""})
-		dlLines = append(dlLines, fit(segs, w, false))
+		dlLines = append(dlLines, downloadRow(f, w, barW, wide, false))
 	}
 
 	// Uploads and shared files, built first so downloads get what's left.
@@ -373,8 +386,9 @@ func cmdTop(args []string) error {
 	}()
 
 	var backend searchBackend = daemonBackend{}
+	demoState := newDemoBackend()
 	if *demo {
-		backend = demoBackend{}
+		backend = demoState
 	}
 	type searchResult struct {
 		id  int
@@ -386,8 +400,14 @@ func cmdTop(args []string) error {
 		resp  api.AddResponse
 		err   error
 	}
+	type actionResult struct {
+		a   *dlAction
+		n   int
+		err error
+	}
 	searchCh := make(chan searchResult, 4)
 	addCh := make(chan addResult, 4)
+	actionCh := make(chan actionResult, 4)
 	ui := newSearchUI()
 
 	var (
@@ -413,6 +433,13 @@ func cmdTop(args []string) error {
 				searchCh <- searchResult{id, res, err}
 			}()
 		}
+		if a := ui.wantAction; a != nil {
+			ui.wantAction = nil
+			go func() {
+				n, err := backend.action(*a)
+				actionCh <- actionResult{a, n, err}
+			}()
+		}
 		if items := ui.wantAdd; items != nil {
 			ui.wantAdd = nil
 			go func() {
@@ -423,7 +450,7 @@ func cmdTop(args []string) error {
 
 		if time.Since(fetched) >= *interval && *demo {
 			fetched = time.Now()
-			st, err = demoStatus(time.Since(demoStart)), nil
+			st, err = demoState.apply(demoStatus(time.Since(demoStart))), nil
 			resized = true
 		} else if time.Since(fetched) >= *interval {
 			fetched = time.Now()
@@ -445,6 +472,9 @@ func cmdTop(args []string) error {
 		}
 		if resized {
 			lastW, lastH = w, h
+			if st != nil {
+				ui.setFiles(st.Files)
+			}
 			frame := ui.render(st, err, w, h, time.Now())
 			var b strings.Builder
 			b.WriteString("\x1b[H")
@@ -472,6 +502,10 @@ func cmdTop(args []string) error {
 			lastW = -1 // redraw now
 		case r := <-searchCh:
 			ui.searchDone(r.id, r.res, r.err)
+			lastW = -1
+		case r := <-actionCh:
+			ui.actionDone(r.a, r.n, r.err)
+			fetched = time.Time{}
 			lastW = -1
 		case r := <-addCh:
 			ui.addDone(r.items, r.resp, r.err)

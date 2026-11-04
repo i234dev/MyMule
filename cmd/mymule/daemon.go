@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"mymule/internal/api"
+	"mymule/internal/arr"
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
@@ -173,7 +174,7 @@ func cmdDaemon(args []string) error {
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
-	if stopAPI := startPublicAPI(m.Manager); stopAPI != nil {
+	if stopAPI := startPublicAPI(m.Manager, *ef.out); stopAPI != nil {
 		defer stopAPI()
 	}
 
@@ -451,17 +452,22 @@ func limitDescription() string {
 	return fmt.Sprintf("%d KB/s", settings.UploadLimit)
 }
 
-// publicRoutes builds the handler served on api_listen. Other adapters
-// (e.g. for Radarr/Sonarr) are mounted next to the REST API.
-func publicRoutes(m *download.Manager) http.Handler {
+// publicRoutes builds the handler served on api_listen: the REST API for
+// scripts, plus the Torznab indexer and qBittorrent-compatible API used
+// by Radarr, Sonarr, Lidarr, Readarr and Prowlarr.
+func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", api.NewREST(m, settings.APIKey, version))
+	rest := api.NewREST(m, settings.APIKey, version)
+	mux.Handle("/api/v1/", rest)
+	store, _ := config.Path("arr.json")
+	arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
+		StorePath: store, Log: logf}).Routes(mux)
 	return mux
 }
 
 // startPublicAPI serves the HTTP API on api_listen, if configured. It
 // returns a function that shuts it down, or nil.
-func startPublicAPI(m *download.Manager) func() {
+func startPublicAPI(m *download.Manager, downloadDir string) func() {
 	if settings.APIListen == "" {
 		logf("HTTP API disabled (api_listen is empty)")
 		return nil
@@ -471,10 +477,10 @@ func startPublicAPI(m *download.Manager) func() {
 		logf("HTTP API disabled: cannot listen on %s: %v", settings.APIListen, err)
 		return nil
 	}
-	hs := &http.Server{Handler: publicRoutes(m), ReadHeaderTimeout: 10 * time.Second}
+	hs := &http.Server{Handler: publicRoutes(m, downloadDir), ReadHeaderTimeout: 10 * time.Second}
 	go hs.Serve(ln)
 	// The key is never logged: logs get pasted into bug reports.
-	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md)", ln.Addr())
+	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

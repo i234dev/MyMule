@@ -21,7 +21,10 @@ FreeBSD, and ARM boards or NAS devices.
 - HighID support (listen port) and server callbacks to reach firewalled peers
 - Runs as a background daemon, controlled with short commands
   (`status`, `add`, `pause`, `cancel`...) over a local, token-protected API
-- `mymule top`: live full-screen view of downloads, uploads and sharing
+- `mymule top`: live full-screen view; search, pick what to download and
+  pause, resume or cancel downloads without leaving it
+- HTTP API for scripts, and Radarr/Sonarr/Lidarr/Readarr/Prowlarr support
+  (Torznab indexer + qBittorrent-compatible client)
 - Portable: settings and data live next to the executable
 
 Not implemented yet: Kad, protocol obfuscation, credits.
@@ -95,6 +98,14 @@ curl -H "X-Api-Key: YOUR_API_KEY" "http://127.0.0.1:4711/api/v1/search?q=example
 
 See [docs/API.md](docs/API.md) for every endpoint and examples in curl,
 PHP and Python.
+
+## Radarr, Sonarr, Lidarr, Readarr and Prowlarr
+
+MyMule can act as a **Torznab indexer** (the apps search the eD2K network
+through it) and as a **qBittorrent-compatible download client** (the apps
+send it what they want and follow the progress until they import the
+file). Both use the same address and `api_key` as the HTTP API. See
+[docs/ARR.md](docs/ARR.md) for the step-by-step setup.
 
 ## Running on a server or NAS
 

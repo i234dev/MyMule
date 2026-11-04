@@ -16,9 +16,16 @@ func TestSettingsCreatedWithDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.Port != 4662 || s.Nick != "MyMule" || s.MaxConns != 40 || s.Server != "" ||
-		!s.Sharing || !s.ShareDownloads || s.UploadSlots != 3 || s.UploadLimit != 100 || s.SharedDirs != nil {
+		!s.Sharing || !s.ShareDownloads || s.UploadSlots != 3 || s.UploadLimit != 100 || s.SharedDirs != nil ||
+		s.APIListen != "127.0.0.1:4711" || len(s.APIKey) != 32 {
 		t.Fatalf("defaults: %+v", s)
 	}
+	// Every installation gets its own random key.
+	t.Setenv("MYMULE_HOME", t.TempDir())
+	if other, _ := LoadSettings(); other.APIKey == s.APIKey {
+		t.Fatal("two installations got the same API key")
+	}
+	t.Setenv("MYMULE_HOME", home)
 	if s.TempDir != filepath.Join(home, "temp") || s.DownloadDir != filepath.Join(home, "downloads") {
 		t.Fatalf("dirs: %+v", s)
 	}
@@ -39,9 +46,9 @@ func TestSettingsParse(t *testing.T) {
 	abs := filepath.Join(t.TempDir(), "done")
 	lines := []string{
 		"# comment",
-		"port = 4650",
-		"server = 176.123.5.89:4725",
-		`nick = "Sergio"`,
+		"port = 12345",
+		"server = 192.0.2.10:4661",
+		`nick = "tester"`,
 		"temp_dir = tmp",
 		"download_dir = " + abs,
 		"max_conns = 10",
@@ -50,16 +57,18 @@ func TestSettingsParse(t *testing.T) {
 		"shared_dirs = isos; " + abs,
 		"upload_slots = 5",
 		"upload_limit = 0",
+		"api_listen = 0.0.0.0:8080",
+		"api_key = example-key-0123456789",
 	}
 	os.WriteFile(filepath.Join(home, SettingsFile), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	s, err := LoadSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Settings{Port: 4650, Server: "176.123.5.89:4725", Nick: "Sergio",
+	want := Settings{Port: 12345, Server: "192.0.2.10:4661", Nick: "tester",
 		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10,
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
-		UploadSlots: 5, UploadLimit: 0}
+		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789"}
 	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("got %+v\nwant %+v", s, want)
 	}
@@ -67,7 +76,8 @@ func TestSettingsParse(t *testing.T) {
 
 func TestSettingsErrors(t *testing.T) {
 	for _, bad := range []string{"port = 99999", "max_conns = 0", "portt = 1", "just text",
-		"share_downloads = maybe", "upload_slots = 0", "upload_limit = -1"} {
+		"share_downloads = maybe", "upload_slots = 0", "upload_limit = -1",
+		"api_listen = 4711", "api_key = short"} {
 		var s Settings
 		if _, err := parseSettings(bad, &s); err == nil {
 			t.Errorf("%q accepted", bad)
@@ -80,21 +90,37 @@ func TestSettingsUpgrade(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("MYMULE_HOME", home)
 	p := filepath.Join(home, SettingsFile)
-	old := "# mine\nport = 4650\n"
+	old := "# mine\nport = 12345\n"
 	os.WriteFile(p, []byte(old), 0o644)
 	s, err := LoadSettings()
-	if err != nil || s.Port != 4650 || s.UploadLimit != 100 {
+	if err != nil || s.Port != 12345 || s.UploadLimit != 100 || len(s.APIKey) != 32 {
 		t.Fatalf("%+v %v", s, err)
 	}
 	data, _ := os.ReadFile(p)
 	text := string(data)
 	if !strings.HasPrefix(text, old) || !strings.Contains(text, "upload_limit = 100") ||
-		strings.Count(text, "\nport = ") != 1 {
+		!strings.Contains(text, "api_key = "+s.APIKey) || strings.Count(text, "\nport = ") != 1 {
 		t.Fatalf("upgraded file:\n%s", text)
 	}
-	LoadSettings()
-	if again, _ := os.ReadFile(p); string(again) != text {
-		t.Fatal("settings appended twice")
+	s2, _ := LoadSettings()
+	if again, _ := os.ReadFile(p); string(again) != text || s2.APIKey != s.APIKey {
+		t.Fatal("settings appended twice or the key changed")
+	}
+}
+
+// An empty api_key line is filled with a new random key, in place.
+func TestEmptyAPIKeyIsGenerated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	p := filepath.Join(home, SettingsFile)
+	os.WriteFile(p, []byte("api_key =\n"), 0o644)
+	s, err := LoadSettings()
+	if err != nil || len(s.APIKey) != 32 {
+		t.Fatalf("%+v %v", s, err)
+	}
+	data, _ := os.ReadFile(p)
+	if !strings.HasPrefix(string(data), "api_key = "+s.APIKey+"\n") {
+		t.Fatalf("key not written in place:\n%s", data)
 	}
 }
 

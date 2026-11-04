@@ -175,21 +175,26 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		fail(w, errCode(err), err)
 		return
 	}
+	reply(w, SearchResponse{Results: toSearchResults(res)})
+}
+
+// toSearchResults merges results by hash and sorts by sources.
+func toSearchResults(res []server.Result) []SearchResult {
 	seen := map[ed2k.Hash]int{}
-	out := SearchResponse{Results: []SearchResult{}}
+	out := []SearchResult{}
 	for _, x := range res {
 		if i, ok := seen[x.Hash]; ok {
-			out.Results[i].Sources = max(out.Results[i].Sources, x.Sources)
+			out[i].Sources = max(out[i].Sources, x.Sources)
 			continue
 		}
-		seen[x.Hash] = len(out.Results)
-		out.Results = append(out.Results, SearchResult{
+		seen[x.Hash] = len(out)
+		out = append(out, SearchResult{
 			Hash: x.Hash, Name: x.Name, Size: x.Size, Type: x.Type,
 			Sources: x.Sources, Complete: x.CompleteSources, Link: x.Link().String(),
 		})
 	}
-	sort.SliceStable(out.Results, func(i, j int) bool { return out.Results[i].Sources > out.Results[j].Sources })
-	reply(w, out)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Sources > out[j].Sources })
+	return out
 }
 
 func (s *Server) pause(paused bool) http.HandlerFunc {

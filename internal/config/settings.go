@@ -2,9 +2,13 @@ package config
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -26,6 +30,9 @@ type Settings struct {
 	ShareDownloads bool     // share DownloadDir too
 	UploadSlots    int
 	UploadLimit    int // KB/s, 0 = unlimited
+
+	APIListen string // host:port of the HTTP API; empty disables it
+	APIKey    string // required by every API request
 }
 
 // Defaults returns the built-in settings (directories relative).
@@ -40,7 +47,15 @@ func Defaults() Settings {
 		ShareDownloads: true,
 		UploadSlots:    3,
 		UploadLimit:    100,
+		APIListen:      "127.0.0.1:4711",
 	}
+}
+
+// NewAPIKey returns a random key for the HTTP API.
+func NewAPIKey() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // setting describes one key of mymule.conf: its comment, how to render
@@ -70,6 +85,10 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strconv.Itoa(s.UploadSlots) }},
 	{"upload_limit", "Upload speed limit in KB/s (0 = no limit). Using all your upload\nbandwidth also slows down your downloads.",
 		func(s Settings) string { return strconv.Itoa(s.UploadLimit) }},
+	{"api_listen", "HTTP API for scripts and for apps like Radarr, Sonarr and Prowlarr\n(see docs/API.md). 127.0.0.1:4711 = only this computer.\n0.0.0.0:4711 = every device on your network: use it only on a trusted\nnetwork and never forward this port in your router. Empty = disabled.",
+		func(s Settings) string { return s.APIListen }},
+	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
+		func(s Settings) string { return s.APIKey }},
 }
 
 func renderSetting(st setting, s Settings) string {
@@ -104,6 +123,7 @@ func LoadSettings() (Settings, error) {
 	data, err := os.ReadFile(p)
 	switch {
 	case os.IsNotExist(err):
+		s.APIKey = NewAPIKey()
 		var b strings.Builder
 		b.WriteString(settingsHeader)
 		for _, st := range settingsDoc {
@@ -119,18 +139,30 @@ func LoadSettings() (Settings, error) {
 		if err != nil {
 			return s, fmt.Errorf("%s: %w", p, err)
 		}
+		text := string(data)
+		changed := false
+		if s.APIKey == "" {
+			s.APIKey = NewAPIKey()
+			if present["api_key"] {
+				// Present but empty: fill it in place.
+				text = emptyKeyLine.ReplaceAllString(text, "${1}api_key = "+s.APIKey)
+				changed = true
+			}
+		}
 		var add strings.Builder
 		for _, st := range settingsDoc {
 			if !present[st.key] {
-				add.WriteString("\n" + renderSetting(st, Defaults()))
+				add.WriteString("\n" + renderSetting(st, s))
 			}
 		}
 		if add.Len() > 0 {
-			text := string(data)
 			if !strings.HasSuffix(text, "\n") {
 				text += "\n"
 			}
 			text += "\n# --- settings added by a newer MyMule version ---\n" + add.String()
+			changed = true
+		}
+		if changed {
 			os.WriteFile(p, []byte(text), 0o644) // best effort
 		}
 	}
@@ -141,6 +173,8 @@ func LoadSettings() (Settings, error) {
 	}
 	return s, nil
 }
+
+var emptyKeyLine = regexp.MustCompile(`(?m)^(\s*)api_key\s*=\s*"?"?\s*$`)
 
 func absUnder(base, p string) string {
 	if filepath.IsAbs(p) {
@@ -222,6 +256,18 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: upload_slots must be between 1 and 50", line)
 			}
 			s.UploadSlots = n
+		case "api_listen":
+			if val != "" {
+				if _, port, err := net.SplitHostPort(val); err != nil || port == "" {
+					return present, fmt.Errorf("line %d: api_listen must be host:port (e.g. 127.0.0.1:4711) or empty", line)
+				}
+			}
+			s.APIListen = val
+		case "api_key":
+			if val != "" && len(val) < 12 {
+				return present, fmt.Errorf("line %d: api_key is too short (use at least 12 characters)", line)
+			}
+			s.APIKey = val
 		case "upload_limit":
 			n, err := strconv.Atoi(val)
 			if err != nil || n < 0 {

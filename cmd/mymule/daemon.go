@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -172,6 +173,9 @@ func cmdDaemon(args []string) error {
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
+	if stopAPI := startPublicAPI(m.Manager); stopAPI != nil {
+		defer stopAPI()
+	}
 
 	err = m.Run(ctx)
 	logf("daemon stopped; progress saved")
@@ -445,4 +449,35 @@ func limitDescription() string {
 		return "none"
 	}
 	return fmt.Sprintf("%d KB/s", settings.UploadLimit)
+}
+
+// publicRoutes builds the handler served on api_listen. Other adapters
+// (e.g. for Radarr/Sonarr) are mounted next to the REST API.
+func publicRoutes(m *download.Manager) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/api/v1/", api.NewREST(m, settings.APIKey, version))
+	return mux
+}
+
+// startPublicAPI serves the HTTP API on api_listen, if configured. It
+// returns a function that shuts it down, or nil.
+func startPublicAPI(m *download.Manager) func() {
+	if settings.APIListen == "" {
+		logf("HTTP API disabled (api_listen is empty)")
+		return nil
+	}
+	ln, err := net.Listen("tcp", settings.APIListen)
+	if err != nil {
+		logf("HTTP API disabled: cannot listen on %s: %v", settings.APIListen, err)
+		return nil
+	}
+	hs := &http.Server{Handler: publicRoutes(m), ReadHeaderTimeout: 10 * time.Second}
+	go hs.Serve(ln)
+	// The key is never logged: logs get pasted into bug reports.
+	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md)", ln.Addr())
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		hs.Shutdown(ctx)
+	}
 }

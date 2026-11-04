@@ -60,6 +60,8 @@ share_downloads = true # share download_dir (partial downloads: verified parts o
 shared_dirs =          # more folders to share, separated by ';'
 upload_slots = 3       # peers served at the same time; the rest queue
 upload_limit = 100     # KB/s, 0 = no limit
+api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
+api_key = (random)      # generated on first run, required by the API
 ```
 
 Settings added in newer versions are appended to an existing file, with
@@ -79,6 +81,20 @@ so forwarding the TCP port (`port` in the config) to your machine gets you
 far more sources. `mymule status` shows whether you have HighID or LowID.
 If you have a listen port configured but get LowID, MyMule tries other
 servers, since some servers never test the port.
+
+## HTTP API for scripts
+
+The daemon serves a JSON API (search, add, pause, resume, cancel, status)
+for PHP, Python, shell scripts, cron jobs or home automation. It listens
+on `127.0.0.1:4711` by default and every request needs the `api_key` from
+`mymule.conf`:
+
+```sh
+curl -H "X-Api-Key: YOUR_API_KEY" "http://127.0.0.1:4711/api/v1/search?q=example+distro"
+```
+
+See [docs/API.md](docs/API.md) for every endpoint and examples in curl,
+PHP and Python.
 
 ## Running on a server or NAS
 

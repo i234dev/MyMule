@@ -4,6 +4,10 @@ A command-line client for the eD2K network (the eMule network), written in Go.
 One static binary, no dependencies, runs anywhere: Windows, Linux, macOS,
 FreeBSD, and ARM boards or NAS devices.
 
+![mymule top: live view of downloads, uploads and shared files](docs/top-demo.png)
+
+<sub>`mymule top` with demo data (`mymule top -demo`).</sub>
+
 ## Features
 
 - Search on the connected server, or on every known server at once

@@ -69,6 +69,23 @@ func TestRenderTopFitsTerminal(t *testing.T) {
 	}
 }
 
+func TestRenderTopDemo(t *testing.T) {
+	for _, at := range []time.Duration{0, 30 * time.Second, 10 * time.Minute, 5 * time.Hour} {
+		frame := renderTop(demoStatus(at), nil, 120, 30, time.Now())
+		all := visible(strings.Join(frame, "\n"))
+		for _, want := range []string{"Demo Server", "HighID", "Example Linux Distro", "demo-peer-", "UPLOADS", "SHARED"} {
+			if !strings.Contains(all, want) {
+				t.Fatalf("at %v: missing %q:\n%s", at, want, all)
+			}
+		}
+		for _, l := range frame {
+			if utf8.RuneCountInString(visible(l)) > 120 {
+				t.Fatalf("line too wide: %q", visible(l))
+			}
+		}
+	}
+}
+
 func TestRenderTopDaemonDown(t *testing.T) {
 	frame := renderTop(nil, errors.New("the daemon is not running"), 80, 24, time.Now())
 	all := visible(strings.Join(frame, "\n"))

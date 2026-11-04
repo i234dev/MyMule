@@ -24,6 +24,7 @@ const (
 	sYellow  = "\x1b[33m"
 	sCyan    = "\x1b[36m"
 	sRed     = "\x1b[31m"
+	sGray    = "\x1b[90m" // bright black: visible but discreet
 )
 
 // seg is a piece of text with a style. Lines are built from segments so
@@ -97,9 +98,12 @@ func padLeft(s string, n int) string {
 func bar(frac float64, width int, style string) []seg {
 	frac = max(0, min(1, frac))
 	full := int(frac*float64(width) + 0.5)
+	// A heavy horizontal line instead of full blocks: block glyphs fill
+	// the whole cell height in many fonts, so bars on consecutive rows
+	// merge into one shape.
 	return []seg{
-		{strings.Repeat("█", full), style},
-		{strings.Repeat("░", width-full), sDim},
+		{strings.Repeat("━", full), style},
+		{strings.Repeat("━", width-full), sGray},
 	}
 }
 
@@ -302,10 +306,16 @@ func cmdTop(args []string) error {
 	fs := flag.NewFlagSet("top", flag.ExitOnError)
 	interval := fs.Duration("i", time.Second, "refresh interval")
 	once := fs.Bool("once", false, "print a single frame and exit")
+	demo := fs.Bool("demo", false, "show fake demo data (for screenshots); needs no daemon")
 	fs.Parse(args)
+	demoStart := time.Now()
 
 	if *once {
 		w, h := termSize()
+		if *demo {
+			fmt.Println(strings.Join(renderTop(demoStatus(30*time.Second), nil, w, h, time.Now()), "\n"))
+			return nil
+		}
 		c, err := daemonClient()
 		var st *api.Status
 		if err == nil {
@@ -361,7 +371,11 @@ func cmdTop(args []string) error {
 	for {
 		w, h := termSize()
 		resized := w != lastW || h != lastH
-		if time.Since(fetched) >= *interval {
+		if time.Since(fetched) >= *interval && *demo {
+			fetched = time.Now()
+			st, err = demoStatus(time.Since(demoStart)), nil
+			resized = true
+		} else if time.Since(fetched) >= *interval {
 			fetched = time.Now()
 			if client == nil {
 				client, err = daemonClient()

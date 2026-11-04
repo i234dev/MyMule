@@ -50,9 +50,10 @@ type UDP struct {
 	nextID   int
 }
 
-// ListenUDP opens the UDP socket on a random local port.
-func ListenUDP() (*UDP, error) {
-	c, err := net.ListenUDP("udp4", &net.UDPAddr{})
+// ListenUDP opens the UDP socket on a random local port, on host (empty
+// means all interfaces).
+func ListenUDP(host string) (*UDP, error) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP(host)})
 	if err != nil {
 		return nil, err
 	}

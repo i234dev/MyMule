@@ -28,9 +28,12 @@ const (
 
 // Config configures a download Manager.
 type Config struct {
-	UserHash    ed2k.Hash
-	Nick        string
-	Port        uint16 // TCP listen port for incoming peer connections; 0 = none
+	UserHash ed2k.Hash
+	Nick     string
+	Port     uint16 // TCP listen port for incoming peer connections; 0 = none
+	// ListenHost restricts the listen sockets to one address (tests use
+	// 127.0.0.1); empty means all interfaces, which peers need.
+	ListenHost  string
 	TempDir     string // where .part files live (needed by AddLink)
 	IncomingDir string
 	StayAlive   bool // keep running when every download is finished (daemon mode)
@@ -160,7 +163,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	m.ctx = ctx
 
 	if m.cfg.Port != 0 {
-		ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(m.cfg.Port)))
+		ln, err := net.Listen("tcp", net.JoinHostPort(m.cfg.ListenHost, strconv.Itoa(int(m.cfg.Port))))
 		if err != nil {
 			m.cfg.Log("cannot listen on port %d (%v); incoming connections disabled", m.cfg.Port, err)
 		} else {
@@ -175,7 +178,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	go m.serverLoop(ctx)
 
 	if m.cfg.Servers != nil {
-		if u, err := server.ListenUDP(); err != nil {
+		if u, err := server.ListenUDP(m.cfg.ListenHost); err != nil {
 			m.cfg.Log("UDP disabled: %v", err)
 		} else {
 			m.udp = u

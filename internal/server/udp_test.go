@@ -68,7 +68,7 @@ func TestUDPSourcesAndSearch(t *testing.T) {
 	srvConn, info := fakeUDPServer(t)
 	defer srvConn.Close()
 
-	u, err := ListenUDP()
+	u, err := ListenUDP("127.0.0.1") // loopback only: no firewall prompt
 	if err != nil {
 		t.Fatal(err)
 	}

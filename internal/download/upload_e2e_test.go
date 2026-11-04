@@ -58,7 +58,7 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 		Dial: func(ip net.IP, port uint16) { a.DialForUpload(ip, port) },
 	})
 	a = NewManager(Config{
-		UserHash: ed2k.Hash{0xA}, Nick: "uploader", Port: portA, StayAlive: true,
+		UserHash: ed2k.Hash{0xA}, Nick: "uploader", Port: portA, ListenHost: "127.0.0.1", StayAlive: true,
 		TempDir: t.TempDir(), IncomingDir: t.TempDir(),
 		Connect: noServer, Library: lib, Upload: up, Debug: t.Logf,
 	})
@@ -69,7 +69,7 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 	incoming := t.TempDir()
 	var donePath string
 	b := NewManager(Config{
-		UserHash: ed2k.Hash{0xB}, Nick: "downloader", Port: freePort(t),
+		UserHash: ed2k.Hash{0xB}, Nick: "downloader", Port: freePort(t), ListenHost: "127.0.0.1",
 		TempDir: t.TempDir(), IncomingDir: incoming, Connect: noServer, Debug: t.Logf,
 		OnComplete: func(name, path string) { donePath = path },
 	})

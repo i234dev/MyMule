@@ -10,7 +10,10 @@ import (
 	"mymule/internal/config"
 )
 
-const version = "0.4.0-dev"
+// version is overridden at build time by the release pipeline:
+//
+//	go build -ldflags "-X main.version=v1.2.3" ./cmd/mymule
+var version = "0.4.0-dev"
 
 const usage = `mymule - eD2K network client
 
@@ -141,6 +144,9 @@ func run() {
 		err = cmdServers(args)
 	case "version", "-v", "--version":
 		fmt.Println("mymule", version)
+		fmt.Println("Copyright (C) 2026 i234dev. License GPLv3+: GNU GPL version 3 or later.")
+		fmt.Println("This is free software: you are free to change and redistribute it.")
+		fmt.Println("There is NO WARRANTY, to the extent permitted by law.")
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:

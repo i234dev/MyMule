@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,9 @@ type Config struct {
 	Nick     string
 	Port     uint16 // our TCP listen port (advertised); 0 means none
 	Log      func(format string, args ...any)
+	// OnCallback is invoked when a LowID peer asks (through the server)
+	// that we connect to it. Only HighID clients receive these.
+	OnCallback func(ip net.IP, port uint16)
 }
 
 // Status is the server's view of us after login.
@@ -52,7 +56,7 @@ type Conn struct {
 	mu      sync.Mutex
 	status  Status
 	lastMsg string // last server message, used to explain login failures
-	waiters map[byte][]chan *proto.Packet
+	waiters []*waiter
 
 	loggedIn chan struct{}
 	closed   chan struct{}
@@ -78,7 +82,6 @@ func Dial(ctx context.Context, info Info, cfg Config) (*Conn, error) {
 		cfg:      cfg,
 		info:     info,
 		conn:     nc,
-		waiters:  map[byte][]chan *proto.Packet{},
 		loggedIn: make(chan struct{}),
 		closed:   make(chan struct{}),
 	}
@@ -231,6 +234,13 @@ func (c *Conn) handle(p *proto.Packet) {
 	case proto.OpReject:
 		c.cfg.Log("server rejected our last command")
 		c.deliver(p)
+	case proto.OpCallbackRequested:
+		ip, port := IPFromU32(r.U32()), r.U16()
+		if r.Err() == nil && c.cfg.OnCallback != nil {
+			go c.cfg.OnCallback(ip, port)
+		}
+	case proto.OpCallbackFail:
+		c.cfg.Log("server: callback request failed")
 	default:
 		if !c.deliver(p) {
 			c.cfg.Log("unhandled server opcode 0x%02X (%d bytes)", p.Opcode, len(p.Payload))
@@ -238,42 +248,54 @@ func (c *Conn) handle(p *proto.Packet) {
 	}
 }
 
+// waiter is a pending request waiting for a reply packet.
+type waiter struct {
+	ops   []byte
+	match func(*proto.Packet) bool // optional extra filter (e.g. by file hash)
+	ch    chan *proto.Packet
+}
+
+func (w *waiter) accepts(p *proto.Packet) bool {
+	for _, op := range w.ops {
+		if op == p.Opcode {
+			return w.match == nil || w.match(p)
+		}
+	}
+	return false
+}
+
+// deliver hands p to the oldest waiter that accepts it.
 func (c *Conn) deliver(p *proto.Packet) bool {
 	c.mu.Lock()
-	q := c.waiters[p.Opcode]
-	if len(q) == 0 {
-		c.mu.Unlock()
+	var w *waiter
+	for i, cand := range c.waiters {
+		if cand.accepts(p) {
+			w = cand
+			c.waiters = append(c.waiters[:i:i], c.waiters[i+1:]...)
+			break
+		}
+	}
+	c.mu.Unlock()
+	if w == nil {
 		return false
 	}
-	ch := q[0]
-	c.waiters[p.Opcode] = q[1:]
-	c.mu.Unlock()
-	// Non-blocking: a waiter registered for several opcodes only takes the
-	// first reply, and the read loop must never stall.
-	select {
-	case ch <- p:
-	default:
-	}
+	w.ch <- p // buffered(1) and removed from the list: never blocks
 	return true
 }
 
-// request sends a packet and waits for a reply with one of the given opcodes.
-func (c *Conn) request(ctx context.Context, opcode byte, payload []byte, replies ...byte) (*proto.Packet, error) {
-	ch := make(chan *proto.Packet, 1)
+// request sends a packet and waits for a reply with one of the given
+// opcodes (and accepted by match, if non-nil).
+func (c *Conn) request(ctx context.Context, opcode byte, payload []byte, match func(*proto.Packet) bool, replies ...byte) (*proto.Packet, error) {
+	w := &waiter{ops: replies, match: match, ch: make(chan *proto.Packet, 1)}
 	c.mu.Lock()
-	for _, op := range replies {
-		c.waiters[op] = append(c.waiters[op], ch)
-	}
+	c.waiters = append(c.waiters, w)
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
-		for _, op := range replies {
-			q := c.waiters[op]
-			for i, w := range q {
-				if w == ch {
-					c.waiters[op] = append(q[:i:i], q[i+1:]...)
-					break
-				}
+		for i, cand := range c.waiters {
+			if cand == w {
+				c.waiters = append(c.waiters[:i:i], c.waiters[i+1:]...)
+				break
 			}
 		}
 		c.mu.Unlock()
@@ -283,7 +305,7 @@ func (c *Conn) request(ctx context.Context, opcode byte, payload []byte, replies
 		return nil, err
 	}
 	select {
-	case p := <-ch:
+	case p := <-w.ch:
 		return p, nil
 	case <-c.closed:
 		return nil, fmt.Errorf("connection closed: %v", c.err)
@@ -299,7 +321,7 @@ func (c *Conn) Search(ctx context.Context, q Query) (results []Result, more bool
 	if err != nil {
 		return nil, false, err
 	}
-	p, err := c.request(ctx, proto.OpSearchRequest, payload, proto.OpSearchResult, proto.OpReject)
+	p, err := c.request(ctx, proto.OpSearchRequest, payload, nil, proto.OpSearchResult, proto.OpReject)
 	if err != nil {
 		return nil, false, err
 	}
@@ -311,7 +333,7 @@ func (c *Conn) Search(ctx context.Context, q Query) (results []Result, more bool
 
 // QueryMore requests the next page of results for the last search.
 func (c *Conn) QueryMore(ctx context.Context) ([]Result, bool, error) {
-	p, err := c.request(ctx, proto.OpQueryMoreResult, nil, proto.OpSearchResult)
+	p, err := c.request(ctx, proto.OpQueryMoreResult, nil, nil, proto.OpSearchResult)
 	if err != nil {
 		return nil, false, err
 	}
@@ -343,7 +365,8 @@ func (c *Conn) GetSources(ctx context.Context, h ed2k.Hash, size uint64) ([]Sour
 	} else {
 		w.U32(uint32(size))
 	}
-	p, err := c.request(ctx, proto.OpGetSources, w.B, proto.OpFoundSources)
+	sameFile := func(p *proto.Packet) bool { return len(p.Payload) >= 16 && bytes.Equal(p.Payload[:16], h[:]) }
+	p, err := c.request(ctx, proto.OpGetSources, w.B, sameFile, proto.OpFoundSources)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +382,7 @@ func (c *Conn) GetSources(ctx context.Context, h ed2k.Hash, size uint64) ([]Sour
 
 // GetServerList asks the server for other servers it knows about.
 func (c *Conn) GetServerList(ctx context.Context) ([]Info, error) {
-	p, err := c.request(ctx, proto.OpGetServerList, nil, proto.OpServerList)
+	p, err := c.request(ctx, proto.OpGetServerList, nil, nil, proto.OpServerList)
 	if err != nil {
 		return nil, err
 	}
@@ -370,4 +393,20 @@ func (c *Conn) GetServerList(ctx context.Context) ([]Info, error) {
 		out = append(out, Info{IP: IPFromU32(r.U32()), Port: r.U16()})
 	}
 	return out, r.Err()
+}
+
+// KeepAlive sends an empty file offer, which is what eMule uses to keep
+// the server connection from being dropped as idle.
+func (c *Conn) KeepAlive() error {
+	var w proto.Writer
+	w.U32(0)
+	return c.send(proto.OpOfferFiles, w.B)
+}
+
+// RequestCallback asks the server to tell a LowID client to connect to us.
+// Only works when we are HighID and the peer is on the same server.
+func (c *Conn) RequestCallback(lowID uint32) error {
+	var w proto.Writer
+	w.U32(lowID)
+	return c.send(proto.OpCallbackRequest, w.B)
 }

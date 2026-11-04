@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"mymule/internal/api"
 	"mymule/internal/config"
 	"mymule/internal/ed2k"
 	"mymule/internal/server"
@@ -36,11 +37,17 @@ func addConnFlags(fs *flag.FlagSet) connFlags {
 // quality order until one accepts us. Failures are recorded in server.met
 // so dead servers sink to the bottom over time.
 func (f connFlags) connect(ctx context.Context) (*server.Conn, error) {
+	return f.connectWith(ctx, server.Config{})
+}
+
+// connectWith is like connect but starts from base (listen port,
+// callbacks); identity and logging are filled in here.
+func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.Conn, error) {
 	hash, err := config.UserHash()
 	if err != nil {
 		return nil, err
 	}
-	cfg := server.Config{UserHash: hash, Nick: *f.nick}
+	cfg.UserHash, cfg.Nick = hash, *f.nick
 	if *f.verbose {
 		cfg.Log = func(format string, args ...any) {
 			fmt.Fprintf(os.Stderr, "  "+format+"\n", args...)
@@ -72,7 +79,19 @@ func (f connFlags) connect(ctx context.Context) (*server.Conn, error) {
 		candidates = list
 	}
 
+	// With a listen port configured we expect HighID. Some servers never
+	// test the port and always hand out LowID, so if we get LowID we try
+	// a few more servers before settling for the first LowID connection.
+	const maxHighIDTries = 3
+	var fallback *server.Conn
+	extraTries := 0
 	for _, info := range candidates {
+		if fallback != nil {
+			if extraTries >= maxHighIDTries {
+				break
+			}
+			extraTries++
+		}
 		fmt.Fprintf(os.Stderr, "connecting to %s ...\n", info)
 		dctx, cancel := context.WithTimeout(ctx, *f.timeout)
 		c, err := server.Dial(dctx, info, cfg)
@@ -81,17 +100,34 @@ func (f connFlags) connect(ctx context.Context) (*server.Conn, error) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  failed: %v\n", err)
 			if ctx.Err() != nil {
+				if fallback != nil {
+					fallback.Close()
+				}
 				return nil, ctx.Err()
 			}
 			continue
 		}
-		st := c.Status()
-		kind := "LowID (firewalled)"
-		if st.HighID {
-			kind = "HighID"
+		if c.Status().HighID {
+			if fallback != nil {
+				fallback.Close()
+			}
+			fmt.Fprintf(os.Stderr, "connected: %s, HighID\n", info.Addr())
+			return c, nil
 		}
-		fmt.Fprintf(os.Stderr, "connected: %s, %s\n", info.Addr(), kind)
-		return c, nil
+		if cfg.Port == 0 {
+			fmt.Fprintf(os.Stderr, "connected: %s, LowID (firewalled)\n", info.Addr())
+			return c, nil
+		}
+		fmt.Fprintf(os.Stderr, "  got LowID although port %d is set; trying other servers\n", cfg.Port)
+		if fallback == nil {
+			fallback = c
+		} else {
+			c.Close()
+		}
+	}
+	if fallback != nil {
+		fmt.Fprintf(os.Stderr, "connected: %s, LowID (port %d not reachable from outside?)\n", fallback.Info().Addr(), cfg.Port)
+		return fallback, nil
 	}
 	return nil, fmt.Errorf("could not connect to any server")
 }
@@ -171,6 +207,29 @@ func cmdSearch(args []string) error {
 		return err
 	}
 
+	// Through the daemon if it is running: it already has a server
+	// connection, and a second login with our identity would kick it.
+	if dc, err := daemonClient(); err == nil {
+		r, err := dc.Search(api.SearchRequest{
+			Query: q.Keywords, Type: *ftype, Min: q.MinSize, Max: q.MaxSize, Ext: q.Extension, More: *more,
+		})
+		if err != nil {
+			return err
+		}
+		res := r.Results
+		if *limit > 0 && len(res) > *limit {
+			res = res[:*limit]
+		}
+		printResults(len(res), func(i int) (string, uint32, uint32, uint64, string) {
+			x := res[i]
+			return x.Name, x.Sources, x.Complete, x.Size, x.Link
+		}, *links)
+		return nil
+	}
+	if err := lockStandalone(); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	c, err := cf.connect(ctx)
 	if err != nil {
@@ -198,23 +257,31 @@ func cmdSearch(args []string) error {
 	if *limit > 0 && len(results) > *limit {
 		results = results[:*limit]
 	}
-	if len(results) == 0 {
-		fmt.Println("no results")
-		return nil
-	}
+	printResults(len(results), func(i int) (string, uint32, uint32, uint64, string) {
+		r := results[i]
+		return r.Name, r.Sources, r.CompleteSources, r.Size, r.Link().String()
+	}, *links)
+	return nil
+}
 
-	if *links {
-		for _, r := range results {
-			fmt.Println(r.Link())
+func printResults(n int, get func(i int) (name string, srcs, full uint32, size uint64, link string), links bool) {
+	if n == 0 {
+		fmt.Println("no results")
+		return
+	}
+	if links {
+		for i := 0; i < n; i++ {
+			_, _, _, _, l := get(i)
+			fmt.Println(l)
 		}
-		return nil
+		return
 	}
 	fmt.Printf("%3s %5s %5s %10s  %s\n", "#", "SRCS", "FULL", "SIZE", "NAME")
-	for i, r := range results {
-		fmt.Printf("%3d %5d %5d %10s  %s\n", i+1, r.Sources, r.CompleteSources, humanSize(r.Size), r.Name)
+	for i := 0; i < n; i++ {
+		name, srcs, full, size, _ := get(i)
+		fmt.Printf("%3d %5d %5d %10s  %s\n", i+1, srcs, full, humanSize(size), name)
 	}
-	fmt.Fprintf(os.Stderr, "\n%d results. Use -links to get ed2k links.\n", len(results))
-	return nil
+	fmt.Fprintf(os.Stderr, "\n%d results. Use -links to get ed2k links.\n", n)
 }
 
 func dedupeResults(in []server.Result) []server.Result {
@@ -237,12 +304,16 @@ func cmdSources(args []string) error {
 	fs := flag.NewFlagSet("sources", flag.ExitOnError)
 	cf := addConnFlags(fs)
 	fs.Parse(args)
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: mymule sources [flags] <ed2k-link>")
+	if fs.NArg() == 0 {
+		return fmt.Errorf("usage: mymule sources [flags] <ed2k-link>...")
 	}
-	link, err := ed2k.ParseLink(fs.Arg(0))
-	if err != nil {
-		return err
+	var links []ed2k.Link
+	for _, a := range fs.Args() {
+		link, err := ed2k.ParseLink(a)
+		if err != nil {
+			return fmt.Errorf("%q: %w", a, err)
+		}
+		links = append(links, link)
 	}
 	ctx := context.Background()
 	c, err := cf.connect(ctx)
@@ -250,15 +321,21 @@ func cmdSources(args []string) error {
 		return err
 	}
 	defer c.Close()
-	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	srcs, err := c.GetSources(sctx, link.Hash, uint64(link.Size))
-	if err != nil {
-		return err
-	}
-	fmt.Printf("%d sources for %s\n", len(srcs), link.Name)
-	for _, s := range srcs {
-		fmt.Println(" ", s.Addr())
+	for i, link := range links {
+		if i > 0 {
+			time.Sleep(time.Second) // be gentle with the server
+		}
+		sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		srcs, err := c.GetSources(sctx, link.Hash, uint64(link.Size))
+		cancel()
+		if err != nil {
+			fmt.Printf("? sources for %s: %v\n", link.Name, err)
+			continue
+		}
+		fmt.Printf("%d sources for %s\n", len(srcs), link.Name)
+		for _, s := range srcs {
+			fmt.Println(" ", s.Addr())
+		}
 	}
 	return nil
 }

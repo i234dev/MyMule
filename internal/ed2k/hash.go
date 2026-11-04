@@ -21,6 +21,19 @@ type Hash [16]byte
 
 func (h Hash) String() string { return strings.ToUpper(hex.EncodeToString(h[:])) }
 
+// MarshalText encodes the hash as hex (used for JSON).
+func (h Hash) MarshalText() ([]byte, error) { return []byte(h.String()), nil }
+
+// UnmarshalText decodes a hex hash.
+func (h *Hash) UnmarshalText(b []byte) error {
+	v, err := ParseHash(string(b))
+	if err != nil {
+		return err
+	}
+	*h = v
+	return nil
+}
+
 // IsZero reports whether the hash is all zeros.
 func (h Hash) IsZero() bool { return h == Hash{} }
 

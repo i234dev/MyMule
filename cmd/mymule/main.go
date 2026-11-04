@@ -13,7 +13,7 @@ import (
 // version is overridden at build time by the release pipeline:
 //
 //	go build -ldflags "-X main.version=v1.2.3" ./cmd/mymule
-var version = "0.4.0-dev"
+var version = "0.5.0-dev"
 
 const usage = `mymule - eD2K network client
 
@@ -23,6 +23,7 @@ Usage:
 Daemon (recommended):
   start [flags]               Start the engine in the background
   stop                        Stop it, saving all progress
+  top                         Live full-screen view of everything (q to quit)
   status [-w 5s]              Server, speed and progress of every download
   add [-source ip:port] <link>...  Add ed2k links
   search [flags] <keywords>   Search (through the daemon if it is running)
@@ -108,6 +109,8 @@ func run() {
 		err = cmdStop(args)
 	case "status", "st":
 		err = cmdStatus(args)
+	case "top", "monitor", "ui":
+		err = cmdTop(args)
 	case "add":
 		err = cmdAdd(args)
 	case "pause":
@@ -166,5 +169,21 @@ func statusOnce(c *api.Client) error {
 		return err
 	}
 	printStatus(st.Server, st.Files)
+	printSharing(st)
 	return nil
+}
+
+// printSharing prints the upload and shared-files summary lines.
+func printSharing(st api.Status) {
+	if u := st.Upload; u != nil {
+		fmt.Printf("upload: %s/s, %d/%d slots, %d in queue, %s sent\n",
+			humanSize(uint64(u.Speed)), len(u.Slots), u.MaxSlots, u.Queue, humanSize(uint64(u.Total)))
+	}
+	if s := st.Shared; s != nil {
+		line := fmt.Sprintf("shared: %d files (%s), %d partial", s.Files, humanSize(uint64(s.Bytes)), s.Partial)
+		if s.Hashing != "" {
+			line += fmt.Sprintf("; hashing %s %d%% (%d left)", s.Hashing, s.HashedPct, s.ToHash)
+		}
+		fmt.Println(line)
+	}
 }

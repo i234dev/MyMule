@@ -7,10 +7,13 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mymule/internal/ed2k"
 	"mymule/internal/server"
+	"mymule/internal/share"
+	"mymule/internal/upload"
 )
 
 // Runtime control used by the daemon API: adding, pausing, cancelling
@@ -145,6 +148,9 @@ func (m *Manager) Cancel(h ed2k.Hash) (string, error) {
 	finished := f.finished
 	m.closeFileConnsLocked(f)
 	m.mu.Unlock()
+	if m.cfg.Library != nil && !finished {
+		m.cfg.Library.SetPartial(h, nil)
+	}
 	if finished {
 		return f.pf.Name, nil
 	}
@@ -186,4 +192,77 @@ func (m *Manager) Search(ctx context.Context, q server.Query, morePages int) ([]
 		results = append(results, page...)
 	}
 	return results, nil
+}
+
+// SearchGlobal runs a search on the connected server (TCP) and on every
+// known server over UDP, merging results by hash. Source counts from
+// different servers are added up, as eMule does for global searches.
+func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Duration) ([]server.Result, int, error) {
+	var (
+		mu      sync.Mutex
+		byHash  = map[ed2k.Hash]*server.Result{}
+		order   []ed2k.Hash
+		servers = map[string]bool{}
+	)
+	add := func(from string, r server.Result) {
+		mu.Lock()
+		defer mu.Unlock()
+		servers[from] = true
+		if have, ok := byHash[r.Hash]; ok {
+			have.Sources += r.Sources
+			have.CompleteSources += r.CompleteSources
+			return
+		}
+		cp := r
+		byHash[r.Hash] = &cp
+		order = append(order, r.Hash)
+	}
+
+	m.mu.Lock()
+	c := m.srv
+	m.mu.Unlock()
+	if c != nil {
+		if res, err := m.Search(ctx, q, 0); err == nil {
+			for _, r := range res {
+				add(c.Info().Addr(), r)
+			}
+		}
+	}
+	if m.udp != nil && m.cfg.Servers != nil {
+		var others []server.Info
+		for _, s := range m.cfg.Servers() {
+			if c == nil || s.Addr() != c.Info().Addr() {
+				others = append(others, s)
+			}
+		}
+		m.udp.Search(ctx, others, q, wait, func(from *net.UDPAddr, r server.Result) {
+			add(server.ServerKey(from), r)
+		})
+	}
+	if c == nil && m.udp == nil {
+		return nil, 0, ErrNoServer
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	out := make([]server.Result, 0, len(order))
+	for _, h := range order {
+		out = append(out, *byHash[h])
+	}
+	return out, len(servers), nil
+}
+
+// SharingStatus returns the upload and shared-library state, if sharing
+// is enabled.
+func (m *Manager) SharingStatus() (*upload.Status, *share.Status) {
+	var us *upload.Status
+	var ss *share.Status
+	if m.cfg.Upload != nil {
+		st := m.cfg.Upload.Status()
+		us = &st
+	}
+	if m.cfg.Library != nil {
+		st := m.cfg.Library.Status()
+		ss = &st
+	}
+	return us, ss
 }

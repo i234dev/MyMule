@@ -128,7 +128,8 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	if files == nil {
 		files = []download.FileStatus{}
 	}
-	reply(w, Status{Server: ss, Files: files})
+	up, shared := s.m.SharingStatus()
+	reply(w, Status{Server: ss, Files: files, Upload: up, Shared: shared})
 }
 
 func (s *Server) add(w http.ResponseWriter, r *http.Request) {
@@ -163,9 +164,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	res, err := s.m.Search(ctx, server.Query{
-		Keywords: req.Query, Type: ftype, MinSize: req.Min, MaxSize: req.Max, Extension: req.Ext,
-	}, req.More)
+	q := server.Query{Keywords: req.Query, Type: ftype, MinSize: req.Min, MaxSize: req.Max, Extension: req.Ext}
+	var res []server.Result
+	if req.Global {
+		res, _, err = s.m.SearchGlobal(ctx, q, 6*time.Second)
+	} else {
+		res, err = s.m.Search(ctx, q, req.More)
+	}
 	if err != nil {
 		fail(w, errCode(err), err)
 		return

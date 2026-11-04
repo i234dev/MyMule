@@ -18,10 +18,16 @@ func ImportLegacy(tempDir string) []string {
 	if old == "" || err != nil || sameDir(old, base) {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(base, "userhash.dat")); err == nil {
-		return nil // already set up here
+	oldHash := filepath.Join(old, "userhash.dat")
+	if mine, err := os.ReadFile(filepath.Join(base, "userhash.dat")); err == nil {
+		// Already set up here. If the old identity is the one we imported
+		// earlier, retire it so other MyMule folders don't inherit it.
+		if theirs, err := os.ReadFile(oldHash); err == nil && string(theirs) == string(mine) {
+			os.Rename(oldHash, oldHash+".imported")
+		}
+		return nil
 	}
-	if _, err := os.Stat(filepath.Join(old, "userhash.dat")); err != nil {
+	if _, err := os.Stat(oldHash); err != nil {
 		return nil // nothing to import
 	}
 	// Never import while an old-style daemon may still be using it.
@@ -35,6 +41,9 @@ func ImportLegacy(tempDir string) []string {
 			notes = append(notes, "imported "+name)
 		}
 	}
+	// The identity now lives here; retire the old copy so it is imported
+	// only once (two clients with one identity kick each other off servers).
+	os.Rename(oldHash, oldHash+".imported")
 	parts, _ := filepath.Glob(filepath.Join(old, "temp", "*.part*"))
 	if len(parts) > 0 {
 		os.MkdirAll(tempDir, 0o755)

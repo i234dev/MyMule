@@ -190,6 +190,7 @@ func cmdSearch(args []string) error {
 	more := fs.Int("more", 0, "fetch up to N extra result pages")
 	limit := fs.Int("limit", 50, "max results to print (0 = all)")
 	links := fs.Bool("links", false, "print ed2k links instead of a table")
+	global := fs.Bool("global", false, "also search every known server over UDP (needs the daemon)")
 	fs.Parse(args)
 
 	if fs.NArg() == 0 {
@@ -210,8 +211,12 @@ func cmdSearch(args []string) error {
 	// Through the daemon if it is running: it already has a server
 	// connection, and a second login with our identity would kick it.
 	if dc, err := daemonClient(); err == nil {
+		if *global {
+			fmt.Fprintln(os.Stderr, "searching all servers (a few seconds)...")
+		}
 		r, err := dc.Search(api.SearchRequest{
 			Query: q.Keywords, Type: *ftype, Min: q.MinSize, Max: q.MaxSize, Ext: q.Extension, More: *more,
+			Global: *global,
 		})
 		if err != nil {
 			return err
@@ -225,6 +230,9 @@ func cmdSearch(args []string) error {
 			return x.Name, x.Sources, x.Complete, x.Size, x.Link
 		}, *links)
 		return nil
+	}
+	if *global {
+		return fmt.Errorf("-global needs the daemon: run 'mymule start' first")
 	}
 	if err := lockStandalone(); err != nil {
 		return err

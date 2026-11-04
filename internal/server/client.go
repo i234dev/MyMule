@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"errors"
 	"fmt"
@@ -141,7 +142,11 @@ func (c *Conn) shutdown(err error) {
 }
 
 func (c *Conn) send(opcode byte, payload []byte) error {
-	p := proto.Packet{Proto: proto.ProtoEDonkey, Opcode: opcode, Payload: payload}
+	return c.sendProto(proto.ProtoEDonkey, opcode, payload)
+}
+
+func (c *Conn) sendProto(protocol, opcode byte, payload []byte) error {
+	p := proto.Packet{Proto: protocol, Opcode: opcode, Payload: payload}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	c.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
@@ -409,4 +414,115 @@ func (c *Conn) RequestCallback(lowID uint32) error {
 	var w proto.Writer
 	w.U32(lowID)
 	return c.send(proto.OpCallbackRequest, w.B)
+}
+
+// Server TCP capability flags (sent with OP_IDCHANGE).
+const (
+	SrvTCPCompression = 0x0001
+	SrvTCPNewTags     = 0x0008
+	SrvTCPUnicode     = 0x0010
+	SrvTCPLargeFiles  = 0x0100
+)
+
+// Offer is a shared file announced to the server.
+type Offer struct {
+	Hash     ed2k.Hash
+	Name     string
+	Size     uint64
+	Type     string // server file type (Audio, Video, ...), optional
+	Complete bool
+}
+
+// maxOffered caps one announcement; servers enforce their own limits too.
+const maxOffered = 1000
+
+// OfferFiles announces our shared files so the server can hand us out as
+// a source. Each call replaces what the server knows about us.
+func (c *Conn) OfferFiles(files []Offer) error {
+	st := c.Status()
+	if len(files) > maxOffered {
+		files = files[:maxOffered]
+	}
+	var body proto.Writer
+	count := 0
+	for _, f := range files {
+		if f.Size > 0xFFFFFFFF && st.TCPFlags&SrvTCPLargeFiles == 0 {
+			continue // this server cannot index files over 4 GB
+		}
+		count++
+		body.Bytes(f.Hash[:])
+		switch {
+		case st.TCPFlags&SrvTCPCompression != 0:
+			// Modern servers: special IDs tell complete from partial and
+			// work for LowID too; the server fills in our real address.
+			if f.Complete {
+				body.U32(0xFBFBFBFB)
+				body.U16(0xFBFB)
+			} else {
+				body.U32(0xFCFCFCFC)
+				body.U16(0xFCFC)
+			}
+		case st.HighID:
+			body.U32(st.ClientID)
+			body.U16(c.cfg.Port)
+		default:
+			body.U32(0)
+			body.U16(0)
+		}
+		tags := []proto.Tag{
+			proto.StrTag(proto.FTFileName, f.Name),
+			proto.IntTag(proto.FTFileSize, uint32(f.Size)),
+		}
+		if f.Size > 0xFFFFFFFF {
+			tags = append(tags, proto.IntTag(proto.FTFileSizeHi, uint32(f.Size>>32)))
+		}
+		if f.Type != "" {
+			tags = append(tags, proto.StrTag(proto.FTFileType, f.Type))
+		}
+		body.U32(uint32(len(tags)))
+		for _, t := range tags {
+			body.WriteTag(t)
+		}
+	}
+	var w proto.Writer
+	w.U32(uint32(count))
+	w.Bytes(body.B)
+
+	if st.TCPFlags&SrvTCPCompression != 0 && len(w.B) > 1024 {
+		var z bytes.Buffer
+		zw := zlib.NewWriter(&z)
+		zw.Write(w.B)
+		zw.Close()
+		if z.Len() < len(w.B) {
+			return c.sendProto(proto.ProtoPacked, proto.OpOfferFiles, z.Bytes())
+		}
+	}
+	return c.send(proto.OpOfferFiles, w.B)
+}
+
+// FileTypeFor guesses the server file type from a file name.
+func FileTypeFor(name string) string {
+	ext := strings.ToLower(name)
+	if i := strings.LastIndexByte(ext, '.'); i >= 0 {
+		ext = ext[i+1:]
+	} else {
+		return ""
+	}
+	switch ext {
+	case "mp3", "flac", "ogg", "wav", "aac", "m4a", "wma", "opus", "ape":
+		return TypeAudio
+	case "avi", "mkv", "mp4", "mpg", "mpeg", "mov", "wmv", "webm", "m4v", "ts", "divx", "ogm":
+		return TypeVideo
+	case "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff":
+		return TypeImage
+	case "exe", "msi", "apk", "dmg", "deb", "rpm", "appimage":
+		return TypeProgram
+	case "pdf", "epub", "doc", "docx", "txt", "odt", "mobi", "djvu", "rtf", "chm":
+		return TypeDocument
+	case "zip", "rar", "7z", "gz", "tgz", "bz2", "xz", "tar":
+		return TypeArchive
+	case "iso", "img", "bin", "cue", "nrg", "mdf":
+		return TypeCDImage
+	}
+	return ""
 }

@@ -93,6 +93,7 @@ func cmdDownload(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	m.start(ctx)
 
 	show := func() {
 		ss, files := m.Status()

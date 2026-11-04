@@ -53,6 +53,10 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	defer c.Close()
 
 	hello, err := m.handshake(c, outbound)
+	if err == nil && m.cfg.Upload != nil {
+		m.cfg.Upload.Connected(c, hello, c.RemoteIP())
+		defer m.cfg.Upload.Disconnected(c)
+	}
 	if err != nil {
 		m.cfg.Debug("[%s]: handshake failed: %v", nc.RemoteAddr(), err)
 		if src != nil {
@@ -69,8 +73,9 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	if src == nil {
 		src = m.claimSource(hello, c.RemoteIP())
 		if src == nil {
-			// Someone who wants something from us; we don't share yet.
-			serveNothing(c)
+			// A peer that wants something from us, or one whose upload
+			// turn has come and we dialed.
+			m.serveUploads(c, hello)
 			return
 		}
 	}
@@ -84,9 +89,13 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	f := src.file
 	m.mu.Unlock()
 
-	s := &session{m: m, c: c, src: src, f: f, pf: f.pf, owner: src.key, packed: map[int64]*packedBlock{}}
+	s := &session{m: m, c: c, src: src, f: f, pf: f.pf, owner: src.key, packed: map[int64]*packedBlock{}, hello: hello}
 	err = s.run(ctx)
 	s.releaseAll()
+	// The peer may still be downloading from us on this connection.
+	if m.cfg.Upload != nil && m.cfg.Upload.Serving(c) && ctx.Err() == nil {
+		defer m.serveUploads(c, hello)
+	}
 
 	m.mu.Lock()
 	switch src.State {
@@ -141,15 +150,31 @@ func (m *Manager) handshake(c *peer.Conn, outbound bool) (peer.Hello, error) {
 	return peer.Hello{}, errors.New("no hello received")
 }
 
-// serveNothing politely answers file requests from a peer we have nothing
-// for, then closes.
-func serveNothing(c *peer.Conn) {
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		p, err := c.Read(10 * time.Second)
+// serveUploads handles a connection from a peer that only wants files
+// from us. It stays open while the peer uses an upload slot and closes
+// after a minute of silence otherwise.
+func (m *Manager) serveUploads(c *peer.Conn, hello peer.Hello) {
+	up := m.cfg.Upload
+	for {
+		timeout := 60 * time.Second
+		if up != nil && up.Serving(c) {
+			timeout = 2 * time.Minute
+		}
+		p, err := c.Read(timeout)
 		if err != nil {
 			return
 		}
+		if p.Proto == proto.ProtoEMule && p.Opcode == peer.OpEMuleInfo {
+			c.Send(proto.ProtoEMule, peer.OpEMuleInfoAnswer, peer.EMuleInfoAnswer())
+			continue
+		}
+		if up != nil {
+			if _, err := up.Handle(c, hello, c.RemoteIP(), p); err != nil {
+				return
+			}
+			continue
+		}
+		// Not sharing: say we do not have it.
 		if p.Proto == proto.ProtoEDonkey && (p.Opcode == peer.OpRequestFileName || p.Opcode == peer.OpSetReqFileID) && len(p.Payload) >= 16 {
 			c.Send(proto.ProtoEDonkey, peer.OpFileReqAnsNoFil, p.Payload[:16])
 		}
@@ -173,6 +198,7 @@ type session struct {
 	packed  map[int64]*packedBlock
 	askedAt time.Time
 	timeout time.Duration
+	hello   peer.Hello
 }
 
 func (s *session) setState(st SourceState) {
@@ -213,6 +239,12 @@ func (s *session) run(ctx context.Context) error {
 func (s *session) handle(p *proto.Packet) error {
 	if peer.IsDataPacket(p) {
 		return s.onData(p)
+	}
+	// Requests for our files go to the upload side.
+	if up := s.m.cfg.Upload; up != nil {
+		if handled, err := up.Handle(s.c, s.hello, s.c.RemoteIP(), p); handled {
+			return err
+		}
 	}
 	r := proto.NewReader(p.Payload)
 	if p.Proto == proto.ProtoEMule {

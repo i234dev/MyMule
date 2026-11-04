@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,6 +18,9 @@ import (
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/server"
+	"mymule/internal/share"
+	"mymule/internal/upload"
 )
 
 // daemonClient returns a client for the running daemon, or ErrNotRunning.
@@ -54,7 +58,23 @@ func addEngineFlags(fs *flag.FlagSet) engineFlags {
 	}
 }
 
-func (e engineFlags) manager(tmp string, stayAlive bool) (*download.Manager, error) {
+// engine bundles the download manager with the sharing components it
+// uses, which must be started alongside it.
+type engine struct {
+	*download.Manager
+	lib *share.Library
+	up  *upload.Manager
+}
+
+// start runs the shared-folder scanner and the upload slot scheduler.
+func (e *engine) start(ctx context.Context) {
+	if e.lib != nil {
+		go e.lib.Run(ctx, 10*time.Minute)
+		go e.up.Run(ctx)
+	}
+}
+
+func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 	uh, err := config.UserHash()
 	if err != nil {
 		return nil, err
@@ -63,7 +83,34 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*download.Manager, err
 	if *e.conn.verbose {
 		debug = logf
 	}
-	return download.NewManager(download.Config{
+
+	var (
+		m   *download.Manager
+		lib *share.Library
+		up  *upload.Manager
+	)
+	if settings.Sharing {
+		var dirs []string
+		if settings.ShareDownloads {
+			os.MkdirAll(*e.out, 0o755)
+			dirs = append(dirs, *e.out)
+		}
+		dirs = append(dirs, settings.SharedDirs...)
+		known, err := config.Path("known.json")
+		if err != nil {
+			return nil, err
+		}
+		lib = share.NewLibrary(dirs, known, logf)
+		up = upload.New(upload.Config{
+			Slots:     settings.UploadSlots,
+			LimitKBps: settings.UploadLimit,
+			Library:   lib,
+			Dial:      func(ip net.IP, port uint16) { m.DialForUpload(ip, port) },
+			Log:       logf,
+			Debug:     debug,
+		})
+	}
+	m = download.NewManager(download.Config{
 		UserHash:    uh,
 		Nick:        *e.conn.nick,
 		Port:        uint16(*e.port),
@@ -72,13 +119,21 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*download.Manager, err
 		MaxConns:    *e.maxConns,
 		StayAlive:   stayAlive,
 		Connect:     e.conn.connectWith,
-		Log:         logf,
-		Debug:       debug,
-		Trace:       os.Getenv("MYMULE_TRACE") != "",
+		Servers: func() []server.Info {
+			list, _ := loadServers()
+			server.SortByQuality(list)
+			return list
+		},
+		Log:   logf,
+		Debug: debug,
+		Trace: os.Getenv("MYMULE_TRACE") != "",
 		OnComplete: func(name, path string) {
 			logf("COMPLETED %s -> %s", name, path)
 		},
-	}), nil
+		Library: lib,
+		Upload:  up,
+	})
+	return &engine{Manager: m, lib: lib, up: up}, nil
 }
 
 // cmdDaemon runs the engine in the foreground with the control API.
@@ -108,13 +163,15 @@ func cmdDaemon(args []string) error {
 	defer stop()
 
 	dir, _ := config.Dir()
-	srv, err := api.Listen(m, dir, stop)
+	srv, err := api.Listen(m.Manager, dir, stop)
 	if err != nil {
 		return fmt.Errorf("control API: %w", err)
 	}
 	defer srv.Close()
+	m.start(ctx)
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
+	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
 
 	err = m.Run(ctx)
 	logf("daemon stopped; progress saved")
@@ -212,6 +269,7 @@ func cmdStatus(args []string) error {
 			fmt.Print("\033[H\033[2J") // clear screen
 		}
 		printStatus(st.Server, st.Files)
+		printSharing(st)
 		if *watch <= 0 {
 			return nil
 		}
@@ -365,4 +423,26 @@ func cmdLog(args []string) error {
 		fmt.Println(l)
 	}
 	return sc.Err()
+}
+
+func sharedDescription(downloads string) string {
+	if !settings.Sharing {
+		return "disabled (sharing = false)"
+	}
+	var dirs []string
+	if settings.ShareDownloads {
+		dirs = append(dirs, downloads)
+	}
+	dirs = append(dirs, settings.SharedDirs...)
+	if len(dirs) == 0 {
+		return "only verified parts of partial downloads"
+	}
+	return strings.Join(dirs, ", ") + " + partial downloads"
+}
+
+func limitDescription() string {
+	if settings.UploadLimit == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%d KB/s", settings.UploadLimit)
 }

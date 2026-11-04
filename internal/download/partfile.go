@@ -532,3 +532,47 @@ func uniquePath(p string) string {
 		}
 	}
 }
+
+// VerifiedParts returns which parts have passed hash verification.
+func (pf *PartFile) VerifiedParts() []bool {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	return append([]bool(nil), pf.verified...)
+}
+
+// VerifiedCount returns how many parts have passed verification.
+func (pf *PartFile) VerifiedCount() int {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	n := 0
+	for _, v := range pf.verified {
+		if v {
+			n++
+		}
+	}
+	return n
+}
+
+// HashSet returns a copy of the part hashes (nil if not known yet).
+func (pf *PartFile) HashSet() []ed2k.Hash {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	return append([]ed2k.Hash(nil), pf.hashSet...)
+}
+
+// ReadVerified reads data that lies entirely within verified parts, so we
+// never upload unchecked (possibly corrupt) data to other peers.
+func (pf *PartFile) ReadVerified(p []byte, off int64) (int, error) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	end := off + int64(len(p))
+	if pf.f == nil || off < 0 || end > pf.Size || len(p) == 0 {
+		return 0, errors.New("range not available")
+	}
+	for part := int(off / ed2k.PartSize); part <= int((end-1)/ed2k.PartSize); part++ {
+		if !pf.verified[part] {
+			return 0, errors.New("range not available")
+		}
+	}
+	return pf.f.ReadAt(p, off)
+}

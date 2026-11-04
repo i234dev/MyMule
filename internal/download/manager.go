@@ -13,6 +13,8 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/peer"
 	"mymule/internal/server"
+	"mymule/internal/share"
+	"mymule/internal/upload"
 )
 
 // Timing constants. Reasking a source more often than ~10 minutes gets a
@@ -35,7 +37,14 @@ type Config struct {
 	MaxConns    int
 	// Connect logs into some server with the given config (the manager
 	// fills in callbacks). Called again whenever the connection drops.
-	Connect    func(ctx context.Context, cfg server.Config) (*server.Conn, error)
+	Connect func(ctx context.Context, cfg server.Config) (*server.Conn, error)
+	// Servers returns the known server list. If set, every server in it
+	// is asked for sources over UDP (without logging in), in rotation.
+	Servers func() []server.Info
+	// Library and Upload enable sharing: partial and finished downloads
+	// are shared, offered to the server and served to peers.
+	Library    *share.Library
+	Upload     *upload.Manager
 	Log        func(format string, args ...any) // important events
 	Debug      func(format string, args ...any) // per-peer chatter
 	Trace      bool                             // log every peer packet via Debug
@@ -110,6 +119,12 @@ type Manager struct {
 	conns  map[*peer.Conn]*File // live peer connections, and the file they serve (once known)
 	wg     sync.WaitGroup
 	port   uint16
+
+	udp      *server.UDP
+	udpAsked map[string]time.Time // server addr -> last UDP source request
+
+	ctx          context.Context
+	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
 }
 
 // NewManager creates a manager. Add files, then call Run.
@@ -123,7 +138,7 @@ func NewManager(cfg Config) *Manager {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 40
 	}
-	return &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}}
+	return &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}}
 }
 
 // Add registers a part file for downloading.
@@ -132,6 +147,9 @@ func (m *Manager) Add(pf *PartFile) {
 	defer m.mu.Unlock()
 	if _, ok := m.files[pf.Hash]; !ok {
 		m.files[pf.Hash] = &File{pf: pf, sources: map[string]*Source{}, speedTime: time.Now()}
+		if m.cfg.Library != nil {
+			m.cfg.Library.SetPartial(pf.Hash, sharedPart{pf})
+		}
 	}
 }
 
@@ -139,6 +157,7 @@ func (m *Manager) Add(pf *PartFile) {
 func (m *Manager) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	m.ctx = ctx
 
 	if m.cfg.Port != 0 {
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(m.cfg.Port)))
@@ -155,6 +174,19 @@ func (m *Manager) Run(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.serverLoop(ctx)
 
+	if m.cfg.Servers != nil {
+		if u, err := server.ListenUDP(); err != nil {
+			m.cfg.Log("UDP disabled: %v", err)
+		} else {
+			m.udp = u
+			u.OnSources = m.onUDPSources
+			go u.Run()
+			go func() { <-ctx.Done(); u.Close() }()
+			m.wg.Add(1)
+			go m.udpLoop(ctx)
+		}
+	}
+
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	saveTick := time.NewTicker(30 * time.Second)
@@ -167,6 +199,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-saveTick.C:
 			m.saveAll()
+			m.refreshShared()
 		case <-tick.C:
 			if m.allFinished() {
 				cancel()
@@ -246,8 +279,20 @@ func (m *Manager) serverLoop(ctx context.Context) {
 		m.srv = c
 		m.mu.Unlock()
 
+		offered := -1
+		offer := func() {
+			if m.cfg.Library == nil {
+				return
+			}
+			if v := m.cfg.Library.Version(); v != offered {
+				offered = v
+				m.offerFiles(c)
+			}
+		}
+		offer()
 		keep := time.NewTicker(10 * time.Minute)
 		srcTick := time.NewTicker(2 * time.Second)
+		offerTick := time.NewTicker(30 * time.Second)
 	loop:
 		for {
 			select {
@@ -257,13 +302,20 @@ func (m *Manager) serverLoop(ctx context.Context) {
 				m.cfg.Log("server connection lost: %v", c.Err())
 				break loop
 			case <-keep.C:
-				c.KeepAlive()
+				if m.cfg.Library == nil {
+					c.KeepAlive()
+				} else {
+					m.offerFiles(c) // a full offer also keeps the connection alive
+				}
 			case <-srcTick.C:
 				m.requestSources(ctx, c)
+			case <-offerTick.C:
+				offer()
 			}
 		}
 		keep.Stop()
 		srcTick.Stop()
+		offerTick.Stop()
 		c.Close()
 		m.mu.Lock()
 		m.srv = nil
@@ -309,31 +361,103 @@ func (m *Manager) requestSources(ctx context.Context, c *server.Conn) {
 		m.cfg.Debug("%s: no answer to source request (%v)", pick.pf.Name, err)
 		return
 	}
-	our := c.Status().ClientID
+	added := m.addSources(pick, srcs, c.Info().Addr(), c.Status().ClientID, true)
+	m.cfg.Log("%s: server returned %d sources (%d new)", pick.pf.Name, len(srcs), added)
+}
+
+// addSources merges server-provided sources into f. LowID sources are
+// only useful when they come from the server we are logged into (it
+// relays callbacks), so allowLowID is false for other servers.
+func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID uint32, allowLowID bool) int {
 	added := 0
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, s := range srcs {
 		// Skip ourselves. Another machine behind the same router (e.g. a
 		// NAS) has our public IP but a different port, so keep that one.
-		if s.ID == our && (s.LowID() || s.Port == m.port) {
+		if s.ID == ourID && (s.LowID() || s.Port == m.port) {
 			continue
 		}
-		src := &Source{Port: s.Port, file: pick, NextAsk: time.Now()}
+		if s.LowID() && !allowLowID {
+			continue
+		}
+		src := &Source{Port: s.Port, file: f, NextAsk: time.Now()}
 		if s.LowID() {
 			src.LowID = s.ID
-			src.server = c.Info().Addr()
+			src.server = via
 			src.key = fmt.Sprintf("lowid:%d@%s", s.ID, src.server)
 		} else {
 			src.IP = server.IPFromU32(s.ID)
 			src.key = net.JoinHostPort(src.IP.String(), strconv.Itoa(int(s.Port)))
 		}
-		if _, ok := pick.sources[src.key]; !ok {
-			pick.sources[src.key] = src
+		if _, ok := f.sources[src.key]; !ok {
+			f.sources[src.key] = src
 			added++
 		}
 	}
+	return added
+}
+
+// ---- UDP source requests to every known server ----
+
+// udpLoop asks one server at a time (rotating through the list) for
+// sources of every active download. Each server is asked at most once
+// per SourceReqInterval, which is what eMule does.
+func (m *Manager) udpLoop(ctx context.Context) {
+	defer m.wg.Done()
+	t := time.NewTicker(3 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		var files []server.FileReq
+		m.mu.Lock()
+		for _, f := range m.files {
+			if !f.finished && !f.paused {
+				files = append(files, server.FileReq{Hash: f.pf.Hash, Size: uint64(f.pf.Size)})
+			}
+		}
+		connected := ""
+		if m.srv != nil {
+			connected = m.srv.Info().Addr()
+		}
+		m.mu.Unlock()
+		if len(files) == 0 {
+			continue
+		}
+		for _, s := range m.cfg.Servers() {
+			addr := s.Addr()
+			if addr == connected || time.Since(m.udpAsked[addr]) < SourceReqInterval {
+				continue // the connected server is asked over TCP
+			}
+			m.udpAsked[addr] = time.Now()
+			if err := m.udp.GetSources(s, files); err != nil {
+				m.cfg.Debug("UDP source request to %s: %v", addr, err)
+			} else {
+				m.cfg.Debug("UDP: asked %s for sources of %d files", addr, len(files))
+			}
+			break // one server per tick
+		}
+	}
+}
+
+func (m *Manager) onUDPSources(from *net.UDPAddr, h ed2k.Hash, srcs []server.Source) {
+	m.mu.Lock()
+	f := m.files[h]
+	var our uint32
+	if m.srv != nil {
+		our = m.srv.Status().ClientID
+	}
 	m.mu.Unlock()
-	m.cfg.Log("%s: server returned %d sources (%d new)", pick.pf.Name, len(srcs), added)
+	if f == nil || len(srcs) == 0 {
+		return
+	}
+	if added := m.addSources(f, srcs, server.ServerKey(from), our, false); added > 0 {
+		m.cfg.Log("%s: %d new sources from %s (UDP)", f.pf.Name, added, server.ServerKey(from))
+	}
 }
 
 // ---- scheduling ----
@@ -544,6 +668,10 @@ func (m *Manager) finish(f *File) {
 	f.finished = true
 	f.path = path
 	m.mu.Unlock()
+	if lib := m.cfg.Library; lib != nil {
+		lib.SetPartial(f.pf.Hash, nil)
+		lib.AddComplete(path, f.pf.Hash, f.pf.HashSet())
+	}
 	if m.cfg.OnComplete != nil {
 		m.cfg.OnComplete(f.pf.Name, path)
 	}
@@ -622,4 +750,77 @@ func (m *Manager) Status() (ServerStatus, []FileStatus) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return ss, out
+}
+
+// ---- sharing ----
+
+// offerFiles announces shared files to the server. Partial downloads are
+// only announced once they have at least one verified part.
+func (m *Manager) offerFiles(c *server.Conn) {
+	var offers []server.Offer
+	for _, f := range m.cfg.Library.List() {
+		if f.Partial() {
+			n := 0
+			for _, a := range f.Avail() {
+				if a {
+					n++
+				}
+			}
+			if n == 0 {
+				continue
+			}
+		}
+		offers = append(offers, server.Offer{
+			Hash: f.FileHash(), Name: f.FileName(), Size: uint64(f.FileSize()),
+			Type: server.FileTypeFor(f.FileName()), Complete: !f.Partial(),
+		})
+	}
+	if err := c.OfferFiles(offers); err != nil {
+		m.cfg.Debug("offering files: %v", err)
+		return
+	}
+	m.cfg.Debug("offered %d shared files to the server", len(offers))
+}
+
+// refreshShared bumps the library version when a partial download gets
+// its first verified part, so the server offer includes it.
+func (m *Manager) refreshShared() {
+	lib := m.cfg.Library
+	if lib == nil {
+		return
+	}
+	changed := false
+	m.mu.Lock()
+	for h, f := range m.files {
+		if f.finished {
+			continue
+		}
+		n := f.pf.VerifiedCount()
+		if old, ok := m.lastVerified[h]; ok && (old == 0) != (n == 0) {
+			changed = true
+		}
+		m.lastVerified[h] = n
+	}
+	m.mu.Unlock()
+	if changed {
+		lib.Touch()
+	}
+}
+
+// DialForUpload connects to a queued peer whose upload turn has come. It
+// is the upload manager's Dial function.
+func (m *Manager) DialForUpload(ip net.IP, port uint16) {
+	ctx := m.ctx
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	d := net.Dialer{Timeout: ConnectTimeout}
+	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	if err != nil {
+		m.cfg.Debug("upload: cannot reach %s:%d: %v", ip, port, err)
+		return
+	}
+	m.wg.Add(1)
+	defer m.wg.Done()
+	m.runSession(ctx, nc, true, nil)
 }

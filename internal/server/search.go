@@ -145,6 +145,15 @@ func (r Result) Link() ed2k.Link {
 	return ed2k.Link{Name: r.Name, Size: int64(r.Size), Hash: r.Hash}
 }
 
+// fillResult sets the convenience fields of a result from its tags.
+func fillResult(res *Result) {
+	res.Name = res.Tags.Str(proto.FTFileName)
+	res.Size = res.Tags.Int(proto.FTFileSize) | res.Tags.Int(proto.FTFileSizeHi)<<32
+	res.Type = res.Tags.Str(proto.FTFileType)
+	res.Sources = uint32(res.Tags.Int(proto.FTSources))
+	res.CompleteSources = uint32(res.Tags.Int(proto.FTCompleteSrcs))
+}
+
 // parseSearchResults decodes OP_SEARCHRESULT. The trailing byte (if
 // present) says whether more results can be requested.
 func parseSearchResults(payload []byte) (results []Result, more bool, err error) {
@@ -164,11 +173,7 @@ func parseSearchResults(payload []byte) (results []Result, more bool, err error)
 			return results, false, err
 		}
 		res.Tags = tags
-		res.Name = res.Tags.Str(proto.FTFileName)
-		res.Size = res.Tags.Int(proto.FTFileSize) | res.Tags.Int(proto.FTFileSizeHi)<<32
-		res.Type = res.Tags.Str(proto.FTFileType)
-		res.Sources = uint32(res.Tags.Int(proto.FTSources))
-		res.CompleteSources = uint32(res.Tags.Int(proto.FTCompleteSrcs))
+		fillResult(&res)
 		results = append(results, res)
 	}
 	if r.Len() >= 1 {

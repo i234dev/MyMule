@@ -6,17 +6,21 @@ FreeBSD, and ARM boards or NAS devices.
 
 ## Features
 
-- Server search with type, size and extension filters
+- Search on the connected server, or on every known server at once
+  (`search -global`, over UDP)
 - Downloads from eD2K peers, with MD4 verification of every 9.28 MB part:
   corrupt parts are thrown away and downloaded again
+- Sources from every server in the list (UDP), not only the connected one
+- Sharing and uploads: shared folders, completed downloads and the verified
+  parts of partial downloads; upload queue, slots taken in turns, speed limit
 - Resume after a stop, a crash or a reboot
 - HighID support (listen port) and server callbacks to reach firewalled peers
 - Runs as a background daemon, controlled with short commands
   (`status`, `add`, `pause`, `cancel`...) over a local, token-protected API
+- `mymule top`: live full-screen view of downloads, uploads and sharing
 - Portable: settings and data live next to the executable
 
-Not implemented yet: uploading/sharing, Kad, protocol obfuscation,
-UDP source requests to other servers.
+Not implemented yet: Kad, protocol obfuscation, credits.
 
 ## Quick start
 
@@ -28,7 +32,7 @@ mymule servers update        # fetch a server list
 mymule start                 # start the engine in the background
 mymule search -links ubuntu  # search; -links prints ed2k:// links
 mymule add "ed2k://|file|...|/"
-mymule status -w 5s          # watch progress
+mymule top                   # live view (q to quit)
 mymule stop
 ```
 
@@ -47,7 +51,18 @@ nick = MyMule
 temp_dir = temp        # partial downloads (relative or absolute path)
 download_dir = downloads
 max_conns = 40
+sharing = true         # master switch: false = share and upload nothing
+share_downloads = true # share download_dir (partial downloads: verified parts only)
+shared_dirs =          # more folders to share, separated by ';'
+upload_slots = 3       # peers served at the same time; the rest queue
+upload_limit = 100     # KB/s, 0 = no limit
 ```
+
+Settings added in newer versions are appended to an existing file, with
+their comments, so you can see them.
+
+Shared files are hashed in the background the first time (this reads the
+whole file); the result is cached in `known.json`, so restarts are instant.
 
 Command-line flags (`-port`, `-server`, `-o`...) override the file for one run.
 Set `MYMULE_HOME` to keep data somewhere other than the executable's folder,

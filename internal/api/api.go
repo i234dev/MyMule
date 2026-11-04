@@ -9,6 +9,8 @@ package api
 import (
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/share"
+	"mymule/internal/upload"
 )
 
 // InfoFile is the name of the discovery file in the data directory.
@@ -25,6 +27,8 @@ type Info struct {
 type Status struct {
 	Server download.ServerStatus `json:"server"`
 	Files  []download.FileStatus `json:"files"`
+	Upload *upload.Status        `json:"upload,omitempty"`
+	Shared *share.Status         `json:"shared,omitempty"`
 }
 
 // AddRequest is the body of POST /v1/add.
@@ -47,6 +51,8 @@ type SearchRequest struct {
 	Max   uint64 `json:"max,omitempty"`
 	Ext   string `json:"ext,omitempty"`
 	More  int    `json:"more,omitempty"`
+	// Global also asks every known server over UDP (takes a few seconds).
+	Global bool `json:"global,omitempty"`
 }
 
 // SearchResult is one file found by a search.

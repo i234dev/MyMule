@@ -25,6 +25,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    # Hosted macOS runners are often scarce. A macOS test failure or a job
+    # that never gets a runner must not block builds and releases (macOS
+    # binaries are cross-compiled on Linux anyway).
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
 

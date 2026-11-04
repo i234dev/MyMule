@@ -15,6 +15,8 @@ var (
 	procGetConsoleScreenBufferInfo = kernel32.NewProc("GetConsoleScreenBufferInfo")
 	procSetConsoleOutputCP         = kernel32.NewProc("SetConsoleOutputCP")
 	procGetConsoleOutputCP         = kernel32.NewProc("GetConsoleOutputCP")
+	procSetConsoleCP               = kernel32.NewProc("SetConsoleCP")
+	procGetConsoleCP               = kernel32.NewProc("GetConsoleCP")
 )
 
 const (
@@ -22,6 +24,7 @@ const (
 	enableVirtualTerminalProcessing = 0x0004
 	enableLineInput                 = 0x0002
 	enableEchoInput                 = 0x0004
+	enableVirtualTerminalInput      = 0x0200 // arrow keys arrive as escape sequences
 )
 
 func getMode(f *os.File) (uint32, bool) {
@@ -49,14 +52,17 @@ func termSetup() (restore func(), ok bool) {
 	cp, _, _ := procGetConsoleOutputCP.Call()
 	procSetConsoleOutputCP.Call(65001)
 
+	inCP, _, _ := procGetConsoleCP.Call()
+	procSetConsoleCP.Call(65001) // typed text arrives as UTF-8
 	inMode, inOK := getMode(os.Stdin)
 	if inOK {
 		// Keep processed input so Ctrl+C still works.
-		setMode(os.Stdin, inMode&^(enableLineInput|enableEchoInput))
+		setMode(os.Stdin, (inMode&^(enableLineInput|enableEchoInput))|enableVirtualTerminalInput)
 	}
 	return func() {
 		setMode(os.Stdout, outMode)
 		procSetConsoleOutputCP.Call(cp)
+		procSetConsoleCP.Call(inCP)
 		if inOK {
 			setMode(os.Stdin, inMode)
 		}

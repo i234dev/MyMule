@@ -128,10 +128,23 @@ func speed(bps float64) string { return humanSize(uint64(bps)) + "/s" }
 func renderTop(st *api.Status, fetchErr error, w, h int, now time.Time) []string {
 	w = max(w, 20)
 	h = max(h, 5)
-	var lines []string
+	lines := []string{headerLine(st, w, now)}
 	add := func(segs ...seg) { lines = append(lines, fit(segs, w, false)) }
 
-	// Header.
+	if fetchErr != nil || st == nil {
+		if fetchErr == nil {
+			fetchErr = fmt.Errorf("waiting for the daemon")
+		}
+		add()
+		add(seg{"  " + fetchErr.Error(), sRed})
+		add(seg{"  Start the daemon with 'mymule start'. Retrying every second...", sDim})
+		return finishFrame(lines, w, h)
+	}
+	return renderBody(st, lines, w, h)
+}
+
+// headerLine is the reverse-video bar at the top of every screen.
+func headerLine(st *api.Status, w int, now time.Time) string {
 	var down, upSpeed float64
 	srv := "not connected"
 	if st != nil {
@@ -155,14 +168,12 @@ func renderTop(st *api.Status, fetchErr error, w, h int, now time.Time) []string
 	if gap > 0 {
 		header += strings.Repeat(" ", gap) + clock
 	}
-	lines = append(lines, fit([]seg{{header, sReverse + sBold}}, w, true))
+	return fit([]seg{{header, sReverse + sBold}}, w, true)
+}
 
-	if fetchErr != nil {
-		add()
-		add(seg{"  " + fetchErr.Error(), sRed})
-		add(seg{"  Start the daemon with 'mymule start'. Retrying every second...", sDim})
-		return finishFrame(lines, w, h)
-	}
+// renderBody draws downloads, uploads and shared files below the header.
+func renderBody(st *api.Status, lines []string, w, h int) []string {
+	add := func(segs ...seg) { lines = append(lines, fit(segs, w, false)) }
 
 	// Column widths depend on the terminal width.
 	wide := w >= 100
@@ -345,18 +356,39 @@ func cmdTop(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Keyboard: raw chunks from stdin, decoded in the loop.
+	keysCh := make(chan []byte, 16)
 	go func() {
-		b := make([]byte, 1)
+		b := make([]byte, 256)
 		for {
-			if n, err := os.Stdin.Read(b); err != nil || n == 0 {
+			n, err := os.Stdin.Read(b)
+			if err != nil {
 				return
 			}
-			if b[0] == 'q' || b[0] == 'Q' || b[0] == 3 {
-				stop()
-				return
+			if n > 0 {
+				keysCh <- append([]byte(nil), b[:n]...)
 			}
 		}
 	}()
+
+	var backend searchBackend = daemonBackend{}
+	if *demo {
+		backend = demoBackend{}
+	}
+	type searchResult struct {
+		id  int
+		res []api.SearchResult
+		err error
+	}
+	type addResult struct {
+		items []api.SearchResult
+		resp  api.AddResponse
+		err   error
+	}
+	searchCh := make(chan searchResult, 4)
+	addCh := make(chan addResult, 4)
+	ui := newSearchUI()
 
 	var (
 		client  *api.Client
@@ -371,6 +403,24 @@ func cmdTop(args []string) error {
 	for {
 		w, h := termSize()
 		resized := w != lastW || h != lastH
+
+		// Run what the last key presses asked for, in the background.
+		if req := ui.wantSearch; req != nil {
+			ui.wantSearch = nil
+			id := ui.searchID
+			go func() {
+				res, err := backend.search(*req)
+				searchCh <- searchResult{id, res, err}
+			}()
+		}
+		if items := ui.wantAdd; items != nil {
+			ui.wantAdd = nil
+			go func() {
+				resp, err := backend.add(items)
+				addCh <- addResult{items, resp, err}
+			}()
+		}
+
 		if time.Since(fetched) >= *interval && *demo {
 			fetched = time.Now()
 			st, err = demoStatus(time.Since(demoStart)), nil
@@ -395,7 +445,7 @@ func cmdTop(args []string) error {
 		}
 		if resized {
 			lastW, lastH = w, h
-			frame := renderTop(st, err, w, h, time.Now())
+			frame := ui.render(st, err, w, h, time.Now())
 			var b strings.Builder
 			b.WriteString("\x1b[H")
 			for i, l := range frame {
@@ -412,6 +462,21 @@ func cmdTop(args []string) error {
 		case <-ctx.Done():
 			return nil
 		case <-tick.C:
+		case chunk := <-keysCh:
+			for _, k := range parseKeys(chunk) {
+				ui.handleKey(k, h)
+			}
+			if ui.quit {
+				return nil
+			}
+			lastW = -1 // redraw now
+		case r := <-searchCh:
+			ui.searchDone(r.id, r.res, r.err)
+			lastW = -1
+		case r := <-addCh:
+			ui.addDone(r.items, r.resp, r.err)
+			fetched = time.Time{} // refresh the status so the new download shows up
+			lastW = -1
 		}
 	}
 }

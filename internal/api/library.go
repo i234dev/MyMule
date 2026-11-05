@@ -33,7 +33,9 @@ func (r *REST) getPrefs(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *REST) putPrefs(w http.ResponseWriter, req *http.Request) {
-	var p prefs.Preferences
+	// Start from the current preferences: a request may send only one
+	// section (e.g. {"library": {...}}).
+	p := r.prefs.Get()
 	if !decode(w, req, &p) {
 		return
 	}

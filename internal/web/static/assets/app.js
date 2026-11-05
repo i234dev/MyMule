@@ -31,6 +31,17 @@ const STRINGS = {
     "media.why.sources outside eD2K (Kad/torrent/usenet)": "only found on Kad/torrent: may not download",
     "media.why.cam or screener copy": "cam or screener copy",
     "media.why.bigger than the maximum size": "too big",
+    "set.search": "Choosing files for movies and series",
+    "set.searchhint": "How the files found for a movie or series are sorted and which ones are recommended.",
+    "set.langs": "Audio languages, best first",
+    "set.langshint": "Language codes separated by commas: es (Spanish), es-419 (Latin American Spanish), en, fr, de, it, ca, pt… Empty = your browser's language.",
+    "set.subs": "Original version with subtitles is fine too",
+    "set.res": "Preferred resolution",
+    "set.maxsize": "Maximum size (GB, 0 = no limit)",
+    "set.nocam": "Hide cam and screener copies",
+    "media.wholeseason": "Whole season",
+    "media.seasonn": "Season {n}",
+    "media.episodes": "{n} episodes",
     "tab.settings": "Settings",
     "set.library": "Movie and series library",
     "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.",
@@ -106,6 +117,17 @@ const STRINGS = {
     "media.why.sources outside eD2K (Kad/torrent/usenet)": "solo está en Kad/torrent: puede que no baje",
     "media.why.cam or screener copy": "copia de cine (CAM) o screener",
     "media.why.bigger than the maximum size": "demasiado grande",
+    "set.search": "Elegir ficheros de películas y series",
+    "set.searchhint": "Cómo se ordenan los ficheros encontrados para una película o serie y cuáles se recomiendan.",
+    "set.langs": "Idiomas del audio, por orden de preferencia",
+    "set.langshint": "Códigos de idioma separados por comas: es (castellano), es-419 (español latino), en, fr, de, it, ca, pt… Vacío = el idioma de tu navegador.",
+    "set.subs": "También me vale la versión original con subtítulos",
+    "set.res": "Resolución preferida",
+    "set.maxsize": "Tamaño máximo (GB, 0 = sin límite)",
+    "set.nocam": "Ocultar copias de cine (CAM) y screeners",
+    "media.wholeseason": "Temporada completa",
+    "media.seasonn": "Temporada {n}",
+    "media.episodes": "{n} episodios",
     "tab.settings": "Ajustes",
     "set.library": "Biblioteca de películas y series",
     "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar y mover a sus propias carpetas al terminar. Deja una carpeta vacía para que se queden en la carpeta de descargas.",
@@ -265,11 +287,12 @@ $("#login-form").addEventListener("submit", async e => {
   start();
 });
 
-$("#logout").addEventListener("click", async () => {
+async function logout() {
   await fetch("/web/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
   status = null;
   showLogin();
-});
+}
+$("#logout").addEventListener("click", logout);
 
 // ---------- Tabs ----------
 let currentTab = "downloads";
@@ -601,10 +624,53 @@ function openWork(w) {
     $("#w-season").value = "";
     $("#w-episode").value = "";
     showMsg($("#rel-msg"), t("media.pickseason"));
-    $("#w-season").focus();
+    setPickers(false);
+    loadSeasons(w);
   } else {
     findReleases();
   }
+}
+
+// setPickers shows season/episode lists (known seasons) or number boxes.
+function setPickers(lists) {
+  document.querySelectorAll("#episode-form .pick-list").forEach(n => { n.hidden = !lists; });
+  document.querySelectorAll("#episode-form .pick-num").forEach(n => { n.hidden = lists; });
+}
+
+async function loadSeasons(w) {
+  let seasons = [];
+  try {
+    const r = await api("GET", "/api/v1/media/" + encodeURIComponent(w.id) + "?" + new URLSearchParams({ lang: MEDIA_LANG }));
+    seasons = (r.work && r.work.seasons) || [];
+  } catch { /* numbers then */ }
+  if (currentWork !== w) return;
+  if (!seasons.length) { setPickers(false); $("#w-season").focus(); return; }
+  $("#w-season-sel").replaceChildren(...seasons.map(s => el("option", { value: s.number,
+    text: (s.name || t("media.seasonn", { n: s.number })) + (s.episodes ? " · " + t("media.episodes", { n: s.episodes }) : "") })));
+  setPickers(true);
+  loadEpisodes(w);
+}
+
+async function loadEpisodes(w) {
+  const season = $("#w-season-sel").value;
+  const sel = $("#w-episode-sel");
+  sel.replaceChildren(el("option", { value: "", text: t("media.wholeseason") }));
+  try {
+    const r = await api("GET", "/api/v1/media/" + encodeURIComponent(w.id) + "/season/" + season + "?" + new URLSearchParams({ lang: MEDIA_LANG }));
+    if (currentWork !== w || $("#w-season-sel").value !== season) return;
+    sel.append(...(r.episodes || []).map(e => el("option", { value: e.number,
+      text: e.number + (e.name ? " · " + e.name : "") })));
+  } catch { /* the whole season can still be searched */ }
+}
+
+$("#w-season-sel").addEventListener("change", () => { if (currentWork) loadEpisodes(currentWork); });
+
+// pickedEpisode is the season and episode chosen (0 = any).
+function pickedEpisode() {
+  const lists = !$("#episode-form .pick-list").hidden;
+  const season = Number(lists ? $("#w-season-sel").value : $("#w-season").value) || 0;
+  const episode = Number(lists ? $("#w-episode-sel").value : $("#w-episode").value) || 0;
+  return { season, episode };
 }
 
 $("#episode-form").addEventListener("submit", e => { e.preventDefault(); findReleases(); });
@@ -614,8 +680,9 @@ async function findReleases() {
   const w = currentWork;
   const params = new URLSearchParams({ lang: MEDIA_LANG });
   if (w.kind === "series") {
-    if ($("#w-season").value) params.set("season", $("#w-season").value);
-    if ($("#w-episode").value) params.set("episode", $("#w-episode").value);
+    const p = pickedEpisode();
+    if (p.season) params.set("season", p.season);
+    if (p.episode) params.set("episode", p.episode);
   }
   const titles = [w.title, w.original_title].filter((x, i, a) =>
     x && a.findIndex(y => y && y.toLowerCase() === x.toLowerCase()) === i);
@@ -696,8 +763,9 @@ async function downloadRelease(r) {
   const w = currentWork, msg = $("#rel-msg");
   const body = { link: r.link, work_id: w.id, lang: MEDIA_LANG };
   if (w.kind === "series") {
-    body.season = Number($("#w-season").value) || 0;
-    body.episode = Number($("#w-episode").value) || 0;
+    const p = pickedEpisode();
+    body.season = p.season;
+    body.episode = p.episode;
   }
   try {
     const res = await api("POST", "/api/v1/media/download", body);
@@ -745,6 +813,12 @@ async function loadSettings() {
     fillPresets($("#set-series-preset"), presets.series, l.series_template);
     document.querySelectorAll('input[name="set-title"]').forEach(r => { r.checked = (r.value === "original") === !!l.original_titles; });
     $("#set-share").checked = !!l.share;
+    const sp = r.preferences.search;
+    $("#set-langs").value = (sp.languages || []).join(", ");
+    $("#set-subs").checked = !!sp.subs;
+    $("#set-res").value = sp.resolution || "1080p";
+    $("#set-maxsize").value = sp.max_size_gb || 0;
+    $("#set-nocam").checked = !!sp.hide_cam;
     prefsLoaded = true;
     preview();
   } catch (err) {
@@ -790,6 +864,24 @@ for (const k of ["movie", "series"]) {
   });
 }
 document.querySelectorAll('input[name="set-title"]').forEach(r => r.addEventListener("change", preview));
+
+$("#search-prefs").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("#search-prefs-msg");
+  const search = {
+    languages: $("#set-langs").value.split(/[\s,;]+/).filter(Boolean),
+    subs: $("#set-subs").checked,
+    resolution: $("#set-res").value,
+    max_size_gb: Number($("#set-maxsize").value) || 0,
+    hide_cam: $("#set-nocam").checked,
+  };
+  try {
+    await api("PUT", "/api/v1/preferences", { search });
+    showMsg(msg, t("set.saved"), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+});
 
 $("#lib-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -859,16 +951,17 @@ function showTerms(mustAccept) {
   $("#terms-accept").textContent = mustAccept ? T.accept : T.close;
   $("#terms-decline").textContent = T.decline;
   $("#terms-decline").hidden = !mustAccept;
-  dlg.returnValue = "";
-  dlg.onclose = () => {
-    if (!mustAccept) return;
-    if (dlg.returnValue === "accept") {
+  $("#terms-accept").onclick = () => {
+    if (mustAccept) {
       try { localStorage.setItem("mymule.terms", TERMS_VERSION); } catch {}
-    } else {
-      $("#logout").click();
     }
+    dlg.close();
   };
-  // Esc would close it without an answer: treat it as "not yet".
+  $("#terms-decline").onclick = () => {
+    dlg.close();
+    logout();
+  };
+  // Esc would close it without an answer.
   dlg.oncancel = e => { if (mustAccept) e.preventDefault(); };
   dlg.showModal();
 }

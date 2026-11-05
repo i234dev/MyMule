@@ -319,3 +319,46 @@ func (t *TMDB) EpisodeTitle(ctx context.Context, id string, season, episode int,
 	t.store(key, r.Name)
 	return r.Name, nil
 }
+
+// Episode of a season.
+type Episode struct {
+	Number  int    `json:"number"`
+	Name    string `json:"name,omitempty"`
+	AirDate string `json:"air_date,omitempty"`
+}
+
+// SeasonLister lists the episodes of a season, when the source knows them.
+type SeasonLister interface {
+	SeasonEpisodes(ctx context.Context, id string, season int, lang string) ([]Episode, error)
+}
+
+// SeasonEpisodes lists the episodes of a season of a TMDB series.
+func (t *TMDB) SeasonEpisodes(ctx context.Context, id string, season int, lang string) ([]Episode, error) {
+	kind, n, ok := ParseTMDBID(id)
+	if !ok || kind != Series || season < 0 || season > 500 {
+		return nil, fmt.Errorf("not a TMDB series: %q", id)
+	}
+	lang = tmdbLang(lang)
+	key := fmt.Sprintf("season|%s|%d|%d", lang, n, season)
+	if v, ok := t.cached(key); ok {
+		return v.([]Episode), nil
+	}
+	var r struct {
+		Episodes []struct {
+			Number  int    `json:"episode_number"`
+			Name    string `json:"name"`
+			AirDate string `json:"air_date"`
+		} `json:"episodes"`
+	}
+	if err := t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", n, season), url.Values{"language": {lang}}, &r); err != nil {
+		return nil, err
+	}
+	eps := []Episode{}
+	for _, e := range r.Episodes {
+		eps = append(eps, Episode{Number: e.Number, Name: e.Name, AirDate: e.AirDate})
+		// Episode titles are cached too, for renaming.
+		t.store(fmt.Sprintf("episode|%s|%d|%d|%d", lang, n, season, e.Number), e.Name)
+	}
+	t.store(key, eps)
+	return eps, nil
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -17,12 +18,28 @@ import (
 // Preferences edited from the web interface.
 type Preferences struct {
 	Library library.Settings `json:"library"`
+	Search  Search           `json:"search"`
+}
+
+// Search says which files of a movie or series are preferred.
+type Search struct {
+	Languages  []string `json:"languages"`   // audio languages, best first; empty = the browser's
+	Subs       bool     `json:"subs"`        // original version with subtitles is fine
+	Resolution string   `json:"resolution"`  // 2160p, 1080p, 720p or 480p
+	MaxSizeGB  float64  `json:"max_size_gb"` // 0 = no limit
+	HideCam    bool     `json:"hide_cam"`    // hide cam/telesync/screener copies
 }
 
 // Defaults are the preferences before the user changes anything.
 func Defaults() Preferences {
-	return Preferences{Library: library.DefaultSettings()}
+	return Preferences{Library: library.DefaultSettings(),
+		Search: Search{Subs: true, Resolution: "1080p", HideCam: true}}
 }
+
+var (
+	resolutions = map[string]bool{"2160p": true, "1080p": true, "720p": true, "480p": true}
+	langCodeRe  = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,4})?$`)
+)
 
 // Store loads and saves preferences.json.
 type Store struct {
@@ -38,6 +55,9 @@ func Open(path, base string) *Store {
 	s := &Store{path: path, base: base, p: Defaults()}
 	if b, err := os.ReadFile(path); err == nil {
 		json.Unmarshal(b, &s.p)
+	}
+	if s.p.Search.Resolution == "" {
+		s.p.Search = Defaults().Search
 	}
 	if s.p.Library.MovieTemplate == "" {
 		s.p.Library.MovieTemplate = library.MoviePresets[0]
@@ -76,6 +96,28 @@ func (s *Store) Set(p Preferences) error {
 	l := &p.Library
 	l.MoviesDir, l.SeriesDir = strings.TrimSpace(l.MoviesDir), strings.TrimSpace(l.SeriesDir)
 	l.MovieTemplate, l.SeriesTemplate = strings.TrimSpace(l.MovieTemplate), strings.TrimSpace(l.SeriesTemplate)
+	sp := &p.Search
+	var langs []string
+	for _, c := range sp.Languages {
+		c = strings.ToLower(strings.TrimSpace(c))
+		if c == "" {
+			continue
+		}
+		if !langCodeRe.MatchString(c) {
+			return fmt.Errorf("%q is not a language code (e.g. es, en, es-419)", c)
+		}
+		langs = append(langs, c)
+	}
+	if len(langs) > 8 {
+		return errors.New("too many languages (8 at most)")
+	}
+	sp.Languages = langs
+	if !resolutions[sp.Resolution] {
+		return errors.New("resolution must be 2160p, 1080p, 720p or 480p")
+	}
+	if sp.MaxSizeGB < 0 || sp.MaxSizeGB > 1000 {
+		return errors.New("the maximum size must be between 0 (no limit) and 1000 GB")
+	}
 	if err := library.CheckTemplate(l.MovieTemplate, false); err != nil {
 		return fmt.Errorf("movie template: %w", err)
 	}

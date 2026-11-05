@@ -73,8 +73,10 @@
           <p id="w-sub" class="muted"></p>
           <p id="w-desc"></p>
           <form id="episode-form" class="filters" hidden>
-            <label><span data-t="media.season">Season</span><input id="w-season" type="number" min="1" inputmode="numeric"></label>
-            <label><span data-t="media.episode">Episode</span><input id="w-episode" type="number" min="1" inputmode="numeric" data-tp="media.all" placeholder="all"></label>
+            <label class="pick-list"><span data-t="media.season">Season</span><select id="w-season-sel"></select></label>
+            <label class="pick-list"><span data-t="media.episode">Episode</span><select id="w-episode-sel"></select></label>
+            <label class="pick-num"><span data-t="media.season">Season</span><input id="w-season" type="number" min="1" inputmode="numeric"></label>
+            <label class="pick-num"><span data-t="media.episode">Episode</span><input id="w-episode" type="number" min="1" inputmode="numeric" data-tp="media.all" placeholder="all"></label>
             <button type="submit" class="primary small" data-t="search.submit">Search</button>
           </form>
           </div>
@@ -140,6 +142,22 @@
       <div id="slots" class="list"></div>
     </section>
     <section id="tab-settings" class="tab" hidden>
+      <form id="search-prefs" class="card settings">
+        <h2 data-t="set.search">Choosing files for movies and series</h2>
+        <p class="muted" data-t="set.searchhint">How the files found for a movie or series are sorted and which ones are recommended.</p>
+        <label class="field"><span data-t="set.langs">Audio languages, best first</span>
+          <input id="set-langs" type="text" autocomplete="off" spellcheck="false" placeholder="es, en"></label>
+        <p class="hint" data-t="set.langshint">Language codes separated by commas: es (Spanish), es-419 (Latin American Spanish), en, fr, de, it, ca, pt… Empty = your browser's language.</p>
+        <label class="inline"><input id="set-subs" type="checkbox"> <span data-t="set.subs">Original version with subtitles is fine too</span></label>
+        <label class="field"><span data-t="set.res">Preferred resolution</span>
+          <select id="set-res"><option value="2160p">2160p (4K)</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p / SD</option></select></label>
+        <label class="field"><span data-t="set.maxsize">Maximum size (GB, 0 = no limit)</span>
+          <input id="set-maxsize" type="number" min="0" step="0.5" inputmode="decimal"></label>
+        <label class="inline"><input id="set-nocam" type="checkbox"> <span data-t="set.nocam">Hide cam and screener copies</span></label>
+        <p id="search-prefs-msg" class="msg" hidden></p>
+        <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
+      </form>
+
       <form id="lib-form" class="card settings">
         <h2 data-t="set.library">Movie and series library</h2>
         <p class="muted" data-t="set.libhint">Movies and episodes you download from the Movies &amp; series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.</p>
@@ -189,8 +207,8 @@
     <ol id="terms-items"></ol>
     <p id="terms-outro" class="muted"></p>
     <div class="dialog-buttons">
-      <button value="decline" id="terms-decline" class="ghost"></button>
-      <button value="accept" id="terms-accept" class="primary"></button>
+      <button type="button" id="terms-decline" class="ghost"></button>
+      <button type="button" id="terms-accept" class="primary"></button>
     </div>
   </form>
 </dialog>

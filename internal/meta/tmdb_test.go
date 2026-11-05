@@ -46,6 +46,12 @@ func fakeTMDB(t *testing.T) *TMDB {
 			"seasons": []any{map[string]any{"season_number": 0, "episode_count": 3}, map[string]any{"season_number": 1, "episode_count": 10, "name": "Temporada 1"}},
 		})
 	})
+	mux.HandleFunc("/tv/22/season/1", func(w http.ResponseWriter, r *http.Request) {
+		check(r)
+		json.NewEncoder(w).Encode(map[string]any{"episodes": []any{
+			map[string]any{"episode_number": 1, "name": "Primer Episodio", "air_date": "2001-01-01"},
+			map[string]any{"episode_number": 2, "name": "Segundo Episodio"}}})
+	})
 	mux.HandleFunc("/movie/404", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -83,6 +89,13 @@ func TestTMDB(t *testing.T) {
 	}
 	if !reflect.DeepEqual(s.Seasons, []Season{{Number: 1, Episodes: 10, Name: "Temporada 1"}}) {
 		t.Fatalf("seasons: %+v", s.Seasons)
+	}
+	eps, err := tm.SeasonEpisodes(context.Background(), "tmdb-tv-22", 1, "es-ES")
+	if err != nil || len(eps) != 2 || eps[1].Name != "Segundo Episodio" {
+		t.Fatalf("episodes: %+v %v", eps, err)
+	}
+	if name, _ := tm.EpisodeTitle(context.Background(), "tmdb-tv-22", 1, 1, "es-ES"); name != "Primer Episodio" {
+		t.Fatalf("episode title from the season list: %q", name)
 	}
 	if _, err := tm.Get(context.Background(), "tmdb-movie-404", "es"); err == nil || strings.Contains(err.Error(), "api_key") {
 		t.Fatalf("error should not reveal the key: %v", err)

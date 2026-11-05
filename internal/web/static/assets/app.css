@@ -157,7 +157,8 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .tag.warn { color: var(--warn); border-color: currentColor; }
 
 /* Settings */
-.settings { display: grid; gap: 12px; max-width: 760px; }
+.settings { display: grid; gap: 12px; max-width: 760px; margin-bottom: 14px; }
+#episode-form select { max-width: 280px; }
 .settings h2 { margin: 0; }
 .settings p { margin: 0; }
 .field { display: grid; gap: 4px; font-size: 14px; border: 0; padding: 0; margin: 0; }

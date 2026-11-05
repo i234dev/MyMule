@@ -23,6 +23,39 @@ func (r *REST) EnableMedia(src meta.Source) {
 	r.media = src
 	r.mux.HandleFunc("GET /api/v1/media/search", r.mediaSearch)
 	r.mux.HandleFunc("GET /api/v1/media/{id}/releases", r.mediaReleases)
+	r.mux.HandleFunc("GET /api/v1/media/{id}", r.mediaGet)
+	r.mux.HandleFunc("GET /api/v1/media/{id}/season/{n}", r.mediaSeason)
+}
+
+// mediaGet returns a work with its details (seasons of a series).
+func (r *REST) mediaGet(w http.ResponseWriter, req *http.Request) {
+	work, err := r.media.Get(req.Context(), req.PathValue("id"), reqLang(req))
+	if err != nil {
+		fail(w, http.StatusBadGateway, errors.New("movie database: "+err.Error()))
+		return
+	}
+	reply(w, map[string]any{"work": work})
+}
+
+// mediaSeason lists the episodes of a season ([] when unknown).
+func (r *REST) mediaSeason(w http.ResponseWriter, req *http.Request) {
+	n, err := strconv.Atoi(req.PathValue("n"))
+	if err != nil || n < 0 {
+		fail(w, http.StatusBadRequest, errors.New("season must be a number"))
+		return
+	}
+	eps := []meta.Episode{}
+	if sl, ok := r.media.(meta.SeasonLister); ok {
+		list, err := sl.SeasonEpisodes(req.Context(), req.PathValue("id"), n, reqLang(req))
+		if err != nil {
+			fail(w, http.StatusBadGateway, errors.New("movie database: "+err.Error()))
+			return
+		}
+		if list != nil {
+			eps = list
+		}
+	}
+	reply(w, map[string]any{"episodes": eps})
 }
 
 func reqLang(req *http.Request) string {
@@ -84,6 +117,14 @@ func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	prefs := release.Prefs{Languages: []string{lang}, Subs: true, Resolution: "1080p", NoCam: true}
+	if r.prefs != nil {
+		sp := r.prefs.Get().Search
+		if len(sp.Languages) > 0 {
+			prefs.Languages = sp.Languages
+		}
+		prefs.Subs, prefs.Resolution, prefs.NoCam = sp.Subs, sp.Resolution, sp.HideCam
+		prefs.MaxSize = int64(sp.MaxSizeGB * (1 << 30))
+	}
 
 	// One eD2K search per title, at the same time. Results from the
 	// different searches may get mixed, which doesn't matter: every

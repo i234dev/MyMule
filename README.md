@@ -118,11 +118,15 @@ with the `api_key` from `mymule.conf`. It has five tabs:
   similar names) and shows them with their language, resolution, source,
   size and sources, the recommended one first. Files with no sources,
   only found on Kad/torrent, or cam copies are hidden but can be shown.
-  For series, choose a season and optionally an episode.
+  For series, pick a season and an episode from the lists (with episode
+  titles), or the whole season.
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.
-- **Settings**: the movie and series library (see below).
+- **Settings**: how files for movies and series are chosen (audio
+  languages in order of preference, original version with subtitles,
+  preferred resolution, maximum size, hide cam copies) and the movie and
+  series library (see below).
 
 It works on phones, follows the system's light or dark theme and is shown
 in English or Spanish depending on the browser's language.

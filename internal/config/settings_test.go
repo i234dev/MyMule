@@ -59,6 +59,7 @@ func TestSettingsParse(t *testing.T) {
 		"upload_limit = 0",
 		"api_listen = 0.0.0.0:8080",
 		"api_key = example-key-0123456789",
+		"arr_support = true",
 		"search_languages = ES, pt-br",
 	}
 	os.WriteFile(filepath.Join(home, SettingsFile), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
@@ -70,7 +71,7 @@ func TestSettingsParse(t *testing.T) {
 		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10,
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
-		SearchLanguages: []string{"es", "pt-br"}}
+		ArrSupport: true, SearchLanguages: []string{"es", "pt-br"}}
 	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("got %+v\nwant %+v", s, want)
 	}
@@ -79,7 +80,7 @@ func TestSettingsParse(t *testing.T) {
 func TestSettingsErrors(t *testing.T) {
 	for _, bad := range []string{"port = 99999", "max_conns = 0", "portt = 1", "just text",
 		"share_downloads = maybe", "upload_slots = 0", "upload_limit = -1",
-		"api_listen = 4711", "api_key = short", "search_languages = spanish"} {
+		"api_listen = 4711", "api_key = short", "search_languages = spanish", "arr_support = yes please"} {
 		var s Settings
 		if _, err := parseSettings(bad, &s); err == nil {
 			t.Errorf("%q accepted", bad)

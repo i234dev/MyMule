@@ -9,12 +9,18 @@ The *arr apps don't know about eD2K. They only talk to **indexers**
   and port, receives what the app chose and reports progress until the app
   imports the file.
 
-Everything runs inside the MyMule daemon and uses the same `api_listen` and
-`api_key` as the [HTTP API](API.md).
+Everything runs inside the MyMule daemon, only when `arr_support = true`,
+and uses the same `api_listen` and `api_key` as the [HTTP API](API.md).
 
-## 1. Make MyMule reachable from the apps
+## 1. Turn it on and make MyMule reachable from the apps
 
-In `mymule.conf`:
+This support is off by default. In `mymule.conf`, set:
+
+```ini
+arr_support = true
+```
+
+Then choose where the API listens:
 
 - Apps on **the same computer** (not in Docker): keep the default,
   `api_listen = 127.0.0.1:4711`.
@@ -83,7 +89,8 @@ app must see that folder **at the same path**:
 
 Radarr and Sonarr search by the original or English title, but many files
 on eD2K are named in the uploader's language ("La noche de los muertos
-vivientes" rather than "Night of the Living Dead"). Add the language codes
+vivientes" rather than "Night of the Living Dead"). With `arr_support` on,
+add the language codes
 you want to `mymule.conf` and restart the daemon:
 
 ```ini

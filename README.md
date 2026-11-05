@@ -65,6 +65,7 @@ upload_slots = 3       # peers served at the same time; the rest queue
 upload_limit = 100     # KB/s, 0 = no limit
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
+arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see below)
 search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
 ```
 
@@ -107,6 +108,9 @@ source. It is most useful for what is hard to find on torrents: dubbed
 versions, older films and series, rare releases. The apps don't need any
 plugin: MyMule speaks the protocols they already know.
 
+It is **off by default**: set `arr_support = true` in `mymule.conf` to turn
+it on. With it off, none of these endpoints exist.
+
 ### What is supported
 
 | Feature | Details |
@@ -119,7 +123,8 @@ plugin: MyMule speaks the protocols they already know.
 
 ### Quick setup
 
-1. In `mymule.conf`, keep `api_listen = 127.0.0.1:4711` if the apps run on
+1. In `mymule.conf`, set `arr_support = true`. Keep
+   `api_listen = 127.0.0.1:4711` if the apps run on
    the same computer, or use `0.0.0.0:4711` if they run in Docker or on
    another machine of your network. Copy `api_key`. Optionally set
    `search_languages`. Restart the daemon.

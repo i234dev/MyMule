@@ -459,10 +459,12 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 	mux := http.NewServeMux()
 	rest := api.NewREST(m, settings.APIKey, version)
 	mux.Handle("/api/v1/", rest)
-	store, _ := config.Path("arr.json")
-	arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
-		StorePath: store, Log: logf, Languages: settings.SearchLanguages,
-		UserAgent: "MyMule/" + version + " (https://github.com/i234dev/MyMule)"}).Routes(mux)
+	if settings.ArrSupport {
+		store, _ := config.Path("arr.json")
+		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
+			StorePath: store, Log: logf, Languages: settings.SearchLanguages,
+			UserAgent: "MyMule/" + version + " (https://github.com/i234dev/MyMule)"}).Routes(mux)
+	}
 	return mux
 }
 
@@ -482,8 +484,11 @@ func startPublicAPI(m *download.Manager, downloadDir string) func() {
 	go hs.Serve(ln)
 	// The key is never logged: logs get pasted into bug reports.
 	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
-	if len(settings.SearchLanguages) > 0 {
-		logf("*arr searches also use titles in: %s (from Wikidata)", strings.Join(settings.SearchLanguages, ", "))
+	if settings.ArrSupport {
+		logf("Radarr/Sonarr support on: Torznab at /torznab, qBittorrent API at /api/v2")
+		if len(settings.SearchLanguages) > 0 {
+			logf("*arr searches also use titles in: %s (from Wikidata)", strings.Join(settings.SearchLanguages, ", "))
+		}
 	}
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

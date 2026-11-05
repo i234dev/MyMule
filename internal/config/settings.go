@@ -34,6 +34,10 @@ type Settings struct {
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
 
+	// ArrSupport turns on the Torznab indexer and the qBittorrent-
+	// compatible API for Radarr, Sonarr and the like. Off by default.
+	ArrSupport bool
+
 	// SearchLanguages are language codes (e.g. "es") whose titles the
 	// *arr indexer also searches for, looked up on Wikidata. Empty = off.
 	SearchLanguages []string
@@ -93,7 +97,9 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
 		func(s Settings) string { return s.APIKey }},
-	{"search_languages", "Radarr/Sonarr only search by the original or English title. List\nlanguage codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
+	{"arr_support", "Radarr, Sonarr, Lidarr, Readarr and Prowlarr support (see docs/ARR.md):\ntrue serves a Torznab indexer and a qBittorrent-compatible API on\napi_listen. false = off.",
+		func(s Settings) string { return strconv.FormatBool(s.ArrSupport) }},
+	{"search_languages", "With arr_support: Radarr/Sonarr only search by the original or English\ntitle. List language codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
 		func(s Settings) string { return strings.Join(s.SearchLanguages, ", ") }},
 }
 
@@ -283,6 +289,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: upload_limit must be 0 (no limit) or a speed in KB/s", line)
 			}
 			s.UploadLimit = n
+		case "arr_support":
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: arr_support must be true or false", line)
+			}
+			s.ArrSupport = b
 		case "search_languages":
 			s.SearchLanguages = nil
 			for _, l := range strings.FieldsFunc(val, func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {

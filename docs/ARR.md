@@ -88,8 +88,8 @@ app must see that folder **at the same path**:
 ## 5. Optional: search in your language
 
 Radarr and Sonarr search by the original or English title, but many files
-on eD2K are named in the uploader's language ("La noche de los muertos
-vivientes" rather than "Night of the Living Dead"). With `arr_support` on,
+on eD2K are named in the uploader's language ("La película de ejemplo"
+rather than "The Example Movie"). With `arr_support` on,
 add the language codes
 you want to `mymule.conf` and restart the daemon:
 

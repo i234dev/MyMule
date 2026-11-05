@@ -101,10 +101,20 @@ web_ui = true
 ```
 
 Then open `http://127.0.0.1:4711/` (the `api_listen` address) and log in
-with the `api_key` from `mymule.conf`. It has three tabs:
+with the `api_key` from `mymule.conf`. It has four tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
   resume, cancel, clear finished, and add `ed2k://` links.
+- **Movies & series**: search a movie or series by title, in your
+  browser's language, and pick it from a list (title, year, original
+  title). MyMule then searches eD2K by all its titles (yours, the original
+  and alternative ones), keeps only the files of that work (not remakes,
+  episodes of other shows or other movies with similar names) and shows
+  them with their language, resolution, source, size and sources, the
+  recommended one first. Files with no sources, only found on Kad/torrent,
+  or cam copies are hidden but can be shown. For series, choose a season
+  and optionally an episode. Titles come from
+  [Wikidata](https://www.wikidata.org): only your search words are sent.
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.

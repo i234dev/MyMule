@@ -4,6 +4,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"mymule/internal/release"
 )
 
 // The *arr apps parse release names written for torrents and Usenet.
@@ -13,27 +15,8 @@ import (
 // Prefixes some servers add to names, e.g. "[kad example.org] ".
 var sourcePrefixRe = regexp.MustCompile(`(?i)^\s*\[(?:kad|torrent|usenet|ed2k|emule)\b[^\]]*\]\s*`)
 
-// Language tags common in eD2K names that the apps don't recognise
-// (e.g. "Spa.Eng", "ESP-ING", "[spa, eng]"), and the word they do.
-var languageTags = []struct {
-	word string
-	re   *regexp.Regexp
-}{
-	{"SPANISH", langRe(`spa|esp|castellano|español|espanol|spanish`)},
-	{"ENGLISH", langRe(`eng|ing|english`)},
-	{"FRENCH", langRe(`fre|fra|vff|vfq|truefrench|french`)},
-	{"GERMAN", langRe(`ger|deu|deutsch|german`)},
-	{"ITALIAN", langRe(`ita|italiano|italian`)},
-	{"CATALAN", langRe(`cat|català|catala|catalan`)},
-	// Not "por": it is also a common Spanish word ("... por Fulano").
-	{"PORTUGUESE", langRe(`portugues|português|portuguese`)},
-}
-
-// langRe matches one of the words as a whole word (letters only count as
-// word characters, so "Spa.Eng" and "[spa,eng]" both match).
-func langRe(words string) *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:` + words + `)(?:[^\p{L}]|$)`)
-}
+// Language tags (e.g. "Spa.Eng", "ESP-ING", "[spa, eng]") are recognised
+// with the table in package release; the apps get the full English word.
 
 var videoExts = map[string]bool{".mkv": true, ".avi": true, ".mp4": true, ".m4v": true,
 	".mpg": true, ".mpeg": true, ".ts": true, ".wmv": true, ".rmvb": true, ".divx": true}
@@ -54,9 +37,9 @@ func releaseTitle(name string) string {
 	}
 	lower := strings.ToLower(base)
 	var add []string
-	for _, l := range languageTags {
-		if l.re.MatchString(base) && !strings.Contains(lower, strings.ToLower(l.word)) {
-			add = append(add, l.word)
+	for _, l := range release.Languages {
+		if l.Re.MatchString(base) && !strings.Contains(lower, strings.ToLower(l.Word)) {
+			add = append(add, l.Word)
 		}
 	}
 	if len(add) == 0 {

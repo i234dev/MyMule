@@ -2,13 +2,10 @@ package arr
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 )
 
@@ -131,112 +128,4 @@ func searchText(s string) string {
 		return ' '
 	}, s)
 	return strings.Join(strings.Fields(s), " ")
-}
-
-// ---- Wikidata ----
-
-// Wikidata properties holding each kind of id.
-const (
-	propIMDb     = "P345"
-	propTMDBFilm = "P4947"
-	propTMDBTV   = "P4983"
-	propTVDB     = "P4835"
-)
-
-type wikidata struct {
-	client    *http.Client
-	userAgent string
-	endpoint  string // https://www.wikidata.org/w/api.php
-}
-
-func newWikidata(userAgent string) *wikidata {
-	return &wikidata{client: &http.Client{Timeout: 10 * time.Second}, userAgent: userAgent,
-		endpoint: "https://www.wikidata.org/w/api.php"}
-}
-
-func (w *wikidata) get(ctx context.Context, params url.Values, out any) error {
-	params.Set("format", "json")
-	req, err := http.NewRequestWithContext(ctx, "GET", w.endpoint+"?"+params.Encode(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", w.userAgent)
-	resp, err := w.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("wikidata: %s", resp.Status)
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-// entity finds the Wikidata item with the given id statement.
-func (w *wikidata) entity(ctx context.Context, prop, value string) (string, error) {
-	var r struct {
-		Query struct {
-			Search []struct {
-				Title string `json:"title"`
-			} `json:"search"`
-		} `json:"query"`
-	}
-	err := w.get(ctx, url.Values{"action": {"query"}, "list": {"search"}, "srlimit": {"1"},
-		"srsearch": {"haswbstatement:" + prop + "=" + value}}, &r)
-	if err != nil || len(r.Query.Search) == 0 {
-		return "", err
-	}
-	return r.Query.Search[0].Title, nil
-}
-
-// Titles returns the labels (and a couple of aliases) of the item in each
-// language, in the order of langs.
-func (w *wikidata) Titles(ctx context.Context, ids mediaIDs, langs []string) ([]string, error) {
-	tmdbProp := propTMDBFilm
-	if ids.TV {
-		tmdbProp = propTMDBTV
-	}
-	var q string
-	for _, c := range []struct{ prop, val string }{{propIMDb, ids.IMDb}, {tmdbProp, ids.TMDB}, {propTVDB, ids.TVDB}} {
-		if c.val == "" {
-			continue
-		}
-		var err error
-		if q, err = w.entity(ctx, c.prop, c.val); err != nil {
-			return nil, err
-		}
-		if q != "" {
-			break
-		}
-	}
-	if q == "" {
-		return nil, nil // not on Wikidata: nothing to add
-	}
-	var r struct {
-		Entities map[string]struct {
-			Labels  map[string]struct{ Value string }   `json:"labels"`
-			Aliases map[string][]struct{ Value string } `json:"aliases"`
-		} `json:"entities"`
-	}
-	err := w.get(ctx, url.Values{"action": {"wbgetentities"}, "ids": {q},
-		"props": {"labels|aliases"}, "languages": {strings.Join(langs, "|")}}, &r)
-	if err != nil {
-		return nil, err
-	}
-	e := r.Entities[q]
-	var out []string
-	for _, l := range langs {
-		if v := e.Labels[l].Value; v != "" {
-			out = append(out, v)
-		}
-	}
-	for _, l := range langs {
-		for i, a := range e.Aliases[l] {
-			if i == 2 {
-				break
-			}
-			out = append(out, a.Value)
-		}
-	}
-	return out, nil
 }

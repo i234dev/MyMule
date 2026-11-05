@@ -130,6 +130,25 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Movies & series */
+.works { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 14px; }
+.work { text-align: left; display: grid; gap: 4px; align-content: start; padding: 14px; white-space: normal; }
+.work .wt { font-weight: 700; font-size: 16px; }
+.work .wo, .work .wd { font-size: 13px; color: var(--muted); }
+.work-head { margin-top: 10px; display: grid; gap: 4px; }
+.work-head h2 { margin: 0; font-size: 20px; }
+.work-head p { margin: 0; }
+.rel { display: grid; gap: 6px; padding: 12px 14px; }
+.rel.recommended { border-color: var(--ok); }
+.rel.hidden { opacity: .55; }
+.rel-head { display: flex; gap: 10px; align-items: flex-start; }
+.rel-name { flex: 1; word-break: break-word; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--muted); align-items: center; }
+.tag { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--text); }
+.tag.lang { color: var(--accent); border-color: currentColor; }
+.tag.best { color: var(--ok); border-color: currentColor; }
+.tag.warn { color: var(--warn); border-color: currentColor; }
+
 /* Sharing */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .stat { display: grid; gap: 2px; }

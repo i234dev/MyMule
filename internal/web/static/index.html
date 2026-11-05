@@ -34,6 +34,7 @@
 
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="downloads" data-t="tab.downloads">Downloads</button>
+    <button role="tab" data-tab="media" data-t="tab.media">Movies &amp; series</button>
     <button role="tab" data-tab="search" data-t="tab.search">Search</button>
     <button role="tab" data-tab="sharing" data-t="tab.sharing">Sharing</button>
   </nav>
@@ -50,6 +51,34 @@
         <button id="dl-clear" class="ghost small" data-t="dl.clear">Clear finished</button>
       </div>
       <div id="dl-list" class="list"></div>
+    </section>
+
+    <section id="tab-media" class="tab" hidden>
+      <form id="media-form" class="card row-form">
+        <input id="m-q" type="search" data-tp="media.placeholder" placeholder="Title of a movie or series" required autocomplete="off">
+        <button type="submit" class="primary" data-t="search.submit">Search</button>
+      </form>
+      <p id="media-msg" class="msg" hidden></p>
+      <div id="works" class="works"></div>
+      <div id="work" hidden>
+        <button id="work-back" class="ghost small" data-t="media.back">← Back to results</button>
+        <div class="card work-head">
+          <h2 id="w-title"></h2>
+          <p id="w-sub" class="muted"></p>
+          <p id="w-desc"></p>
+          <form id="episode-form" class="filters" hidden>
+            <label><span data-t="media.season">Season</span><input id="w-season" type="number" min="1" inputmode="numeric"></label>
+            <label><span data-t="media.episode">Episode</span><input id="w-episode" type="number" min="1" inputmode="numeric" data-tp="media.all" placeholder="all"></label>
+            <button type="submit" class="primary small" data-t="search.submit">Search</button>
+          </form>
+        </div>
+        <p id="rel-msg" class="msg" hidden></p>
+        <div id="rel-bar" class="toolbar" hidden>
+          <span id="rel-summary" class="muted"></span>
+          <button id="rel-hidden" class="ghost small"></button>
+        </div>
+        <div id="releases" class="list"></div>
+      </div>
     </section>
 
     <section id="tab-search" class="tab" hidden>

@@ -12,6 +12,7 @@ import (
 	"mymule/internal/api"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/meta"
 	"mymule/internal/server"
 )
 
@@ -71,7 +72,10 @@ func New(cfg Config) *Adapter {
 		if ua == "" {
 			ua = "MyMule (https://github.com/i234dev/MyMule)"
 		}
-		a.lookup = newWikidata(ua).Titles
+		wd := meta.NewWikidata(ua)
+		a.lookup = func(ctx context.Context, ids mediaIDs, langs []string) ([]string, error) {
+			return wd.TitlesByID(ctx, meta.IDs{IMDb: ids.IMDb, TMDB: ids.TMDB, TVDB: ids.TVDB}, ids.TV, langs)
+		}
 	}
 	if data, err := os.ReadFile(cfg.StorePath); err == nil {
 		json.Unmarshal(data, &a.store)

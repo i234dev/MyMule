@@ -2,9 +2,7 @@ package arr
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
@@ -89,39 +87,4 @@ func keywords(fx *fixture) []string {
 		out = append(out, q.Keywords)
 	}
 	return out
-}
-
-func TestWikidataTitles(t *testing.T) {
-	var agent string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		agent = r.UserAgent()
-		q := r.URL.Query()
-		switch q.Get("action") {
-		case "query":
-			if q.Get("srsearch") != "haswbstatement:P345=tt0000001" {
-				json.NewEncoder(w).Encode(map[string]any{"query": map[string]any{"search": []any{}}})
-				return
-			}
-			json.NewEncoder(w).Encode(map[string]any{"query": map[string]any{"search": []any{map[string]string{"title": "Q1"}}}})
-		case "wbgetentities":
-			json.NewEncoder(w).Encode(map[string]any{"entities": map[string]any{"Q1": map[string]any{
-				"labels": map[string]any{"en": map[string]string{"value": "Example Movie"},
-					"es": map[string]string{"value": "Película de Ejemplo"}},
-				"aliases": map[string]any{"es": []map[string]string{{"value": "Ejemplo"}, {"value": "Otra"}, {"value": "Tercera"}}},
-			}}})
-		}
-	}))
-	defer srv.Close()
-	w := newWikidata("MyMule/test")
-	w.endpoint = srv.URL
-	got, err := w.Titles(context.Background(), mediaIDs{IMDb: "tt0000001"}, []string{"en", "es"})
-	if err != nil || !reflect.DeepEqual(got, []string{"Example Movie", "Película de Ejemplo", "Ejemplo", "Otra"}) {
-		t.Fatalf("%v %v", got, err)
-	}
-	if agent != "MyMule/test" {
-		t.Fatalf("user agent %q", agent)
-	}
-	if got, err := w.Titles(context.Background(), mediaIDs{IMDb: "tt0000002"}, []string{"es"}); err != nil || got != nil {
-		t.Fatalf("unknown id: %v %v", got, err)
-	}
 }

@@ -20,6 +20,7 @@ import (
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/meta"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -463,13 +464,14 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 	if settings.WebUI {
 		ui := web.New(settings.APIKey, version)
 		rest.AlsoAllow(ui.Session)
+		rest.EnableMedia(meta.NewWikidata(userAgent()))
 		ui.Routes(mux)
 	}
 	if settings.ArrSupport {
 		store, _ := config.Path("arr.json")
 		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
 			StorePath: store, Log: logf, Languages: settings.SearchLanguages,
-			UserAgent: "MyMule/" + version + " (https://github.com/i234dev/MyMule)"}).Routes(mux)
+			UserAgent: userAgent()}).Routes(mux)
 	}
 	return mux
 }
@@ -521,3 +523,6 @@ func webURL(a net.Addr) string {
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/"
 }
+
+// userAgent identifies MyMule to the movie databases, as they ask.
+func userAgent() string { return "MyMule/" + version + " (https://github.com/i234dev/MyMule)" }

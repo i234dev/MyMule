@@ -11,7 +11,26 @@ const STRINGS = {
     "login.submit": "Log in",
     "login.wrong": "Wrong key.",
     "logout": "Log out",
-    "tab.downloads": "Downloads", "tab.search": "Search", "tab.sharing": "Sharing",
+    "tab.downloads": "Downloads", "tab.search": "Search", "tab.sharing": "Sharing", "tab.media": "Movies & series",
+    "media.placeholder": "Title of a movie or series",
+    "media.searching": "Looking it up…",
+    "media.none": "Nothing found. Try the original title or fewer words.",
+    "media.back": "← Back to results",
+    "media.movie": "Movie", "media.series": "Series",
+    "media.season": "Season", "media.episode": "Episode", "media.all": "all",
+    "media.pickseason": "Choose a season (and an episode, or leave it empty for the whole season).",
+    "media.finding": "Searching eD2K for: {q}. This takes about 10 seconds.",
+    "media.nofiles": "No files found for this one on eD2K right now.",
+    "media.summary": "{n} files",
+    "media.showhidden": "Show {n} hidden",
+    "media.hidehidden": "Hide {n} hidden",
+    "media.best": "recommended",
+    "media.guess": "{l} (by title)",
+    "media.subs": "subtitles",
+    "media.why.no sources": "no sources",
+    "media.why.sources outside eD2K (Kad/torrent/usenet)": "only found on Kad/torrent: may not download",
+    "media.why.cam or screener copy": "cam or screener copy",
+    "media.why.bigger than the maximum size": "too big",
     "add.placeholder": "Paste ed2k:// links here",
     "add.submit": "Add",
     "add.done": "Added: {n}",
@@ -56,7 +75,26 @@ const STRINGS = {
     "login.submit": "Entrar",
     "login.wrong": "Clave incorrecta.",
     "logout": "Salir",
-    "tab.downloads": "Descargas", "tab.search": "Buscar", "tab.sharing": "Compartir",
+    "tab.downloads": "Descargas", "tab.search": "Buscar", "tab.sharing": "Compartir", "tab.media": "Películas y series",
+    "media.placeholder": "Título de una película o serie",
+    "media.searching": "Buscando…",
+    "media.none": "No se ha encontrado nada. Prueba con el título original o con menos palabras.",
+    "media.back": "← Volver a los resultados",
+    "media.movie": "Película", "media.series": "Serie",
+    "media.season": "Temporada", "media.episode": "Episodio", "media.all": "todos",
+    "media.pickseason": "Elige una temporada (y un episodio, o déjalo vacío para la temporada entera).",
+    "media.finding": "Buscando en eD2K: {q}. Tarda unos 10 segundos.",
+    "media.nofiles": "Ahora mismo no hay ficheros de esto en eD2K.",
+    "media.summary": "{n} ficheros",
+    "media.showhidden": "Mostrar {n} ocultos",
+    "media.hidehidden": "Ocultar {n} ocultos",
+    "media.best": "recomendado",
+    "media.guess": "{l} (por el título)",
+    "media.subs": "subtítulos",
+    "media.why.no sources": "sin fuentes",
+    "media.why.sources outside eD2K (Kad/torrent/usenet)": "solo está en Kad/torrent: puede que no baje",
+    "media.why.cam or screener copy": "copia de cine (CAM) o screener",
+    "media.why.bigger than the maximum size": "demasiado grande",
     "add.placeholder": "Pega aquí enlaces ed2k://",
     "add.submit": "Añadir",
     "add.done": "Añadidos: {n}",
@@ -99,6 +137,9 @@ const STRINGS = {
 const LANG = (navigator.languages || [navigator.language || "en"])
   .map(l => l.slice(0, 2).toLowerCase()).find(l => STRINGS[l]) || "en";
 document.documentElement.lang = LANG;
+// Titles of movies and series are asked for in the browser's language,
+// even when the interface itself isn't translated to it.
+const MEDIA_LANG = ((navigator.languages || [navigator.language || "en"])[0] || "en").slice(0, 2).toLowerCase();
 
 function t(key, vars) {
   let s = STRINGS[LANG][key] ?? STRINGS.en[key] ?? key;
@@ -214,6 +255,7 @@ function selectTab(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(s => { s.hidden = s.id !== "tab-" + name; });
   if (name === "search") $("#s-q").focus();
+  if (name === "media" && $("#work").hidden) $("#m-q").focus();
   try { localStorage.setItem("mymule.tab", name); } catch {}
   render();
 }
@@ -243,6 +285,7 @@ function render() {
   if (currentTab === "downloads") renderDownloads();
   if (currentTab === "sharing") renderSharing();
   if (currentTab === "search") markHave();
+  if (currentTab === "media") markHaveReleases();
 }
 
 function renderHeader() {
@@ -445,9 +488,11 @@ $("#results-all").addEventListener("change", e => {
 });
 $("#results-get").addEventListener("click", () => download(results.filter(r => selected.has(r.hash.toUpperCase()))));
 
-async function download(list) {
+// download adds files; msg is where to report (the search tab by default).
+async function download(list, msg) {
   if (!list.length) return;
-  const msg = $("#search-msg");
+  const fromSearch = !msg;
+  msg = msg || $("#search-msg");
   try {
     const r = await api("POST", "/api/v1/downloads", { links: list.map(x => x.link) });
     showMsg(msg, t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "bad" : "ok");
@@ -456,7 +501,173 @@ async function download(list) {
     if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
   }
   await refresh();
-  renderResults();
+  if (fromSearch) renderResults();
+}
+
+// ---------- Movies & series ----------
+const LANG_NAMES = { es: "ES", "es-419": "LAT", en: "EN", fr: "FR", de: "DE", it: "IT", ca: "CA", pt: "PT" };
+let works = [], currentWork = null, releases = [], showHidden = false, findingReleases = false;
+
+$("#media-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = $("#m-q").value.trim();
+  if (!q) return;
+  const msg = $("#media-msg");
+  msg.replaceChildren(el("span", { class: "spinner" }), t("media.searching"));
+  msg.className = "msg";
+  msg.hidden = false;
+  $("#work").hidden = true;
+  $("#works").hidden = false;
+  currentWork = null;
+  try {
+    const r = await api("GET", "/api/v1/media/search?" + new URLSearchParams({ q, lang: MEDIA_LANG }));
+    works = r.works || [];
+    msg.hidden = works.length > 0;
+    if (!works.length) showMsg(msg, t("media.none"));
+    renderWorks();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+});
+
+function workSub(w) {
+  const parts = [t(w.kind === "series" ? "media.series" : "media.movie")];
+  if (w.year) parts.push(String(w.year));
+  if (w.original_title && w.original_title.toLowerCase() !== w.title.toLowerCase()) parts.push(w.original_title);
+  return parts.join(" · ");
+}
+
+function renderWorks() {
+  $("#works").replaceChildren(...works.map(w => el("button", { class: "card work", onclick: () => openWork(w) },
+    el("span", { class: "wt", text: w.title + (w.year ? " (" + w.year + ")" : "") }),
+    el("span", { class: "wo", text: workSub(w) }),
+    w.description ? el("span", { class: "wd", text: w.description }) : null)));
+}
+
+$("#work-back").addEventListener("click", () => {
+  $("#work").hidden = true;
+  $("#works").hidden = false;
+  currentWork = null;
+});
+
+function openWork(w) {
+  currentWork = w;
+  releases = [];
+  showHidden = false;
+  $("#works").hidden = true;
+  $("#media-msg").hidden = true;
+  $("#work").hidden = false;
+  $("#w-title").textContent = w.title + (w.year ? " (" + w.year + ")" : "");
+  $("#w-sub").textContent = workSub(w);
+  $("#w-desc").textContent = w.description || "";
+  $("#releases").replaceChildren();
+  $("#rel-bar").hidden = true;
+  const series = w.kind === "series";
+  $("#episode-form").hidden = !series;
+  if (series) {
+    $("#w-season").value = "";
+    $("#w-episode").value = "";
+    showMsg($("#rel-msg"), t("media.pickseason"));
+    $("#w-season").focus();
+  } else {
+    findReleases();
+  }
+}
+
+$("#episode-form").addEventListener("submit", e => { e.preventDefault(); findReleases(); });
+
+async function findReleases() {
+  if (!currentWork || findingReleases) return;
+  const w = currentWork;
+  const params = new URLSearchParams({ lang: MEDIA_LANG });
+  if (w.kind === "series") {
+    if ($("#w-season").value) params.set("season", $("#w-season").value);
+    if ($("#w-episode").value) params.set("episode", $("#w-episode").value);
+  }
+  const titles = [w.title, w.original_title].filter((x, i, a) =>
+    x && a.findIndex(y => y && y.toLowerCase() === x.toLowerCase()) === i);
+  const msg = $("#rel-msg");
+  msg.replaceChildren(el("span", { class: "spinner" }), t("media.finding", { q: titles.join(" / ") }));
+  msg.className = "msg";
+  msg.hidden = false;
+  $("#releases").replaceChildren();
+  $("#rel-bar").hidden = true;
+  findingReleases = true;
+  try {
+    const r = await api("GET", "/api/v1/media/" + encodeURIComponent(w.id) + "/releases?" + params);
+    if (currentWork !== w) return; // the user went elsewhere meanwhile
+    releases = r.releases || [];
+    msg.hidden = releases.length > 0;
+    if (!releases.length) showMsg(msg, t("media.nofiles"));
+    renderReleases();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  } finally {
+    findingReleases = false;
+  }
+}
+
+$("#rel-hidden").addEventListener("click", () => { showHidden = !showHidden; renderReleases(); });
+
+function releaseTags(r) {
+  const tags = [];
+  if (r.recommended) tags.push(el("span", { class: "tag best", text: "★ " + t("media.best") }));
+  const langs = r.info.languages || [];
+  for (const l of langs) tags.push(el("span", { class: "tag lang", text: LANG_NAMES[l] || l.toUpperCase() }));
+  if (!langs.length && r.guessed_language) {
+    const l = LANG_NAMES[r.guessed_language] || r.guessed_language.toUpperCase();
+    tags.push(el("span", { class: "tag lang", text: t("media.guess", { l }) }));
+  }
+  if (r.info.subs) tags.push(el("span", { class: "tag", text: t("media.subs") }));
+  if (r.info.resolution) tags.push(el("span", { class: "tag", text: r.info.resolution }));
+  if (r.info.source) {
+    const bad = r.info.source === "cam" || r.info.source === "screener";
+    tags.push(el("span", { class: "tag" + (bad ? " warn" : ""), text: r.info.source }));
+  }
+  if (r.info.season) {
+    const se = "S" + String(r.info.season).padStart(2, "0") + (r.info.episode ? "E" + String(r.info.episode).padStart(2, "0") : "");
+    tags.push(el("span", { class: "tag", text: se }));
+  }
+  tags.push(el("span", { text: size(r.size) }));
+  tags.push(el("span", { text: t("meta.sources", { n: r.complete + (r.sources > r.complete ? "/" + r.sources : "") }) }));
+  if (r.hidden) tags.push(el("span", { class: "tag warn", text: t("media.why." + r.hidden_why) }));
+  return tags;
+}
+
+function renderReleases() {
+  const hidden = releases.filter(r => r.hidden).length;
+  const shown = releases.filter(r => showHidden || !r.hidden);
+  $("#rel-bar").hidden = releases.length === 0;
+  $("#rel-summary").textContent = t("media.summary", { n: releases.length - hidden });
+  const hb = $("#rel-hidden");
+  hb.hidden = hidden === 0;
+  hb.textContent = t(showHidden ? "media.hidehidden" : "media.showhidden", { n: hidden });
+  const have = haveHashes();
+  $("#releases").replaceChildren(...shown.map(r => {
+    const inDl = have.has(r.hash.toUpperCase());
+    return el("div", { class: "card rel" + (r.recommended ? " recommended" : "") + (r.hidden ? " hidden" : ""), "data-hash": r.hash.toUpperCase() },
+      el("div", { class: "rel-head" },
+        el("span", { class: "rel-name", text: r.name, title: r.name }),
+        el("button", {
+          class: inDl ? "icon" : "primary small", disabled: inDl,
+          text: inDl ? t("results.have") : t("results.download"),
+          onclick: () => download([r], $("#rel-msg")).then(renderReleases),
+        })),
+      el("div", { class: "tags" }, releaseTags(r)));
+  }));
+}
+
+function markHaveReleases() {
+  if (!releases.length) return;
+  const have = haveHashes();
+  document.querySelectorAll("#releases .rel").forEach(n => {
+    const b = n.querySelector("button");
+    if (b && have.has(n.dataset.hash) && !b.disabled) {
+      b.disabled = true;
+      b.className = "icon";
+      b.textContent = t("results.have");
+    }
+  });
 }
 
 // ---------- Sharing ----------
@@ -514,7 +725,7 @@ async function start() {
   $("#app").hidden = false;
   let tab = "downloads";
   try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
-  selectTab(["downloads", "search", "sharing"].includes(tab) ? tab : "downloads");
+  selectTab(["downloads", "media", "search", "sharing"].includes(tab) ? tab : "downloads");
   startPolling();
 }
 

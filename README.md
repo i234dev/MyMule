@@ -102,11 +102,50 @@ PHP and Python.
 
 ## Radarr, Sonarr, Lidarr, Readarr and Prowlarr
 
-MyMule can act as a **Torznab indexer** (the apps search the eD2K network
-through it) and as a **qBittorrent-compatible download client** (the apps
-send it what they want and follow the progress until they import the
-file). Both use the same address and `api_key` as the HTTP API. See
-[docs/ARR.md](docs/ARR.md) for the step-by-step setup.
+If you already run the *arr apps, MyMule adds the eD2K network as one more
+source. It is most useful for what is hard to find on torrents: dubbed
+versions, older films and series, rare releases. The apps don't need any
+plugin: MyMule speaks the protocols they already know.
+
+### What is supported
+
+| Feature | Details |
+|---|---|
+| **Torznab indexer** (`/torznab/api`) | Movie, TV (season/episode), music, audio, book and general searches over all known eD2K servers; Newznab categories (Movies, TV, Audio, Books, PC, Other). Works in Prowlarr ("Generic Torznab") or directly in each app ("Torznab", custom). |
+| **qBittorrent-compatible download client** (`/api/v2`) | Login, add (stand-in `.torrent` or plain `ed2k://` links), categories, pause/resume, remove (with or without files), progress and save path until the app imports the file. |
+| **Search in your language** | With `search_languages` (e.g. `es`, `it`, `fr`), searches also use the title in those languages, looked up on Wikidata from the IMDb/TMDB/TVDB id. Off by default. |
+| **Cleaner results** | Results nobody shares are left out; server prefixes such as `[kad example.org]` are removed; short language tags (`Spa`, `ESP-ING`, `[ita, eng]`...) get the full name added so the apps detect the language. Files keep their real name. |
+| **Safe by default** | Same address and `api_key` as the HTTP API, only on this computer unless you change `api_listen`. Removing with files only deletes inside `download_dir`. |
+
+### Quick setup
+
+1. In `mymule.conf`, keep `api_listen = 127.0.0.1:4711` if the apps run on
+   the same computer, or use `0.0.0.0:4711` if they run in Docker or on
+   another machine of your network. Copy `api_key`. Optionally set
+   `search_languages`. Restart the daemon.
+2. **Indexer**: in Prowlarr add *Generic Torznab* (or in Radarr/Sonarr,
+   *Settings* → *Indexers* → *Torznab* → *Custom*) with URL
+   `http://<mymule-host>:4711/torznab`, API path `/api` and your `api_key`.
+3. **Download client**: in each app, *Settings* → *Download Clients* →
+   *qBittorrent*, host `<mymule-host>`, port `4711`, any username, your
+   `api_key` as password, and a category (`radarr`, `tv-sonarr`...).
+4. **Paths**: the app must see MyMule's `download_dir`. On the same
+   computer there is nothing to do; otherwise mount that folder in the app
+   and, if the path differs, add a *Remote Path Mapping*.
+
+### Limitations
+
+- Results whose only sources are on the Kad network (marked
+  `[kad ...]` by some servers) can't be downloaded yet: MyMule doesn't
+  speak Kad. Prefer results with several sources.
+- eD2K downloads can take a while to start, because peers serve uploads in
+  queues. HighID (see above) helps a lot.
+- One file per download: eD2K links are single files.
+- Never forward port 4711 in your router: the API is meant for your own
+  network.
+
+Step-by-step guide, including Docker and Remote Path Mappings:
+[docs/ARR.md](docs/ARR.md).
 
 ## Running on a server or NAS
 

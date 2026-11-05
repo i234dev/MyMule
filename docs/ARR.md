@@ -130,6 +130,11 @@ In the app, also set the language you want in the quality profile
   standardised than in other networks, so the apps may reject releases
   they can't parse. The apps' own release profiles and quality settings
   still apply.
+- Some servers also return results found on the Kad network, with names
+  starting with `[kad ...]` (the prefix is removed in the app). If their
+  only sources are on Kad, the download stays at 0%: MyMule doesn't speak
+  Kad yet. In the app's interactive search, prefer results with several
+  sources ("seeders").
 - Downloads can take a while to start: peers serve uploads in queues
   (see `mymule top`). HighID (an open port, see the README) helps a lot.
 - One file per download (eD2K links are single files).

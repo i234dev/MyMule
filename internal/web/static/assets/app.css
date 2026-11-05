@@ -132,10 +132,16 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 
 /* Movies & series */
 .works { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 14px; }
-.work { text-align: left; display: grid; gap: 4px; align-content: start; padding: 14px; white-space: normal; }
+.work { text-align: left; display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: start; padding: 12px; white-space: normal; }
+.work-text { display: grid; gap: 4px; }
+.poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 8px; background: var(--bar); display: block; }
+.poster.none { display: grid; place-items: center; color: var(--muted); font-size: 22px; }
+.credits { font-size: 12px; margin: 6px 0 0; }
 .work .wt { font-weight: 700; font-size: 16px; }
 .work .wo, .work .wd { font-size: 13px; color: var(--muted); }
-.work-head { margin-top: 10px; display: grid; gap: 4px; }
+.work .wd { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.work-head { margin-top: 10px; display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: start; }
+.work-info { display: grid; gap: 4px; }
 .work-head h2 { margin: 0; font-size: 20px; }
 .work-head p { margin: 0; }
 .rel { display: grid; gap: 6px; padding: 12px 14px; }
@@ -169,4 +175,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .results .hide-sm { display: none; }
   .filters input { width: 90px; }
   .small-input { width: 100%; }
+  .work-head { grid-template-columns: 96px 1fr; gap: 12px; }
+  .works { grid-template-columns: 1fr; }
 }

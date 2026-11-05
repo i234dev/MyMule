@@ -41,6 +41,10 @@ type Settings struct {
 	// compatible API for Radarr, Sonarr and the like. Off by default.
 	ArrSupport bool
 
+	// TMDBKey is the TMDB API key for movie/series data and posters in the
+	// web interface: "" = MyMule's own key, "off" = don't use TMDB.
+	TMDBKey string
+
 	// SearchLanguages are language codes (e.g. "es") whose titles the
 	// *arr indexer also searches for, looked up on Wikidata. Empty = off.
 	SearchLanguages []string
@@ -102,6 +106,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIKey }},
 	{"web_ui", "Web interface in your browser, on the api_listen address\n(e.g. http://127.0.0.1:4711/). Log in with api_key. true or false.",
 		func(s Settings) string { return strconv.FormatBool(s.WebUI) }},
+	{"tmdb_api_key", "Movie and series data and posters for the web interface come from TMDB\n(themoviedb.org). Empty = use MyMule's own key. Put your own key here,\nor off to use only Wikidata (no posters).",
+		func(s Settings) string { return s.TMDBKey }},
 	{"arr_support", "Radarr, Sonarr, Lidarr, Readarr and Prowlarr support (see docs/ARR.md):\ntrue serves a Torznab indexer and a qBittorrent-compatible API on\napi_listen. false = off.",
 		func(s Settings) string { return strconv.FormatBool(s.ArrSupport) }},
 	{"search_languages", "With arr_support: Radarr/Sonarr only search by the original or English\ntitle. List language codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
@@ -192,6 +198,9 @@ func LoadSettings() (Settings, error) {
 }
 
 var emptyKeyLine = regexp.MustCompile(`(?m)^(\s*)api_key\s*=\s*"?"?\s*$`)
+
+// tmdbKeyRe matches a TMDB v3 API key.
+var tmdbKeyRe = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
 
 // languageCodeRe accepts codes like "es", "pt-br" or "zh-hans" (Wikidata's).
 var languageCodeRe = regexp.MustCompile(`^[a-z]{2,3}(-[a-z]{2,4})?$`)
@@ -300,6 +309,11 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: web_ui must be true or false", line)
 			}
 			s.WebUI = b
+		case "tmdb_api_key":
+			if val != "" && val != "off" && !tmdbKeyRe.MatchString(val) {
+				return present, fmt.Errorf("line %d: tmdb_api_key must be a TMDB API key (32 letters and digits), empty or off", line)
+			}
+			s.TMDBKey = val
 		case "arr_support":
 			b, err := strconv.ParseBool(val)
 			if err != nil {

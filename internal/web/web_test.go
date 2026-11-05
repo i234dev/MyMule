@@ -25,6 +25,9 @@ func newServer(t *testing.T) (*UI, *httptest.Server) {
 		}
 		w.Write([]byte(`{"ok":true}`))
 	})
+	mux.Handle("/img", ui.RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("image"))
+	})))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return ui, srv
@@ -92,6 +95,13 @@ func TestLoginAndSession(t *testing.T) {
 	}
 	if resp, _ := do(t, c, "GET", srv.URL+"/api/v1/status", "", true); resp.StatusCode != 200 {
 		t.Fatalf("after login: %d", resp.StatusCode)
+	}
+	// Images (<img>) need the session cookie but not the header.
+	if resp, _ := do(t, c, "GET", srv.URL+"/img", "", false); resp.StatusCode != 200 {
+		t.Fatalf("image with session: %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, http.DefaultClient, "GET", srv.URL+"/img", "", false); resp.StatusCode != 401 {
+		t.Fatalf("image without session: %d", resp.StatusCode)
 	}
 	// The cookie alone is not enough (CSRF): the header is required.
 	if resp, _ := do(t, c, "GET", srv.URL+"/api/v1/status", "", false); resp.StatusCode != 401 {

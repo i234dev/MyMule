@@ -70,6 +70,19 @@ func secure(h http.Handler) http.Handler {
 	})
 }
 
+// RequireLogin lets through requests with a session cookie, without the
+// UI header: for images and links the browser loads by itself (<img>),
+// which only read data.
+func (u *UI) RequireLogin(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !u.cookieOK(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
 // sign returns the signature of a session that expires at exp.
 func (u *UI) sign(exp int64) string {
 	m := hmac.New(sha256.New, []byte(u.key))
@@ -81,7 +94,12 @@ func (u *UI) sign(exp int64) string {
 // header. Sessions are signed with the api_key, so they survive restarts
 // and changing api_key logs everybody out.
 func (u *UI) Session(r *http.Request) bool {
-	if u.key == "" || r.Header.Get(uiHeader) == "" {
+	return r.Header.Get(uiHeader) != "" && u.cookieOK(r)
+}
+
+// cookieOK reports whether r carries a valid, unexpired session cookie.
+func (u *UI) cookieOK(r *http.Request) bool {
+	if u.key == "" {
 		return false
 	}
 	c, err := r.Cookie(cookieName)

@@ -18,9 +18,9 @@ import (
 // its titles and return the files that belong to it, scored. Used by the
 // web interface; only enabled together with it.
 
-// EnableMedia adds the movie/series endpoints, using wd for lookups.
-func (r *REST) EnableMedia(wd *meta.Wikidata) {
-	r.media = wd
+// EnableMedia adds the movie/series endpoints, using src for lookups.
+func (r *REST) EnableMedia(src meta.Source) {
+	r.media = src
 	r.mux.HandleFunc("GET /api/v1/media/search", r.mediaSearch)
 	r.mux.HandleFunc("GET /api/v1/media/{id}/releases", r.mediaReleases)
 }
@@ -61,8 +61,9 @@ type Release struct {
 const maxTitleSearches = 4
 
 func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
-	lang := reqLang(req)
-	work, err := r.media.Get(req.Context(), req.PathValue("id"), lang)
+	fullLang := reqLang(req) // e.g. es-ES: TMDB has titles per country
+	lang, _, _ := strings.Cut(fullLang, "-")
+	work, err := r.media.Get(req.Context(), req.PathValue("id"), fullLang)
 	if err != nil {
 		fail(w, http.StatusBadGateway, errors.New("movie database: "+err.Error()))
 		return

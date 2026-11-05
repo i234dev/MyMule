@@ -69,6 +69,7 @@ upload_limit = 100     # KB/s, 0 = no limit
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
 web_ui = false         # true: web interface at http://127.0.0.1:4711/
+tmdb_api_key =         # empty: MyMule's TMDB key; your own key; or off
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see below)
 search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
 ```
@@ -106,15 +107,25 @@ with the `api_key` from `mymule.conf`. It has four tabs:
 - **Downloads**: progress, speed, sources and queue position; pause,
   resume, cancel, clear finished, and add `ed2k://` links.
 - **Movies & series**: search a movie or series by title, in your
-  browser's language, and pick it from a list (title, year, original
-  title). MyMule then searches eD2K by all its titles (yours, the original
+  browser's language, and pick it from a list with posters (title, year,
+  original title, synopsis). MyMule then searches eD2K by all its titles (yours, the original
   and alternative ones), keeps only the files of that work (not remakes,
   episodes of other shows or other movies with similar names) and shows
   them with their language, resolution, source, size and sources, the
   recommended one first. Files with no sources, only found on Kad/torrent,
   or cam copies are hidden but can be shown. For series, choose a season
-  and optionally an episode. Titles come from
-  [Wikidata](https://www.wikidata.org): only your search words are sent.
+  and optionally an episode.
+
+Movie and series data and posters come from
+[TMDB](https://www.themoviedb.org), with
+[Wikidata](https://www.wikidata.org) as a fallback. MyMule includes its
+own TMDB key, so there is nothing to set up; you can use your own key
+(`tmdb_api_key`) or `tmdb_api_key = off` to use only Wikidata, without
+posters. Only search words and ids are sent; posters are fetched by
+MyMule (your browser never contacts TMDB) and kept in a small cache
+(`cache/posters`, at most 100 MB).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -464,7 +465,12 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 	if settings.WebUI {
 		ui := web.New(settings.APIKey, version)
 		rest.AlsoAllow(ui.Session)
-		rest.EnableMedia(meta.NewWikidata(userAgent()))
+		rest.EnableMedia(mediaSource())
+		if settings.TMDBKey != "off" {
+			dir, _ := config.Dir()
+			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)
+			mux.Handle("GET /web/poster/{size}/{file}", ui.RequireLogin(posters))
+		}
 		ui.Routes(mux)
 	}
 	if settings.ArrSupport {
@@ -526,3 +532,18 @@ func webURL(a net.Addr) string {
 
 // userAgent identifies MyMule to the movie databases, as they ask.
 func userAgent() string { return "MyMule/" + version + " (https://github.com/i234dev/MyMule)" }
+
+// mediaSource is where the web interface looks movies and series up: TMDB
+// (MyMule's key unless the user set one) with Wikidata as a fallback, or
+// only Wikidata with tmdb_api_key = off.
+func mediaSource() meta.Source {
+	wd := meta.NewWikidata(userAgent())
+	if settings.TMDBKey == "off" {
+		return wd
+	}
+	key := settings.TMDBKey
+	if key == "" {
+		key = meta.ProjectTMDBKey
+	}
+	return meta.WithFallback(meta.NewTMDB(key), wd)
+}

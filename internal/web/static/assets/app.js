@@ -139,7 +139,8 @@ const LANG = (navigator.languages || [navigator.language || "en"])
 document.documentElement.lang = LANG;
 // Titles of movies and series are asked for in the browser's language,
 // even when the interface itself isn't translated to it.
-const MEDIA_LANG = ((navigator.languages || [navigator.language || "en"])[0] || "en").slice(0, 2).toLowerCase();
+// The full tag (es-ES, es-MX...) gives each country's titles.
+const MEDIA_LANG = ((navigator.languages || [navigator.language || "en"])[0] || "en").slice(0, 10);
 
 function t(key, vars) {
   let s = STRINGS[LANG][key] ?? STRINGS.en[key] ?? key;
@@ -537,11 +538,19 @@ function workSub(w) {
   return parts.join(" · ");
 }
 
+// poster returns the image for a work, or a placeholder.
+function poster(w, size) {
+  if (!w.poster) return el("div", { class: "poster none", "aria-hidden": "true", text: w.kind === "series" ? "TV" : "🎬" });
+  return el("img", { class: "poster", src: "/web/poster/" + size + w.poster, alt: "", loading: size === "w185" ? "lazy" : "eager" });
+}
+
 function renderWorks() {
   $("#works").replaceChildren(...works.map(w => el("button", { class: "card work", onclick: () => openWork(w) },
-    el("span", { class: "wt", text: w.title + (w.year ? " (" + w.year + ")" : "") }),
-    el("span", { class: "wo", text: workSub(w) }),
-    w.description ? el("span", { class: "wd", text: w.description }) : null)));
+    poster(w, "w185"),
+    el("span", { class: "work-text" },
+      el("span", { class: "wt", text: w.title + (w.year ? " (" + w.year + ")" : "") }),
+      el("span", { class: "wo", text: workSub(w) }),
+      w.description ? el("span", { class: "wd", text: w.description }) : null))));
 }
 
 $("#work-back").addEventListener("click", () => {
@@ -560,6 +569,7 @@ function openWork(w) {
   $("#w-title").textContent = w.title + (w.year ? " (" + w.year + ")" : "");
   $("#w-sub").textContent = workSub(w);
   $("#w-desc").textContent = w.description || "";
+  $("#w-poster").replaceChildren(poster(w, "w342"));
   $("#releases").replaceChildren();
   $("#rel-bar").hidden = true;
   const series = w.kind === "series";

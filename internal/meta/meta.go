@@ -42,7 +42,43 @@ type Work struct {
 	Description   string   `json:"description,omitempty"`
 	Aliases       []string `json:"aliases,omitempty"` // other titles in the requested language
 	IDs           IDs      `json:"ids"`
-	Popularity    int      `json:"-"` // number of Wikipedia articles
+	Poster        string   `json:"poster,omitempty"`  // TMDB image path, e.g. /abc.jpg
+	Seasons       []Season `json:"seasons,omitempty"` // series, when known
+	Popularity    int      `json:"-"`
+}
+
+// Season of a series.
+type Season struct {
+	Number   int    `json:"number"`
+	Episodes int    `json:"episodes"`
+	Name     string `json:"name,omitempty"`
+}
+
+// Source looks works up.
+type Source interface {
+	Search(ctx context.Context, text, lang string) ([]Work, error)
+	Get(ctx context.Context, id, lang string) (Work, error)
+}
+
+// WithFallback uses primary, and fallback when primary fails (e.g. TMDB
+// is unreachable or the key was revoked). Ids say which one they are from.
+func WithFallback(primary, fallback Source) Source { return fallbackSource{primary, fallback} }
+
+type fallbackSource struct{ primary, fallback Source }
+
+func (f fallbackSource) Search(ctx context.Context, text, lang string) ([]Work, error) {
+	works, err := f.primary.Search(ctx, text, lang)
+	if err != nil {
+		return f.fallback.Search(ctx, text, lang)
+	}
+	return works, nil
+}
+
+func (f fallbackSource) Get(ctx context.Context, id, lang string) (Work, error) {
+	if validQID(id) {
+		return f.fallback.Get(ctx, id, lang)
+	}
+	return f.primary.Get(ctx, id, lang)
 }
 
 // Titles returns every distinct title of the work, the display title first.
@@ -166,6 +202,7 @@ func (w *Wikidata) Search(ctx context.Context, text, lang string) ([]Work, error
 	if text == "" {
 		return nil, nil
 	}
+	lang = baseLang(lang)
 	key := "search|" + lang + "|" + strings.ToLower(text)
 	if v, ok := w.cached(key); ok {
 		return v.([]Work), nil
@@ -209,6 +246,7 @@ func (w *Wikidata) Get(ctx context.Context, id, lang string) (Work, error) {
 	if !validQID(id) {
 		return Work{}, fmt.Errorf("not a Wikidata id: %q", id)
 	}
+	lang = baseLang(lang)
 	key := "get|" + lang + "|" + id
 	if v, ok := w.cached(key); ok {
 		return v.(Work), nil
@@ -234,6 +272,12 @@ func validQID(id string) bool {
 		}
 	}
 	return true
+}
+
+// baseLang turns "es-ES" into "es" (Wikidata labels are per language).
+func baseLang(l string) string {
+	b, _, _ := strings.Cut(strings.ToLower(l), "-")
+	return b
 }
 
 var langRe = func(l string) bool {

@@ -28,7 +28,7 @@ type REST struct {
 	version string
 	mux     *http.ServeMux
 	also    func(*http.Request) bool // extra check, e.g. the web interface session
-	media   *meta.Wikidata           // movie/series lookups; nil = disabled
+	media   meta.Source              // movie/series lookups; nil = disabled
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

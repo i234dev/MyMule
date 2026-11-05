@@ -42,6 +42,21 @@ const STRINGS = {
     "media.wholeseason": "Whole season",
     "media.seasonn": "Season {n}",
     "media.episodes": "{n} episodes",
+    "srv.title": "Servers", "srv.close": "Close",
+    "srv.hint": "The server you are connected to. Global searches and sources use all of them anyway.",
+    "srv.auto": "Server choice: automatic (the best one available)",
+    "srv.prefis": "Always use: {s}",
+    "srv.backauto": "Back to automatic", "srv.update": "Update list",
+    "srv.name": "Server", "srv.users": "Users", "srv.files": "Files",
+    "srv.connected": "connected", "srv.connect": "Connect",
+    "srv.prefer": "Always use", "srv.unprefer": "Don't always use",
+    "srv.preferhint": "Connect to this server every time MyMule starts",
+    "srv.fails": "{n} failed attempts",
+    "srv.connecting": "Connecting to {s}…",
+    "srv.prefsaved": "Saved: MyMule will always use this server (others only if it doesn't answer).",
+    "srv.autosaved": "Saved: MyMule will choose the server.",
+    "srv.updating": "Downloading the server list…",
+    "srv.updated": "{n} servers ({new} new).",
     "tab.settings": "Settings",
     "set.library": "Movie and series library",
     "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.",
@@ -128,6 +143,21 @@ const STRINGS = {
     "media.wholeseason": "Temporada completa",
     "media.seasonn": "Temporada {n}",
     "media.episodes": "{n} episodios",
+    "srv.title": "Servidores", "srv.close": "Cerrar",
+    "srv.hint": "El servidor al que estás conectado. Las búsquedas globales y la búsqueda de fuentes usan todos igualmente.",
+    "srv.auto": "Elección de servidor: automática (el mejor disponible)",
+    "srv.prefis": "Usar siempre: {s}",
+    "srv.backauto": "Volver a automático", "srv.update": "Actualizar lista",
+    "srv.name": "Servidor", "srv.users": "Usuarios", "srv.files": "Ficheros",
+    "srv.connected": "conectado", "srv.connect": "Conectar",
+    "srv.prefer": "Usar siempre", "srv.unprefer": "No usar siempre",
+    "srv.preferhint": "Conectar a este servidor cada vez que arranque MyMule",
+    "srv.fails": "{n} intentos fallidos",
+    "srv.connecting": "Conectando a {s}…",
+    "srv.prefsaved": "Guardado: MyMule usará siempre este servidor (otros solo si no responde).",
+    "srv.autosaved": "Guardado: MyMule elegirá el servidor.",
+    "srv.updating": "Descargando la lista de servidores…",
+    "srv.updated": "{n} servidores ({new} nuevos).",
     "tab.settings": "Ajustes",
     "set.library": "Biblioteca de películas y series",
     "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar y mover a sus propias carpetas al terminar. Deja una carpeta vacía para que se queden en la carpeta de descargas.",
@@ -340,12 +370,12 @@ function renderHeader() {
   const chip = $("#chip-server");
   if (!s.connected) {
     chip.textContent = t("server.none");
-    chip.className = "chip bad";
+    chip.className = "chip chip-button bad";
     chip.title = "";
   } else {
     chip.textContent = (s.name || s.address) + " · " + (s.high_id ? t("server.high") : t("server.low"));
-    chip.className = "chip " + (s.high_id ? "ok" : "warn");
-    chip.title = s.high_id ? s.address : t("server.lowhint");
+    chip.className = "chip chip-button " + (s.high_id ? "ok" : "warn");
+    chip.title = (s.high_id ? s.address : t("server.lowhint")) + " · " + t("srv.title");
   }
   $("#chip-down").textContent = "↓ " + speed(status.download_speed);
   $("#chip-up").textContent = "↑ " + speed(status.upload ? status.upload.speed : 0);
@@ -931,6 +961,109 @@ function renderSharing() {
       el("span", { text: s.addr }),
       el("span", { text: "↑ " + size(s.sent) })))));
 }
+
+// ---------- Servers ----------
+let serverList = [], serverSort = "users", serverAsc = false, serverCurrent = "", serverPreferred = "";
+const compact = new Intl.NumberFormat(LANG, { notation: "compact", maximumFractionDigits: 1 });
+
+$("#chip-server").addEventListener("click", openServers);
+
+async function openServers() {
+  const dlg = $("#servers");
+  showMsg($("#srv-msg"), "");
+  if (!dlg.open) dlg.showModal();
+  $("#srv-title").focus({ preventScroll: true });
+  await loadServers();
+}
+
+async function loadServers() {
+  try {
+    const r = await api("GET", "/api/v1/servers");
+    serverList = r.servers || [];
+    serverCurrent = r.current || "";
+    serverPreferred = r.preferred || "";
+    renderServers();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#srv-msg"), err.message, "bad");
+  }
+}
+
+function renderServers() {
+  $("#srv-pref").textContent = serverPreferred
+    ? t("srv.prefis", { s: (serverList.find(s => s.address === serverPreferred) || {}).name || serverPreferred })
+    : t("srv.auto");
+  $("#srv-auto").hidden = !serverPreferred;
+  const rows = [...serverList].sort((a, b) => {
+    const x = serverSort === "name" ? (a.name || a.address).localeCompare(b.name || b.address) : a[serverSort] - b[serverSort];
+    return serverAsc ? x : -x;
+  });
+  $("#srv-table tbody").replaceChildren(...rows.map(s => {
+    const current = s.address === serverCurrent, preferred = s.address === serverPreferred;
+    return el("tr", { class: current ? "current" : "" },
+      el("td", {},
+        el("div", { class: "srv-name", text: (preferred ? "★ " : "") + (s.name || s.address) }),
+        el("div", { class: "muted small", text: s.address + (s.fails ? " · " + t("srv.fails", { n: s.fails }) : "") })),
+      el("td", { class: "num", text: compact.format(s.users), title: s.users.toLocaleString(LANG) }),
+      el("td", { class: "num", text: compact.format(s.files), title: s.files.toLocaleString(LANG) }),
+      el("td", { class: "act" },
+        current ? el("span", { class: "badge finished", text: t("srv.connected") })
+          : el("button", { class: "icon", text: t("srv.connect"), onclick: () => connectServer(s) }),
+        el("button", { class: "icon", text: preferred ? t("srv.unprefer") : t("srv.prefer"),
+          title: t("srv.preferhint"), onclick: () => preferServer(preferred ? "" : s.address) })));
+  }));
+  document.querySelectorAll("#srv-table th[data-sort]").forEach(th => {
+    th.classList.toggle("sorted", th.dataset.sort === serverSort);
+    th.classList.toggle("asc", th.dataset.sort === serverSort && serverAsc);
+  });
+}
+
+document.querySelectorAll("#srv-table th[data-sort]").forEach(th => th.addEventListener("click", () => {
+  if (serverSort === th.dataset.sort) serverAsc = !serverAsc;
+  else { serverSort = th.dataset.sort; serverAsc = serverSort === "name"; }
+  renderServers();
+}));
+
+async function connectServer(s) {
+  try {
+    await api("POST", "/api/v1/servers/connect", { address: s.address });
+    showMsg($("#srv-msg"), t("srv.connecting", { s: s.name || s.address }), "ok");
+    // The header shows the new server once connected.
+    setTimeout(() => { refresh(); loadServers(); }, 4000);
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#srv-msg"), err.message, "bad");
+  }
+}
+
+async function preferServer(addr) {
+  try {
+    await api("PUT", "/api/v1/servers/preferred", { address: addr });
+    serverPreferred = addr;
+    renderServers();
+    showMsg($("#srv-msg"), addr ? t("srv.prefsaved") : t("srv.autosaved"), "ok");
+    if (addr) setTimeout(() => { refresh(); loadServers(); }, 4000);
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#srv-msg"), err.message, "bad");
+  }
+}
+
+$("#srv-auto").addEventListener("click", () => preferServer(""));
+$("#srv-close").addEventListener("click", () => $("#servers").close());
+$("#srv-update").addEventListener("click", async () => {
+  const b = $("#srv-update"), msg = $("#srv-msg");
+  b.disabled = true;
+  msg.replaceChildren(el("span", { class: "spinner" }), t("srv.updating"));
+  msg.className = "msg";
+  msg.hidden = false;
+  try {
+    const r = await api("POST", "/api/v1/servers/update");
+    showMsg(msg, t("srv.updated", { n: r.servers, new: r.new }), "ok");
+    await loadServers();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  } finally {
+    b.disabled = false;
+  }
+});
 
 // ---------- Terms of use ----------
 const TERMS_TEXT = TERMS[LANG] || TERMS.en;

@@ -43,6 +43,12 @@ func (f connFlags) connect(ctx context.Context) (*server.Conn, error) {
 // connectWith is like connect but starts from base (listen port,
 // callbacks); identity and logging are filled in here.
 func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.Conn, error) {
+	return f.connectTo(ctx, cfg, *f.server, false)
+}
+
+// connectTo connects to addr, or to the best known servers when addr is
+// empty. With tryOthers, if addr doesn't answer the other servers are tried.
+func (f connFlags) connectTo(ctx context.Context, cfg server.Config, addr string, tryOthers bool) (*server.Conn, error) {
 	hash, err := config.UserHash()
 	if err != nil {
 		return nil, err
@@ -59,8 +65,8 @@ func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.
 	if err != nil {
 		return nil, err
 	}
-	if *f.server != "" {
-		info, err := parseServerAddr(*f.server)
+	if addr != "" {
+		info, err := parseServerAddr(addr)
 		if err != nil {
 			return nil, err
 		}
@@ -71,6 +77,14 @@ func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.
 			}
 		}
 		candidates = []server.Info{info}
+		if tryOthers {
+			server.SortByQuality(list)
+			for _, s := range list {
+				if s.Addr() != info.Addr() {
+					candidates = append(candidates, s)
+				}
+			}
+		}
 	} else {
 		if len(list) == 0 {
 			return nil, fmt.Errorf("no servers known; run 'mymule servers update' or pass -server")
@@ -112,6 +126,14 @@ func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.
 				fallback.Close()
 			}
 			fmt.Fprintf(os.Stderr, "connected: %s, HighID\n", info.Addr())
+			return c, nil
+		}
+		if addr != "" && info.Addr() == candidates[0].Addr() {
+			// The server the user chose: stay, even with LowID.
+			if fallback != nil {
+				fallback.Close()
+			}
+			fmt.Fprintf(os.Stderr, "connected: %s, LowID\n", info.Addr())
 			return c, nil
 		}
 		if cfg.Port == 0 {

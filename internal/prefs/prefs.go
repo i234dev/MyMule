@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 type Preferences struct {
 	Library library.Settings `json:"library"`
 	Search  Search           `json:"search"`
+	Server  string           `json:"server"` // preferred eD2K server (ip:port); empty = automatic
 }
 
 // Search says which files of a movie or series are preferred.
@@ -96,6 +98,12 @@ func (s *Store) Set(p Preferences) error {
 	l := &p.Library
 	l.MoviesDir, l.SeriesDir = strings.TrimSpace(l.MoviesDir), strings.TrimSpace(l.SeriesDir)
 	l.MovieTemplate, l.SeriesTemplate = strings.TrimSpace(l.MovieTemplate), strings.TrimSpace(l.SeriesTemplate)
+	p.Server = strings.TrimSpace(p.Server)
+	if p.Server != "" {
+		if _, port, err := net.SplitHostPort(p.Server); err != nil || port == "" {
+			return errors.New("the server must be ip:port, or empty for automatic")
+		}
+	}
 	sp := &p.Search
 	var langs []string
 	for _, c := range sp.Languages {

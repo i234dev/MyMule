@@ -34,6 +34,7 @@ type REST struct {
 	prefs   *prefs.Store             // web preferences; nil = disabled
 	items   *library.Store           // downloads that are movies or episodes
 	onPrefs func()                   // called after preferences change
+	servers ServerControl            // server list and switching; nil = disabled
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

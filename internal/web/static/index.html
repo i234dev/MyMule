@@ -27,7 +27,7 @@
   <header class="top">
     <div class="brand"><img src="/assets/icon.svg" alt="" width="28" height="28"><span>MyMule</span></div>
     <div class="chips">
-      <span id="chip-server" class="chip"></span>
+      <button id="chip-server" class="chip chip-button" type="button"></button>
       <span id="chip-down" class="chip" title=""></span>
       <span id="chip-up" class="chip" title=""></span>
     </div>
@@ -211,6 +211,31 @@
       <button type="button" id="terms-accept" class="primary"></button>
     </div>
   </form>
+</dialog>
+
+<dialog id="servers" class="servers">
+  <div class="srv-head">
+    <h2 id="srv-title" tabindex="-1" data-t="srv.title">Servers</h2>
+    <button type="button" id="srv-close" class="ghost small" data-t="srv.close">Close</button>
+  </div>
+  <p class="muted small" data-t="srv.hint">The server you are connected to. Global searches and sources use all of them anyway.</p>
+  <div class="toolbar">
+    <span id="srv-pref" class="muted"></span>
+    <button type="button" id="srv-auto" class="ghost small" data-t="srv.backauto">Back to automatic</button>
+    <button type="button" id="srv-update" class="ghost small" data-t="srv.update">Update list</button>
+  </div>
+  <p id="srv-msg" class="msg" hidden></p>
+  <div class="table-wrap">
+    <table id="srv-table" class="results">
+      <thead><tr>
+        <th data-sort="name" data-t="srv.name">Server</th>
+        <th data-sort="users" class="num" data-t="srv.users">Users</th>
+        <th data-sort="files" class="num" data-t="srv.files">Files</th>
+        <th class="act"></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
 </dialog>
 
 <dialog id="confirm">

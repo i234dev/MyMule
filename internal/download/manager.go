@@ -115,13 +115,16 @@ type File struct {
 type Manager struct {
 	cfg Config
 
-	mu     sync.Mutex
-	files  map[ed2k.Hash]*File
-	srv    *server.Conn
-	active int
-	conns  map[*peer.Conn]*File // live peer connections, and the file they serve (once known)
-	wg     sync.WaitGroup
-	port   uint16
+	mu    sync.Mutex
+	files map[ed2k.Hash]*File
+	srv   *server.Conn
+	// reconnect asks the server loop to connect again right away (another
+	// server was chosen), without the usual pause.
+	reconnect bool
+	active    int
+	conns     map[*peer.Conn]*File // live peer connections, and the file they serve (once known)
+	wg        sync.WaitGroup
+	port      uint16
 
 	udp      *server.UDP
 	udpAsked map[string]time.Time // server addr -> last UDP source request
@@ -272,6 +275,9 @@ func (m *Manager) serverLoop(ctx context.Context) {
 			Port:       m.port,
 			OnCallback: func(ip net.IP, port uint16) { m.onCallback(ctx, ip, port) },
 		}
+		m.mu.Lock()
+		m.reconnect = false
+		m.mu.Unlock()
 		c, err := m.cfg.Connect(ctx, scfg)
 		if err != nil {
 			m.cfg.Log("server: %v; retrying in 30s", err)
@@ -322,8 +328,23 @@ func (m *Manager) serverLoop(ctx context.Context) {
 		c.Close()
 		m.mu.Lock()
 		m.srv = nil
+		now := m.reconnect
 		m.mu.Unlock()
-		sleepCtx(ctx, 10*time.Second)
+		if !now {
+			sleepCtx(ctx, 10*time.Second)
+		}
+	}
+}
+
+// Reconnect drops the current server connection and connects again at
+// once; Config.Connect decides which server (e.g. the one just chosen).
+func (m *Manager) Reconnect() {
+	m.mu.Lock()
+	c := m.srv
+	m.reconnect = true
+	m.mu.Unlock()
+	if c != nil {
+		c.Close()
 	}
 }
 

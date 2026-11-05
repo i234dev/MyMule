@@ -93,26 +93,8 @@ func cmdServers(args []string) error {
 		if len(args) > 1 {
 			urls = args[1:]
 		}
-		list, err := loadServers()
-		if err != nil {
-			return err
-		}
-		var lastErr error
-		for _, u := range urls {
-			fetched, err := fetchServerMet(u)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %v\n", u, err)
-				lastErr = err
-				continue
-			}
-			var added int
-			list, added = mergeServers(list, fetched)
-			fmt.Printf("%s: %d servers (%d new)\n", u, len(fetched), added)
-		}
-		if len(list) == 0 {
-			return fmt.Errorf("no servers fetched: %v", lastErr)
-		}
-		return saveServers(list)
+		_, _, err := updateServerList(urls, func(format string, a ...any) { fmt.Printf(format+"\n", a...) })
+		return err
 
 	case "add":
 		if len(args) < 2 {
@@ -131,6 +113,32 @@ func cmdServers(args []string) error {
 		return saveServers(list)
 	}
 	return fmt.Errorf("unknown servers subcommand %q", args[0])
+}
+
+// updateServerList downloads server.met files and merges them into the
+// known list. It returns the number of servers and how many are new.
+func updateServerList(urls []string, report func(format string, a ...any)) (total, added int, err error) {
+	list, err := loadServers()
+	if err != nil {
+		return 0, 0, err
+	}
+	var lastErr error
+	for _, u := range urls {
+		fetched, err := fetchServerMet(u)
+		if err != nil {
+			report("%s: %v", u, err)
+			lastErr = err
+			continue
+		}
+		var n int
+		list, n = mergeServers(list, fetched)
+		added += n
+		report("%s: %d servers (%d new)", u, len(fetched), n)
+	}
+	if len(list) == 0 {
+		return 0, 0, fmt.Errorf("no servers fetched: %v", lastErr)
+	}
+	return len(list), added, saveServers(list)
 }
 
 func fetchServerMet(url string) ([]server.Info, error) {

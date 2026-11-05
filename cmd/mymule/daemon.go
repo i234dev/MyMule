@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -73,6 +74,44 @@ type engine struct {
 	up    *upload.Manager
 	prefs *prefs.Store   // preferences edited in the web interface
 	items *library.Store // downloads that are movies or episodes
+
+	nextMu sync.Mutex
+	next   string // server to connect to next, chosen in the web interface
+}
+
+// serverTarget is the server to connect to now: one just chosen in the
+// web interface, else the preferred one, else the -server flag/setting
+// ("" = automatic).
+func (e *engine) serverTarget(flag string) string {
+	e.nextMu.Lock()
+	next := e.next
+	e.next = ""
+	e.nextMu.Unlock()
+	if next != "" {
+		return next
+	}
+	if e.prefs != nil {
+		if p := e.prefs.Get().Server; p != "" {
+			return p
+		}
+	}
+	return flag
+}
+
+// ConnectTo switches to another server now.
+func (e *engine) ConnectTo(addr string) {
+	e.nextMu.Lock()
+	e.next = addr
+	e.nextMu.Unlock()
+	e.Reconnect()
+}
+
+// Servers returns the known servers.
+func (e *engine) Servers() ([]server.Info, error) { return loadServers() }
+
+// UpdateServers downloads the server list again.
+func (e *engine) UpdateServers() (total, added int, err error) {
+	return updateServerList(defaultServerMetURLs, logf)
 }
 
 // organize renames and moves a finished movie or episode into its folder
@@ -169,7 +208,11 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		IncomingDir: *e.out,
 		MaxConns:    *e.maxConns,
 		StayAlive:   stayAlive,
-		Connect:     e.conn.connectWith,
+		Connect: func(ctx context.Context, cfg server.Config) (*server.Conn, error) {
+			// The daemon follows the server chosen in the web interface;
+			// if it doesn't answer, the others are tried.
+			return e.conn.connectTo(ctx, cfg, eng.serverTarget(*e.conn.server), true)
+		},
 		Servers: func() []server.Info {
 			list, _ := loadServers()
 			server.SortByQuality(list)
@@ -523,6 +566,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.AlsoAllow(ui.Session)
 		rest.EnableMedia(mediaSource())
 		rest.EnableLibrary(e.prefs, e.items, e.updateShared)
+		rest.EnableServers(e)
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()
 			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)

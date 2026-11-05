@@ -223,7 +223,7 @@ func (a *Adapter) writeFeed(w http.ResponseWriter, r *http.Request, items []tzIt
 			url.QueryEscape(it.link.Name), it.link.Size, url.QueryEscape(a.cfg.Key))
 		peers := it.sources
 		seeders := max(it.complete, min(it.sources, 1))
-		fmt.Fprintf(&b, "<item>\n<title>%s</title>\n<guid isPermaLink=\"false\">%s</guid>\n", xmlEscape(it.link.Name), it.link.Hash)
+		fmt.Fprintf(&b, "<item>\n<title>%s</title>\n<guid isPermaLink=\"false\">%s</guid>\n", xmlEscape(releaseTitle(it.link.Name)), it.link.Hash)
 		fmt.Fprintf(&b, "<link>%s</link>\n<comments>%s</comments>\n<pubDate>%s</pubDate>\n", xmlEscape(dl), xmlEscape(it.link.String()), now)
 		fmt.Fprintf(&b, "<size>%d</size>\n<category>%d</category>\n", it.link.Size, it.cat)
 		fmt.Fprintf(&b, "<enclosure url=\"%s\" length=\"%d\" type=\"application/x-bittorrent\"/>\n", xmlEscape(dl), it.link.Size)

@@ -87,6 +87,12 @@ app must see that folder **at the same path**:
   `S01E02`, `s01.e02` or `1x02`; season packs against `S01`, `Season 1`,
   `Temporada 1`.
 - **"Seeders"** in the app means eD2K sources with the complete file.
+  Results that nobody shares (0 sources) are left out.
+- **Titles** are tidied up for the apps, which expect torrent-style
+  names: server prefixes such as `[kad example.org]` are removed, and
+  short language tags (`Spa`, `ESP`, `[spa, eng]`, `Ita`...) get the full
+  name appended (`SPANISH`, `ENGLISH`, `ITALIAN`...) so the apps detect the
+  language. The downloaded file keeps its real name.
 - When the app grabs a result, it downloads a small stand-in `.torrent`
   from MyMule and sends it to the "qBittorrent" client, which is MyMule
   again. The stand-in contains the ed2k link and is useless to any real

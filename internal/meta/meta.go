@@ -74,6 +74,14 @@ func (f fallbackSource) Search(ctx context.Context, text, lang string) ([]Work, 
 	return works, nil
 }
 
+// EpisodeTitle asks the primary source, if it knows episode titles.
+func (f fallbackSource) EpisodeTitle(ctx context.Context, id string, season, episode int, lang string) (string, error) {
+	if et, ok := f.primary.(EpisodeTitler); ok {
+		return et.EpisodeTitle(ctx, id, season, episode, lang)
+	}
+	return "", nil
+}
+
 func (f fallbackSource) Get(ctx context.Context, id, lang string) (Work, error) {
 	if validQID(id) {
 		return f.fallback.Get(ctx, id, lang)

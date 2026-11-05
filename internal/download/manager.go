@@ -51,7 +51,7 @@ type Config struct {
 	Log        func(format string, args ...any) // important events
 	Debug      func(format string, args ...any) // per-peer chatter
 	Trace      bool                             // log every peer packet via Debug
-	OnComplete func(name, path string)
+	OnComplete func(hash ed2k.Hash, name, path string)
 }
 
 // SourceState is where we stand with a given peer for a given file.
@@ -676,7 +676,7 @@ func (m *Manager) finish(f *File) {
 		lib.AddComplete(path, f.pf.Hash, f.pf.HashSet())
 	}
 	if m.cfg.OnComplete != nil {
-		m.cfg.OnComplete(f.pf.Name, path)
+		m.cfg.OnComplete(f.pf.Hash, f.pf.Name, path)
 	}
 }
 

@@ -157,6 +157,16 @@ func (m *Manager) Cancel(h ed2k.Hash) (string, error) {
 	return f.pf.Name, f.pf.Delete()
 }
 
+// SetFinishedPath records that a completed file was moved (e.g. renamed
+// into a movie library), so the status shows where it is now.
+func (m *Manager) SetFinishedPath(h ed2k.Hash, path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if f, ok := m.files[h]; ok && f.finished {
+		f.path = path
+	}
+}
+
 // ClearFinished removes completed downloads from the list.
 func (m *Manager) ClearFinished() int {
 	m.mu.Lock()

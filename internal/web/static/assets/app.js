@@ -31,6 +31,17 @@ const STRINGS = {
     "media.why.sources outside eD2K (Kad/torrent/usenet)": "only found on Kad/torrent: may not download",
     "media.why.cam or screener copy": "cam or screener copy",
     "media.why.bigger than the maximum size": "too big",
+    "tab.settings": "Settings",
+    "set.library": "Movie and series library",
+    "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.",
+    "set.moviesdir": "Movies folder", "set.seriesdir": "Series folder",
+    "set.dirhint": "A folder on the computer where MyMule runs. It is created if it doesn't exist.",
+    "set.movietmpl": "Movie file name", "set.seriestmpl": "Episode file name",
+    "set.example": "Example:", "set.custom": "Custom…",
+    "set.tags": "Tags:", "set.tagshint": "\"/\" makes a folder; {season:2} adds a leading zero (01).",
+    "set.titlelang": "Title in the file name", "set.titlelocal": "In your language", "set.titleorig": "Original title",
+    "set.share": "Share the movie and series folders (with their subfolders)",
+    "set.save": "Save", "set.saved": "Saved.",
     "add.placeholder": "Paste ed2k:// links here",
     "add.submit": "Add",
     "add.done": "Added: {n}",
@@ -95,6 +106,17 @@ const STRINGS = {
     "media.why.sources outside eD2K (Kad/torrent/usenet)": "solo está en Kad/torrent: puede que no baje",
     "media.why.cam or screener copy": "copia de cine (CAM) o screener",
     "media.why.bigger than the maximum size": "demasiado grande",
+    "tab.settings": "Ajustes",
+    "set.library": "Biblioteca de películas y series",
+    "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar y mover a sus propias carpetas al terminar. Deja una carpeta vacía para que se queden en la carpeta de descargas.",
+    "set.moviesdir": "Carpeta de películas", "set.seriesdir": "Carpeta de series",
+    "set.dirhint": "Una carpeta del equipo donde funciona MyMule. Se crea si no existe.",
+    "set.movietmpl": "Nombre de las películas", "set.seriestmpl": "Nombre de los episodios",
+    "set.example": "Ejemplo:", "set.custom": "Personalizada…",
+    "set.tags": "Etiquetas:", "set.tagshint": "\"/\" crea una carpeta; {season:2} añade un cero delante (01).",
+    "set.titlelang": "Título en el nombre del fichero", "set.titlelocal": "En tu idioma", "set.titleorig": "Título original",
+    "set.share": "Compartir las carpetas de películas y series (con sus subcarpetas)",
+    "set.save": "Guardar", "set.saved": "Guardado.",
     "add.placeholder": "Pega aquí enlaces ed2k://",
     "add.submit": "Añadir",
     "add.done": "Añadidos: {n}",
@@ -179,7 +201,7 @@ function size(b) {
   b = Number(b) || 0;
   let i = 0;
   while (b >= 1024 && i < UNITS.length - 1) { b /= 1024; i++; }
-  return (i === 0 ? b : b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0)) + " " + UNITS[i];
+  return (i === 0 ? Math.round(b) : b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0)) + " " + UNITS[i];
 }
 const speed = b => size(b) + "/s";
 function duration(s) {
@@ -257,6 +279,7 @@ function selectTab(name) {
   document.querySelectorAll(".tab").forEach(s => { s.hidden = s.id !== "tab-" + name; });
   if (name === "search") $("#s-q").focus();
   if (name === "media" && $("#work").hidden) $("#m-q").focus();
+  if (name === "settings" && !prefsLoaded) loadSettings();
   try { localStorage.setItem("mymule.tab", name); } catch {}
   render();
 }
@@ -661,10 +684,29 @@ function renderReleases() {
         el("button", {
           class: inDl ? "icon" : "primary small", disabled: inDl,
           text: inDl ? t("results.have") : t("results.download"),
-          onclick: () => download([r], $("#rel-msg")).then(renderReleases),
+          onclick: () => downloadRelease(r),
         })),
       el("div", { class: "tags" }, releaseTags(r)));
   }));
+}
+
+// downloadRelease adds a file of the open movie or series, telling MyMule
+// what it is so it can be renamed into the library when it finishes.
+async function downloadRelease(r) {
+  const w = currentWork, msg = $("#rel-msg");
+  const body = { link: r.link, work_id: w.id, lang: MEDIA_LANG };
+  if (w.kind === "series") {
+    body.season = Number($("#w-season").value) || 0;
+    body.episode = Number($("#w-episode").value) || 0;
+  }
+  try {
+    const res = await api("POST", "/api/v1/media/download", body);
+    showMsg(msg, t("add.done", { n: res.added.length }), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+  await refresh();
+  renderReleases();
 }
 
 function markHaveReleases() {
@@ -679,6 +721,86 @@ function markHaveReleases() {
     }
   });
 }
+
+// ---------- Settings ----------
+let presets = { movie: [], series: [] }, prefsLoaded = false, previewTimer = null;
+const CUSTOM = "__custom__";
+
+function fillPresets(sel, list, current) {
+  sel.replaceChildren(...list.map(p => el("option", { value: p, text: p })),
+    el("option", { value: CUSTOM, text: t("set.custom") }));
+  sel.value = list.includes(current) ? current : CUSTOM;
+}
+
+async function loadSettings() {
+  try {
+    const r = await api("GET", "/api/v1/preferences");
+    presets = r.presets;
+    const l = r.preferences.library;
+    $("#set-movies-dir").value = l.movies_dir || "";
+    $("#set-series-dir").value = l.series_dir || "";
+    $("#set-movie-tmpl").value = l.movie_template;
+    $("#set-series-tmpl").value = l.series_template;
+    fillPresets($("#set-movie-preset"), presets.movie, l.movie_template);
+    fillPresets($("#set-series-preset"), presets.series, l.series_template);
+    document.querySelectorAll('input[name="set-title"]').forEach(r => { r.checked = (r.value === "original") === !!l.original_titles; });
+    $("#set-share").checked = !!l.share;
+    prefsLoaded = true;
+    preview();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#lib-msg"), err.message, "bad");
+  }
+}
+
+function libraryForm() {
+  return {
+    movies_dir: $("#set-movies-dir").value.trim(),
+    series_dir: $("#set-series-dir").value.trim(),
+    movie_template: $("#set-movie-tmpl").value.trim(),
+    series_template: $("#set-series-tmpl").value.trim(),
+    original_titles: document.querySelector('input[name="set-title"]:checked').value === "original",
+    share: $("#set-share").checked,
+  };
+}
+
+function preview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    try {
+      const r = await api("POST", "/api/v1/preferences/preview", libraryForm());
+      for (const k of ["movie", "series"]) {
+        const n = $("#prev-" + k);
+        n.textContent = r[k] || r[k + "_error"] || "";
+        n.classList.toggle("error", !r[k]);
+      }
+    } catch { /* shown on save */ }
+  }, 250);
+}
+
+for (const k of ["movie", "series"]) {
+  $("#set-" + k + "-preset").addEventListener("change", e => {
+    if (e.target.value !== CUSTOM) $("#set-" + k + "-tmpl").value = e.target.value;
+    else $("#set-" + k + "-tmpl").focus();
+    preview();
+  });
+  $("#set-" + k + "-tmpl").addEventListener("input", e => {
+    const list = presets[k];
+    $("#set-" + k + "-preset").value = list.includes(e.target.value.trim()) ? e.target.value.trim() : CUSTOM;
+    preview();
+  });
+}
+document.querySelectorAll('input[name="set-title"]').forEach(r => r.addEventListener("change", preview));
+
+$("#lib-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("#lib-msg");
+  try {
+    await api("PUT", "/api/v1/preferences", { library: libraryForm() });
+    showMsg(msg, t("set.saved"), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+});
 
 // ---------- Sharing ----------
 function renderSharing() {
@@ -735,7 +857,7 @@ async function start() {
   $("#app").hidden = false;
   let tab = "downloads";
   try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
-  selectTab(["downloads", "media", "search", "sharing"].includes(tab) ? tab : "downloads");
+  selectTab(["downloads", "media", "search", "sharing", "settings"].includes(tab) ? tab : "downloads");
   startPolling();
 }
 

@@ -22,6 +22,7 @@
 </div>
 
 <div id="app" hidden>
+  <div class="sticky">
   <header class="top">
     <div class="brand"><img src="/assets/icon.svg" alt="" width="28" height="28"><span>MyMule</span></div>
     <div class="chips">
@@ -37,7 +38,9 @@
     <button role="tab" data-tab="media" data-t="tab.media">Movies &amp; series</button>
     <button role="tab" data-tab="search" data-t="tab.search">Search</button>
     <button role="tab" data-tab="sharing" data-t="tab.sharing">Sharing</button>
+    <button role="tab" data-tab="settings" data-t="tab.settings">Settings</button>
   </nav>
+  </div>
 
   <main>
     <section id="tab-downloads" class="tab">
@@ -134,6 +137,40 @@
       </div>
       <h2 id="slots-title" data-t="share.uploading">Uploading now</h2>
       <div id="slots" class="list"></div>
+    </section>
+    <section id="tab-settings" class="tab" hidden>
+      <form id="lib-form" class="card settings">
+        <h2 data-t="set.library">Movie and series library</h2>
+        <p class="muted" data-t="set.libhint">Movies and episodes you download from the Movies &amp; series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.</p>
+
+        <label class="field"><span data-t="set.moviesdir">Movies folder</span>
+          <input id="set-movies-dir" type="text" autocomplete="off" spellcheck="false" placeholder="/data/movies"></label>
+        <label class="field"><span data-t="set.seriesdir">Series folder</span>
+          <input id="set-series-dir" type="text" autocomplete="off" spellcheck="false" placeholder="/data/series"></label>
+        <p class="hint" data-t="set.dirhint">A folder on the computer where MyMule runs. It is created if it doesn't exist.</p>
+
+        <label class="field"><span data-t="set.movietmpl">Movie file name</span>
+          <select id="set-movie-preset"></select>
+          <input id="set-movie-tmpl" type="text" autocomplete="off" spellcheck="false"></label>
+        <p class="preview"><span data-t="set.example">Example:</span> <code id="prev-movie"></code></p>
+
+        <label class="field"><span data-t="set.seriestmpl">Episode file name</span>
+          <select id="set-series-preset"></select>
+          <input id="set-series-tmpl" type="text" autocomplete="off" spellcheck="false"></label>
+        <p class="preview"><span data-t="set.example">Example:</span> <code id="prev-series"></code></p>
+
+        <p class="hint"><span data-t="set.tags">Tags:</span> <code>{title}</code> <code>{original_title}</code> <code>{year}</code> <code>{quality}</code> <code>{language}</code> <code>{season}</code> <code>{episode}</code> <code>{episode_title}</code> · <span data-t="set.tagshint">"/" makes a folder; {season:2} adds a leading zero (01).</span></p>
+
+        <fieldset class="field">
+          <legend data-t="set.titlelang">Title in the file name</legend>
+          <label class="inline"><input type="radio" name="set-title" value="local" checked> <span data-t="set.titlelocal">In your language</span></label>
+          <label class="inline"><input type="radio" name="set-title" value="original"> <span data-t="set.titleorig">Original title</span></label>
+        </fieldset>
+        <label class="inline"><input id="set-share" type="checkbox"> <span data-t="set.share">Share the movie and series folders (with their subfolders)</span></label>
+
+        <p id="lib-msg" class="msg" hidden></p>
+        <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
+      </form>
     </section>
   </main>
   <footer class="foot"><span id="version"></span> · <a href="https://github.com/i234dev/MyMule" target="_blank" rel="noopener noreferrer">GitHub</a>

@@ -102,33 +102,23 @@ web_ui = true
 ```
 
 Then open `http://127.0.0.1:4711/` (the `api_listen` address) and log in
-with the `api_key` from `mymule.conf`. It has four tabs:
+with the `api_key` from `mymule.conf`. It has five tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
   resume, cancel, clear finished, and add `ed2k://` links.
 - **Movies & series**: search a movie or series by title, in your
   browser's language, and pick it from a list with posters (title, year,
-  original title, synopsis). MyMule then searches eD2K by all its titles (yours, the original
-  and alternative ones), keeps only the files of that work (not remakes,
-  episodes of other shows or other movies with similar names) and shows
-  them with their language, resolution, source, size and sources, the
-  recommended one first. Files with no sources, only found on Kad/torrent,
-  or cam copies are hidden but can be shown. For series, choose a season
-  and optionally an episode.
-
-Movie and series data and posters come from
-[TMDB](https://www.themoviedb.org), with
-[Wikidata](https://www.wikidata.org) as a fallback. MyMule includes its
-own TMDB key, so there is nothing to set up; you can use your own key
-(`tmdb_api_key`) or `tmdb_api_key = off` to use only Wikidata, without
-posters. Only search words and ids are sent; posters are fetched by
-MyMule (your browser never contacts TMDB) and kept in a small cache
-(`cache/posters`, at most 100 MB).
-
-This product uses the TMDB API but is not endorsed or certified by TMDB.
+  original title, synopsis). MyMule then searches eD2K by all its titles
+  (yours, the original and alternative ones), keeps only the files of
+  that work (not remakes, episodes of other shows or other movies with
+  similar names) and shows them with their language, resolution, source,
+  size and sources, the recommended one first. Files with no sources,
+  only found on Kad/torrent, or cam copies are hidden but can be shown.
+  For series, choose a season and optionally an episode.
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.
+- **Settings**: the movie and series library (see below).
 
 It works on phones, follows the system's light or dark theme and is shown
 in English or Spanish depending on the browser's language.
@@ -140,6 +130,43 @@ The session lasts 30 days; changing `api_key` logs everybody out.
 
 When `web_ui = false` the pages don't exist and nothing extra runs; the
 interface only uses resources while a browser has it open.
+
+### Movie and series data
+
+Movie and series data and posters come from
+[TMDB](https://www.themoviedb.org), with
+[Wikidata](https://www.wikidata.org) as a fallback. MyMule includes its
+own TMDB key, so there is nothing to set up; you can use your own key
+(`tmdb_api_key`) or `tmdb_api_key = off` to use only Wikidata, without
+posters. Only search words and ids are sent; posters are fetched by
+MyMule (your browser never contacts TMDB) and kept in a small cache
+(`cache/posters`, at most 100 MB).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+### Movie and series library
+
+Files downloaded from the **Movies & series** tab can be renamed and moved
+into their own folders when they finish, ready for Plex, Jellyfin or Kodi.
+In **Settings** choose:
+
+- **Movies folder** and **Series folder** on the computer where MyMule
+  runs (empty = leave those files in `download_dir`).
+- **File names** from ready-made templates or your own, with a live
+  example. Templates use tags: `{title}`, `{original_title}`, `{year}`,
+  `{quality}`, `{language}`, `{season}`, `{episode}`, `{episode_title}`;
+  `/` makes a folder and `{season:2}` adds a leading zero. For example
+  `{title} ({year})/{title} ({year})` gives
+  `Example Movie (1999)/Example Movie (1999).mkv`, and
+  `{title}/Season {season:2}/{title} - S{season:2}E{episode:2}` gives
+  `Example Show/Season 01/Example Show - S01E02.mkv`.
+- Whether file names use the **title in your language or the original**.
+- Whether to **share** those folders (with their subfolders). Moved files
+  keep being shared without hashing them again.
+
+Names are made safe for Windows, macOS and Linux, files are never
+overwritten (a ` (2)` is added) and nothing is ever written outside the
+chosen folders. Settings are kept in `preferences.json`.
 
 ## HTTP API for scripts
 

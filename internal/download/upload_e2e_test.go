@@ -71,7 +71,7 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 	b := NewManager(Config{
 		UserHash: ed2k.Hash{0xB}, Nick: "downloader", Port: freePort(t), ListenHost: "127.0.0.1",
 		TempDir: t.TempDir(), IncomingDir: incoming, Connect: noServer, Debug: t.Logf,
-		OnComplete: func(name, path string) { donePath = path },
+		OnComplete: func(_ ed2k.Hash, name, path string) { donePath = path },
 	})
 	link := ed2k.Link{Name: "copy.bin", Size: int64(len(data)), Hash: fh.Root}
 	if err := b.AddLink(link, "127.0.0.1:"+strconv.Itoa(int(portA))); err != nil {

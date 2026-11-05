@@ -12,7 +12,9 @@ import (
 
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/library"
 	"mymule/internal/meta"
+	"mymule/internal/prefs"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -29,6 +31,9 @@ type REST struct {
 	mux     *http.ServeMux
 	also    func(*http.Request) bool // extra check, e.g. the web interface session
 	media   meta.Source              // movie/series lookups; nil = disabled
+	prefs   *prefs.Store             // web preferences; nil = disabled
+	items   *library.Store           // downloads that are movies or episodes
+	onPrefs func()                   // called after preferences change
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

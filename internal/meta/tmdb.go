@@ -292,3 +292,30 @@ func removeTitle(list []string, t string) []string {
 	}
 	return out
 }
+
+// EpisodeTitler gives the title of an episode, when the source knows it.
+type EpisodeTitler interface {
+	EpisodeTitle(ctx context.Context, id string, season, episode int, lang string) (string, error)
+}
+
+// EpisodeTitle returns the title of an episode of a TMDB series.
+func (t *TMDB) EpisodeTitle(ctx context.Context, id string, season, episode int, lang string) (string, error) {
+	kind, n, ok := ParseTMDBID(id)
+	if !ok || kind != Series || season < 0 || episode <= 0 {
+		return "", nil
+	}
+	lang = tmdbLang(lang)
+	key := fmt.Sprintf("episode|%s|%d|%d|%d", lang, n, season, episode)
+	if v, ok := t.cached(key); ok {
+		return v.(string), nil
+	}
+	var r struct {
+		Name string `json:"name"`
+	}
+	if err := t.get(ctx, fmt.Sprintf("/tv/%d/season/%d/episode/%d", n, season, episode),
+		url.Values{"language": {lang}}, &r); err != nil {
+		return "", err
+	}
+	t.store(key, r.Name)
+	return r.Name, nil
+}

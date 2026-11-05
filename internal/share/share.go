@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,6 +91,7 @@ type Library struct {
 	log       func(string, ...any)
 
 	mu       sync.Mutex
+	trees    []string             // folders shared with their subfolders
 	disk     map[string]*diskFile // by path
 	partial  map[ed2k.Hash]File
 	byHash   map[ed2k.Hash]File
@@ -137,6 +139,18 @@ func (l *Library) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// SetTrees sets the folders that are shared together with their
+// subfolders (movie and series libraries), and rescans.
+func (l *Library) SetTrees(dirs []string) {
+	l.mu.Lock()
+	l.trees = append([]string{}, dirs...)
+	l.mu.Unlock()
+	l.Rescan()
+}
+
+// maxTreeDepth limits how deep shared trees are walked.
+const maxTreeDepth = 5
+
 // Rescan asks Run to scan the folders again soon.
 func (l *Library) Rescan() {
 	select {
@@ -163,6 +177,31 @@ func (l *Library) scan(ctx context.Context) {
 		mtime int64
 	}
 	var found []cand
+	l.mu.Lock()
+	trees := append([]string{}, l.trees...)
+	l.mu.Unlock()
+	for _, root := range trees {
+		root = filepath.Clean(root)
+		filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if e.IsDir() {
+				rel, _ := filepath.Rel(root, path)
+				if path != root && (strings.HasPrefix(e.Name(), ".") || strings.Count(rel, string(filepath.Separator)) >= maxTreeDepth) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !e.Type().IsRegular() || skipName(e.Name()) {
+				return nil
+			}
+			if info, err := e.Info(); err == nil && info.Size() > 0 {
+				found = append(found, cand{path, info.Size(), info.ModTime().UnixNano()})
+			}
+			return nil
+		})
+	}
 	for _, dir := range l.dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -314,7 +353,39 @@ func (l *Library) inSharedDirLocked(path string) bool {
 			return true
 		}
 	}
+	for _, t := range l.trees {
+		if rel, err := filepath.Rel(filepath.Clean(t), dir); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
 	return false
+}
+
+// Moved records that a shared or known file was moved or renamed, so it
+// is not hashed again; it stays shared if the new place is shared.
+func (l *Library) Moved(oldPath, newPath string) {
+	info, err := os.Stat(newPath)
+	if err != nil {
+		return
+	}
+	l.mu.Lock()
+	ce, ok := l.cache[oldPath]
+	if ok {
+		ce.MTime = info.ModTime().UnixNano()
+		delete(l.cache, oldPath)
+		delete(l.disk, oldPath)
+		l.cache[newPath] = ce
+		if l.inSharedDirLocked(newPath) {
+			l.addDiskLocked(newPath, ce)
+		} else {
+			l.reindexLocked()
+		}
+	}
+	l.mu.Unlock()
+	if ok {
+		l.saveCache()
+	}
 }
 
 // SetPartial shares (or with f == nil, stops sharing) a partial download.

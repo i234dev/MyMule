@@ -160,7 +160,7 @@ func TestManagerEndToEnd(t *testing.T) {
 			return server.Dial(ctx, server.Info{IP: sa.IP, Port: uint16(sa.Port)}, cfg)
 		},
 		Log:        t.Logf,
-		OnComplete: func(name, path string) { donePath = path },
+		OnComplete: func(_ ed2k.Hash, name, path string) { donePath = path },
 	})
 	m.Add(pf)
 

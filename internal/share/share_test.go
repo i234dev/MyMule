@@ -89,3 +89,43 @@ func TestPartialRegistration(t *testing.T) {
 		t.Fatal("partial not removed")
 	}
 }
+
+func TestTreesAndMoved(t *testing.T) {
+	incoming, library := t.TempDir(), t.TempDir()
+	data := bytes.Repeat([]byte("tree"), 1000)
+	src := filepath.Join(incoming, "done.mkv")
+	os.WriteFile(src, data, 0o644)
+	want, _ := ed2k.HashReader(bytes.NewReader(data), nil)
+
+	l := NewLibrary([]string{incoming}, filepath.Join(t.TempDir(), "known.json"), nil)
+	l.SetTrees([]string{library})
+	l.AddComplete(src, want.Root, nil)
+	if l.Get(want.Root) == nil {
+		t.Fatal("not shared after download")
+	}
+
+	// Moved into a subfolder of a shared tree: still shared, not hashed again.
+	dst := filepath.Join(library, "Example Movie (2001)", "Example Movie (2001).mkv")
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	os.Rename(src, dst)
+	l.Moved(src, dst)
+	f := l.Get(want.Root)
+	if f == nil || f.FileName() != "Example Movie (2001).mkv" || l.Status().ToHash != 0 {
+		t.Fatalf("after move: %+v", f)
+	}
+	l.scan(context.Background())
+	if l.Get(want.Root) == nil || l.Status().Files != 1 {
+		t.Fatalf("lost after rescan: %d files", l.Status().Files)
+	}
+
+	// Files deep in a tree are found by a scan; hidden folders are skipped.
+	other := bytes.Repeat([]byte("deep"), 1000)
+	os.MkdirAll(filepath.Join(library, "Show", "Season 01"), 0o755)
+	os.WriteFile(filepath.Join(library, "Show", "Season 01", "e1.mkv"), other, 0o644)
+	os.MkdirAll(filepath.Join(library, ".trash"), 0o755)
+	os.WriteFile(filepath.Join(library, ".trash", "x.mkv"), []byte("hidden"), 0o644)
+	l.scan(context.Background())
+	if l.Status().Files != 2 {
+		t.Fatalf("tree scan: %d files", l.Status().Files)
+	}
+}

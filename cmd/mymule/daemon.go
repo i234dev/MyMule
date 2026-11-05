@@ -21,7 +21,9 @@ import (
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/library"
 	"mymule/internal/meta"
+	"mymule/internal/prefs"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -67,8 +69,51 @@ func addEngineFlags(fs *flag.FlagSet) engineFlags {
 // uses, which must be started alongside it.
 type engine struct {
 	*download.Manager
-	lib *share.Library
-	up  *upload.Manager
+	lib   *share.Library
+	up    *upload.Manager
+	prefs *prefs.Store   // preferences edited in the web interface
+	items *library.Store // downloads that are movies or episodes
+}
+
+// organize renames and moves a finished movie or episode into its folder
+// (when the user chose one), keeping it shared without hashing it again.
+func (e *engine) organize(h ed2k.Hash, name, path string) {
+	it, ok := e.items.Take(h.String())
+	if !ok {
+		return
+	}
+	dst := library.Destination(e.prefs.Library(), it, path)
+	if dst == "" {
+		return
+	}
+	final, err := library.Move(path, dst)
+	if err != nil {
+		logf("%s: cannot move to %s: %v", name, dst, err)
+		return
+	}
+	e.SetFinishedPath(h, final)
+	if e.lib != nil {
+		e.lib.Moved(path, final)
+	}
+	logf("ORGANIZED %s -> %s", name, final)
+}
+
+// updateShared shares the movie and series folders (with subfolders) when
+// the preferences say so.
+func (e *engine) updateShared() {
+	if e.lib == nil {
+		return
+	}
+	st := e.prefs.Library()
+	var trees []string
+	if st.Share {
+		for _, d := range []string{st.MoviesDir, st.SeriesDir} {
+			if d != "" {
+				trees = append(trees, d)
+			}
+		}
+	}
+	e.lib.SetTrees(trees)
 }
 
 // start runs the shared-folder scanner and the upload slot scheduler.
@@ -93,6 +138,7 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		m   *download.Manager
 		lib *share.Library
 		up  *upload.Manager
+		eng = &engine{}
 	)
 	if settings.Sharing {
 		var dirs []string
@@ -132,13 +178,22 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		Log:   logf,
 		Debug: debug,
 		Trace: os.Getenv("MYMULE_TRACE") != "",
-		OnComplete: func(name, path string) {
+		OnComplete: func(h ed2k.Hash, name, path string) {
 			logf("COMPLETED %s -> %s", name, path)
+			go eng.organize(h, name, path) // moving to another disk can take a while
 		},
 		Library: lib,
 		Upload:  up,
 	})
-	return &engine{Manager: m, lib: lib, up: up}, nil
+	dataDir, err := config.Dir()
+	if err != nil {
+		return nil, err
+	}
+	*eng = engine{Manager: m, lib: lib, up: up,
+		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
+		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
+	eng.updateShared()
+	return eng, nil
 }
 
 // cmdDaemon runs the engine in the foreground with the control API.
@@ -177,7 +232,7 @@ func cmdDaemon(args []string) error {
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
-	if stopAPI := startPublicAPI(m.Manager, *ef.out); stopAPI != nil {
+	if stopAPI := startPublicAPI(m, *ef.out); stopAPI != nil {
 		defer stopAPI()
 	}
 
@@ -458,7 +513,8 @@ func limitDescription() string {
 // publicRoutes builds the handler served on api_listen: the REST API for
 // scripts, plus the Torznab indexer and qBittorrent-compatible API used
 // by Radarr, Sonarr, Lidarr, Readarr and Prowlarr.
-func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
+func publicRoutes(e *engine, downloadDir string) http.Handler {
+	m := e.Manager
 	mux := http.NewServeMux()
 	rest := api.NewREST(m, settings.APIKey, version)
 	mux.Handle("/api/v1/", rest)
@@ -466,6 +522,7 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 		ui := web.New(settings.APIKey, version)
 		rest.AlsoAllow(ui.Session)
 		rest.EnableMedia(mediaSource())
+		rest.EnableLibrary(e.prefs, e.items, e.updateShared)
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()
 			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)
@@ -484,7 +541,7 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 
 // startPublicAPI serves the HTTP API on api_listen, if configured. It
 // returns a function that shuts it down, or nil.
-func startPublicAPI(m *download.Manager, downloadDir string) func() {
+func startPublicAPI(m *engine, downloadDir string) func() {
 	if settings.APIListen == "" {
 		logf("HTTP API disabled (api_listen is empty)")
 		if settings.WebUI || settings.ArrSupport {

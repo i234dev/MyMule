@@ -1,8 +1,26 @@
 # MyMule
 
-A command-line client for the eD2K network (the eMule network), written in Go.
-One static binary, no dependencies, runs anywhere: Windows, Linux, macOS,
-FreeBSD, and ARM boards or NAS devices.
+A client for the eD2K network (the eMule network), written in Go. One small
+binary with no dependencies that runs anywhere (Windows, Linux, macOS,
+FreeBSD, ARM boards and NAS devices) and uses about 15 MB of RAM.
+
+Use it the way that suits you:
+
+- **Web interface**: search movies and series by title (with posters, in
+  your language), get the files of that work scored by language and
+  quality, download them and have them renamed into your movie and series
+  library. Downloads, searches, sharing and servers, from any browser,
+  phone included. See [Web interface](#web-interface).
+- **Command line**: a background daemon with short commands (`status`,
+  `add`, `pause`...) and `mymule top`, a live full-screen view where you
+  can also search and manage downloads. See [Quick start](#quick-start).
+- **Radarr, Sonarr, Lidarr, Readarr and Prowlarr**: MyMule works as a
+  Torznab indexer and a qBittorrent-compatible download client, so eD2K
+  becomes one more source for them. See
+  [Radarr, Sonarr...](#radarr-sonarr-lidarr-readarr-and-prowlarr).
+
+There is also an [HTTP API](#http-api-for-scripts) for scripts (PHP,
+Python, cron, home automation).
 
 > **Please read the [terms of use and disclaimer](#terms-of-use-and-disclaimer)
 > before using MyMule.** In short: only use it for content you are allowed
@@ -27,6 +45,8 @@ FreeBSD, and ARM boards or NAS devices.
   (`status`, `add`, `pause`, `cancel`...) over a local, token-protected API
 - `mymule top`: live full-screen view; search, pick what to download and
   pause, resume or cancel downloads without leaving it
+- Server list with users and files; switch server or choose one to always
+  use (web interface)
 - Optional web interface (downloads, search, sharing) that works on phones
   too; off by default
 - HTTP API for scripts, and optional Radarr/Sonarr/Lidarr/Readarr/Prowlarr
@@ -127,6 +147,11 @@ with the `api_key` from `mymule.conf`. It has five tabs:
   languages in order of preference, original version with subtitles,
   preferred resolution, maximum size, hide cam copies) and the movie and
   series library (see below).
+
+Click the server name at the top to see the server list, sorted by users
+or files: connect to another server, choose one to always use (the others
+are tried only if it doesn't answer) or download a fresh list. Global
+searches and sources use all servers anyway.
 
 It works on phones, follows the system's light or dark theme and is shown
 in English or Spanish depending on the browser's language.

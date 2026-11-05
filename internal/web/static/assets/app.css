@@ -179,7 +179,7 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 /* Dialog */
 dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); max-width: 460px; width: calc(100% - 32px); }
 dialog.terms { max-width: 680px; max-height: 85vh; overflow-y: auto; }
-dialog.terms h2 { margin-top: 4px; }
+dialog.terms h2 { margin-top: 4px; outline: none; }
 dialog.terms ol { padding-left: 20px; display: grid; gap: 8px; }
 dialog.terms li, dialog.terms p { font-size: 14px; line-height: 1.5; }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }

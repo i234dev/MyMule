@@ -964,6 +964,10 @@ function showTerms(mustAccept) {
   // Esc would close it without an answer.
   dlg.oncancel = e => { if (mustAccept) e.preventDefault(); };
   dlg.showModal();
+  // Start at the top: by default the first button (at the bottom) gets
+  // the focus and the dialog scrolls down to it.
+  $("#terms-title").focus({ preventScroll: true });
+  dlg.scrollTop = 0;
 }
 
 $("#terms-link").textContent = TERMS_TEXT.link;

@@ -1,0 +1,522 @@
+"use strict";
+// MyMule web interface. Plain JavaScript on top of the REST API (/api/v1).
+// Text from the network (file names...) is only ever set with
+// textContent, never as HTML.
+
+// ---------- Translations ----------
+const STRINGS = {
+  en: {
+    "login.label": "API key",
+    "login.hint": "It is the api_key line in mymule.conf, next to the program.",
+    "login.submit": "Log in",
+    "login.wrong": "Wrong key.",
+    "logout": "Log out",
+    "tab.downloads": "Downloads", "tab.search": "Search", "tab.sharing": "Sharing",
+    "add.placeholder": "Paste ed2k:// links here",
+    "add.submit": "Add",
+    "add.done": "Added: {n}",
+    "dl.clear": "Clear finished",
+    "dl.summary": "{n} downloads · {active} active",
+    "dl.empty": "No downloads. Search for something or paste an ed2k:// link.",
+    "dl.pause": "Pause", "dl.resume": "Resume", "dl.cancel": "Cancel", "dl.remove": "Remove",
+    "state.downloading": "downloading", "state.queued": "queued", "state.stalled": "waiting for sources",
+    "state.paused": "paused", "state.finished": "finished",
+    "meta.sources": "{n} sources", "meta.from": "from {n}", "meta.queue": "queued at {n}", "meta.rank": "best place #{n}",
+    "meta.eta": "{t} left",
+    "confirm.cancel": "Cancel this download? The partial data is deleted.",
+    "confirm.remove": "Remove this finished download from the list? The file stays on disk.",
+    "confirm.no": "Keep it",
+    "search.placeholder": "What are you looking for?",
+    "search.type": "Type", "search.min": "Min. MB", "search.max": "Max. MB", "search.ext": "Extension",
+    "search.submit": "Search",
+    "search.running": "Searching all servers… this takes about 10 seconds.",
+    "search.none": "Nothing found. Try other words or fewer filters.",
+    "type.any": "Any", "type.video": "Video", "type.audio": "Audio", "type.doc": "Documents",
+    "type.program": "Programs", "type.archive": "Archives", "type.cdimage": "CD/DVD images", "type.image": "Images",
+    "results.summary": "{n} results",
+    "results.filter": "Filter results",
+    "results.get": "Download selected",
+    "results.getn": "Download selected ({n})",
+    "results.have": "in downloads",
+    "results.download": "Download",
+    "col.name": "Name", "col.size": "Size", "col.sources": "Sources",
+    "share.files": "Shared files", "share.upload": "Upload", "share.slots": "Upload slots",
+    "share.uploading": "Uploading now",
+    "share.partial": "{n} partial", "share.hashing": "hashing {f} ({p}%)", "share.tohash": "{n} to hash",
+    "share.total": "{s} sent in total", "share.limit": "limit {s}/s", "share.nolimit": "no limit",
+    "share.queue": "{n} waiting in queue", "share.none": "Nobody is downloading from you right now.",
+    "share.off": "Sharing is off (sharing = false in mymule.conf).",
+    "server.none": "not connected", "server.high": "HighID", "server.low": "LowID",
+    "server.lowhint": "LowID: other users can't connect to you. Forward the port in your router.",
+    "err.network": "Can't reach MyMule. Is it running?",
+  },
+  es: {
+    "login.label": "Clave de la API",
+    "login.hint": "Es la línea api_key de mymule.conf, junto al programa.",
+    "login.submit": "Entrar",
+    "login.wrong": "Clave incorrecta.",
+    "logout": "Salir",
+    "tab.downloads": "Descargas", "tab.search": "Buscar", "tab.sharing": "Compartir",
+    "add.placeholder": "Pega aquí enlaces ed2k://",
+    "add.submit": "Añadir",
+    "add.done": "Añadidos: {n}",
+    "dl.clear": "Limpiar terminadas",
+    "dl.summary": "{n} descargas · {active} activas",
+    "dl.empty": "No hay descargas. Busca algo o pega un enlace ed2k://.",
+    "dl.pause": "Pausar", "dl.resume": "Reanudar", "dl.cancel": "Cancelar", "dl.remove": "Quitar",
+    "state.downloading": "descargando", "state.queued": "en cola", "state.stalled": "esperando fuentes",
+    "state.paused": "en pausa", "state.finished": "terminada",
+    "meta.sources": "{n} fuentes", "meta.from": "de {n}", "meta.queue": "en cola en {n}", "meta.rank": "mejor puesto #{n}",
+    "meta.eta": "quedan {t}",
+    "confirm.cancel": "¿Cancelar esta descarga? Se borra lo descargado.",
+    "confirm.remove": "¿Quitar esta descarga terminada de la lista? El fichero se queda en el disco.",
+    "confirm.no": "No",
+    "search.placeholder": "¿Qué buscas?",
+    "search.type": "Tipo", "search.min": "Mín. MB", "search.max": "Máx. MB", "search.ext": "Extensión",
+    "search.submit": "Buscar",
+    "search.running": "Buscando en todos los servidores… tarda unos 10 segundos.",
+    "search.none": "No se ha encontrado nada. Prueba con otras palabras o menos filtros.",
+    "type.any": "Cualquiera", "type.video": "Vídeo", "type.audio": "Audio", "type.doc": "Documentos",
+    "type.program": "Programas", "type.archive": "Comprimidos", "type.cdimage": "Imágenes de CD/DVD", "type.image": "Imágenes",
+    "results.summary": "{n} resultados",
+    "results.filter": "Filtrar resultados",
+    "results.get": "Descargar seleccionados",
+    "results.getn": "Descargar seleccionados ({n})",
+    "results.have": "en descargas",
+    "results.download": "Descargar",
+    "col.name": "Nombre", "col.size": "Tamaño", "col.sources": "Fuentes",
+    "share.files": "Ficheros compartidos", "share.upload": "Subida", "share.slots": "Huecos de subida",
+    "share.uploading": "Subiendo ahora",
+    "share.partial": "{n} a medias", "share.hashing": "calculando hash de {f} ({p}%)", "share.tohash": "{n} pendientes de hash",
+    "share.total": "{s} enviados en total", "share.limit": "límite {s}/s", "share.nolimit": "sin límite",
+    "share.queue": "{n} esperando en la cola", "share.none": "Ahora mismo nadie te está descargando.",
+    "share.off": "Compartir está desactivado (sharing = false en mymule.conf).",
+    "server.none": "sin conexión", "server.high": "HighID", "server.low": "LowID",
+    "server.lowhint": "LowID: los demás no pueden conectar contigo. Abre el puerto en el router.",
+    "err.network": "No se puede conectar con MyMule. ¿Está en marcha?",
+  },
+};
+const LANG = (navigator.languages || [navigator.language || "en"])
+  .map(l => l.slice(0, 2).toLowerCase()).find(l => STRINGS[l]) || "en";
+document.documentElement.lang = LANG;
+
+function t(key, vars) {
+  let s = STRINGS[LANG][key] ?? STRINGS.en[key] ?? key;
+  for (const [k, v] of Object.entries(vars || {})) s = s.replaceAll("{" + k + "}", v);
+  return s;
+}
+
+function translatePage() {
+  document.querySelectorAll("[data-t]").forEach(n => { n.textContent = t(n.dataset.t); });
+  document.querySelectorAll("[data-tp]").forEach(n => { n.placeholder = t(n.dataset.tp); });
+}
+
+// ---------- Helpers ----------
+const $ = sel => document.querySelector(sel);
+
+// el builds an element; children are nodes or strings (set as text).
+function el(tag, attrs, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (k === "text") n.textContent = v;
+    else if (k === "style") Object.assign(n.style, v);
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return n;
+}
+
+const UNITS = ["B", "KB", "MB", "GB", "TB"];
+function size(b) {
+  b = Number(b) || 0;
+  let i = 0;
+  while (b >= 1024 && i < UNITS.length - 1) { b /= 1024; i++; }
+  return (i === 0 ? b : b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0)) + " " + UNITS[i];
+}
+const speed = b => size(b) + "/s";
+function duration(s) {
+  if (s < 0) return "?";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return d + "d " + h + "h";
+  if (h) return h + "h " + m + "m";
+  if (m) return m + "m";
+  return Math.max(1, Math.floor(s)) + "s";
+}
+
+class AuthError extends Error {}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { "X-MyMule-UI": "1" }, credentials: "same-origin" };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch {
+    throw new Error(t("err.network"));
+  }
+  if (res.status === 401) { showLogin(); throw new AuthError("unauthorized"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || (data.errors || []).join("; ") || res.statusText);
+  return data;
+}
+
+function showMsg(node, text, kind) {
+  node.textContent = text;
+  node.className = "msg" + (kind ? " " + kind : "");
+  node.hidden = !text;
+}
+
+// ---------- Login ----------
+function showLogin() {
+  stopPolling();
+  $("#app").hidden = true;
+  $("#login").hidden = false;
+  $("#login-key").focus();
+}
+
+$("#login-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const err = $("#login-error");
+  err.hidden = true;
+  const res = await fetch("/web/login", {
+    method: "POST", credentials: "same-origin",
+    headers: { "X-MyMule-UI": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ key: $("#login-key").value }),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    err.textContent = res ? t("login.wrong") : t("err.network");
+    err.hidden = false;
+    return;
+  }
+  $("#login-key").value = "";
+  start();
+});
+
+$("#logout").addEventListener("click", async () => {
+  await fetch("/web/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+  status = null;
+  showLogin();
+});
+
+// ---------- Tabs ----------
+let currentTab = "downloads";
+function selectTab(name) {
+  currentTab = name;
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.querySelectorAll(".tab").forEach(s => { s.hidden = s.id !== "tab-" + name; });
+  if (name === "search") $("#s-q").focus();
+  try { localStorage.setItem("mymule.tab", name); } catch {}
+  render();
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => selectTab(b.dataset.tab)));
+
+// ---------- Status polling ----------
+let status = null, timer = null;
+
+async function refresh() {
+  try {
+    status = await api("GET", "/api/v1/status");
+    render();
+  } catch (e) {
+    if (!(e instanceof AuthError)) $("#chip-server").textContent = e.message;
+  }
+}
+function startPolling() {
+  stopPolling();
+  timer = setInterval(() => { if (!document.hidden) refresh(); }, 2000);
+}
+function stopPolling() { clearInterval(timer); timer = null; }
+document.addEventListener("visibilitychange", () => { if (!document.hidden && timer) refresh(); });
+
+function render() {
+  if (!status) return;
+  renderHeader();
+  if (currentTab === "downloads") renderDownloads();
+  if (currentTab === "sharing") renderSharing();
+  if (currentTab === "search") markHave();
+}
+
+function renderHeader() {
+  const s = status.server || {};
+  const chip = $("#chip-server");
+  if (!s.connected) {
+    chip.textContent = t("server.none");
+    chip.className = "chip bad";
+    chip.title = "";
+  } else {
+    chip.textContent = (s.name || s.address) + " · " + (s.high_id ? t("server.high") : t("server.low"));
+    chip.className = "chip " + (s.high_id ? "ok" : "warn");
+    chip.title = s.high_id ? s.address : t("server.lowhint");
+  }
+  $("#chip-down").textContent = "↓ " + speed(status.download_speed);
+  $("#chip-up").textContent = "↑ " + speed(status.upload ? status.upload.speed : 0);
+  $("#version").textContent = "MyMule " + status.version;
+}
+
+// ---------- Downloads ----------
+function renderDownloads() {
+  const list = $("#dl-list");
+  const dls = status.downloads || [];
+  const active = dls.filter(d => d.state !== "finished" && d.state !== "paused").length;
+  $("#dl-summary").textContent = dls.length ? t("dl.summary", { n: dls.length, active }) : "";
+  $("#dl-clear").hidden = !dls.some(d => d.state === "finished");
+  if (!dls.length) {
+    list.replaceChildren(el("div", { class: "card empty", text: t("dl.empty") }));
+    return;
+  }
+  list.replaceChildren(...dls.map(downloadRow));
+}
+
+function downloadRow(d) {
+  const pct = Math.floor(d.progress * 1000) / 10;
+  const meta = [el("span", { text: size(d.done) + " / " + size(d.size) + " (" + pct + "%)" })];
+  if (d.state !== "finished") {
+    if (d.speed > 0) meta.push(el("span", { text: "↓ " + speed(d.speed) }));
+    if (d.eta > 0) meta.push(el("span", { text: t("meta.eta", { t: duration(d.eta) }) }));
+    let src = t("meta.sources", { n: d.sources });
+    if (d.downloading_from) src += " · " + t("meta.from", { n: d.downloading_from });
+    if (d.queued_at) src += " · " + t("meta.queue", { n: d.queued_at });
+    if (d.best_queue_rank) src += " · " + t("meta.rank", { n: d.best_queue_rank });
+    meta.push(el("span", { text: src }));
+  }
+  const actions = [];
+  if (d.state === "paused") actions.push(el("button", { class: "icon", text: t("dl.resume"), onclick: () => act("POST", d, "resume") }));
+  else if (d.state !== "finished") actions.push(el("button", { class: "icon", text: t("dl.pause"), onclick: () => act("POST", d, "pause") }));
+  const finished = d.state === "finished";
+  actions.push(el("button", {
+    class: "icon", text: finished ? t("dl.remove") : t("dl.cancel"),
+    onclick: () => confirmAction(finished ? t("confirm.remove") : t("confirm.cancel"), d.name,
+      finished ? t("dl.remove") : t("dl.cancel"), () => act("DELETE", d)),
+  }));
+  return el("div", { class: "card dl " + d.state },
+    el("div", { class: "dl-head" },
+      el("span", { class: "dl-name", text: d.name, title: d.name }),
+      el("span", { class: "badge " + d.state, text: t("state." + d.state) }),
+      el("span", { class: "dl-actions" }, actions)),
+    el("div", { class: "bar" }, el("span", { style: { width: Math.min(100, d.progress * 100) + "%" } })),
+    el("div", { class: "dl-meta" }, meta));
+}
+
+async function act(method, d, verb) {
+  try {
+    await api(method, "/api/v1/downloads/" + d.hash + (verb ? "/" + verb : ""));
+  } catch (e) {
+    if (!(e instanceof AuthError)) alert(e.message);
+  }
+  refresh();
+}
+
+function confirmAction(text, name, okLabel, onOK) {
+  const dlg = $("#confirm");
+  $("#confirm-text").textContent = text;
+  $("#confirm-name").textContent = name;
+  $("#confirm-ok").textContent = okLabel;
+  dlg.returnValue = "";
+  dlg.onclose = () => { if (dlg.returnValue === "ok") onOK(); };
+  dlg.showModal();
+}
+
+$("#dl-clear").addEventListener("click", async () => {
+  try { await api("POST", "/api/v1/downloads/clear"); } catch (e) { if (!(e instanceof AuthError)) alert(e.message); }
+  refresh();
+});
+
+$("#add-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const links = $("#add-links").value.match(/ed2k:\/\/\|file\|[^\s]+?\|\//gi) || [];
+  const msg = $("#add-msg");
+  if (!links.length) { showMsg(msg, "ed2k://|file|...|/", "bad"); return; }
+  try {
+    const r = await api("POST", "/api/v1/downloads", { links });
+    showMsg(msg, t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "bad" : "ok");
+    $("#add-links").value = "";
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+  refresh();
+});
+
+// ---------- Search ----------
+let results = [], selected = new Set(), sortKey = "complete", sortAsc = false, searching = false;
+
+$("#search-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (searching) return;
+  const q = $("#s-q").value.trim();
+  if (!q) return;
+  const params = new URLSearchParams({ q, global: "true" });
+  const type = $("#s-type").value;
+  if (type) params.set("type", type);
+  const mb = v => String(Math.round(Number(v) * 1024 * 1024));
+  if ($("#s-min").value) params.set("min", mb($("#s-min").value));
+  if ($("#s-max").value) params.set("max", mb($("#s-max").value));
+  if ($("#s-ext").value.trim()) params.set("ext", $("#s-ext").value.trim().replace(/^\./, ""));
+
+  const msg = $("#search-msg");
+  msg.replaceChildren(el("span", { class: "spinner" }), t("search.running"));
+  msg.className = "msg";
+  msg.hidden = false;
+  searching = true;
+  $("#search-form button[type=submit]").disabled = true;
+  try {
+    const r = await api("GET", "/api/v1/search?" + params);
+    results = r.results || [];
+    selected.clear();
+    $("#results-filter").value = "";
+    msg.hidden = results.length > 0;
+    if (!results.length) showMsg(msg, t("search.none"));
+    renderResults();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  } finally {
+    searching = false;
+    $("#search-form button[type=submit]").disabled = false;
+  }
+});
+
+function haveHashes() {
+  return new Set((status && status.downloads || []).map(d => d.hash.toUpperCase()));
+}
+
+function renderResults() {
+  const table = $("#results");
+  const filter = $("#results-filter").value.trim().toLowerCase();
+  const words = filter.split(/\s+/).filter(Boolean);
+  const rows = results
+    .filter(r => words.every(w => r.name.toLowerCase().includes(w)))
+    .sort((a, b) => {
+      const x = sortKey === "name" ? a.name.localeCompare(b.name) : (a[sortKey] - b[sortKey]) || (a.sources - b.sources);
+      return sortAsc ? x : -x;
+    });
+  $("#results-bar").hidden = results.length === 0;
+  table.hidden = results.length === 0;
+  $("#results-summary").textContent = t("results.summary", { n: rows.length });
+  const have = haveHashes();
+  table.querySelector("tbody").replaceChildren(...rows.map(r => {
+    const h = r.hash.toUpperCase();
+    const box = el("input", { type: "checkbox", "aria-label": r.name, checked: selected.has(h) });
+    box.addEventListener("change", () => { box.checked ? selected.add(h) : selected.delete(h); updateGetButton(); });
+    return el("tr", { class: (r.sources ? "" : "dead") + (have.has(h) ? " have" : ""), "data-hash": h },
+      el("td", { class: "check" }, box),
+      el("td", { class: "name", text: r.name, "data-have": t("results.have") }),
+      el("td", { class: "num", text: size(r.size) }),
+      el("td", { class: "num", text: r.complete + (r.sources > r.complete ? " / " + r.sources : "") }),
+      el("td", { class: "act" }, el("button", { class: "icon", text: t("results.download"), onclick: () => download([r]) })));
+  }));
+  table.querySelectorAll("th[data-sort]").forEach(th => {
+    th.classList.toggle("sorted", th.dataset.sort === sortKey);
+    th.classList.toggle("asc", th.dataset.sort === sortKey && sortAsc);
+  });
+  $("#results-all").checked = rows.length > 0 && rows.every(r => selected.has(r.hash.toUpperCase()));
+  updateGetButton();
+}
+
+function markHave() {
+  const have = haveHashes();
+  document.querySelectorAll("#results tbody tr").forEach(tr => tr.classList.toggle("have", have.has(tr.dataset.hash)));
+}
+
+function updateGetButton() {
+  const b = $("#results-get");
+  b.disabled = selected.size === 0;
+  b.textContent = selected.size ? t("results.getn", { n: selected.size }) : t("results.get");
+}
+
+document.querySelectorAll("#results th[data-sort]").forEach(th => th.addEventListener("click", () => {
+  if (sortKey === th.dataset.sort) sortAsc = !sortAsc;
+  else { sortKey = th.dataset.sort; sortAsc = sortKey === "name"; }
+  renderResults();
+}));
+$("#results-filter").addEventListener("input", renderResults);
+$("#results-all").addEventListener("change", e => {
+  document.querySelectorAll("#results tbody tr").forEach(tr => {
+    e.target.checked ? selected.add(tr.dataset.hash) : selected.delete(tr.dataset.hash);
+  });
+  renderResults();
+});
+$("#results-get").addEventListener("click", () => download(results.filter(r => selected.has(r.hash.toUpperCase()))));
+
+async function download(list) {
+  if (!list.length) return;
+  const msg = $("#search-msg");
+  try {
+    const r = await api("POST", "/api/v1/downloads", { links: list.map(x => x.link) });
+    showMsg(msg, t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "bad" : "ok");
+    list.forEach(x => selected.delete(x.hash.toUpperCase()));
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+  await refresh();
+  renderResults();
+}
+
+// ---------- Sharing ----------
+function renderSharing() {
+  const sh = status.shared, up = status.upload;
+  $("#slots-title").hidden = !sh || !up;
+  if (!sh || !up) {
+    $("#sh-files").textContent = "—";
+    $("#sh-files-sub").textContent = t("share.off");
+    $("#sh-speed").textContent = $("#sh-slots").textContent = "—";
+    $("#sh-speed-sub").textContent = $("#sh-slots-sub").textContent = "";
+    $("#slots").replaceChildren();
+    return;
+  }
+  $("#sh-files").textContent = sh.files + " · " + size(sh.bytes);
+  const sub = [];
+  if (sh.partial) sub.push(t("share.partial", { n: sh.partial }));
+  if (sh.hashing) sub.push(t("share.hashing", { f: sh.hashing, p: sh.hashed_pct || 0 }));
+  if (sh.to_hash) sub.push(t("share.tohash", { n: sh.to_hash }));
+  $("#sh-files-sub").textContent = sub.join(" · ");
+  $("#sh-speed").textContent = speed(up.speed);
+  $("#sh-speed-sub").textContent = t("share.total", { s: size(up.total) }) + " · " +
+    (up.limit_kb ? t("share.limit", { s: size(up.limit_kb * 1024) }) : t("share.nolimit"));
+  const slots = up.slots || [];
+  $("#sh-slots").textContent = slots.length + " / " + up.max_slots;
+  $("#sh-slots-sub").textContent = t("share.queue", { n: up.queue });
+  if (!slots.length) {
+    $("#slots").replaceChildren(el("div", { class: "card empty", text: t("share.none") }));
+    return;
+  }
+  $("#slots").replaceChildren(...slots.map(s => el("div", { class: "card dl" },
+    el("div", { class: "dl-head" },
+      el("span", { class: "dl-name", text: s.file }),
+      el("span", { class: "badge downloading", text: speed(s.speed) })),
+    el("div", { class: "dl-meta" },
+      el("span", { text: s.name || "?" }),
+      el("span", { text: s.addr }),
+      el("span", { text: "↑ " + size(s.sent) })))));
+}
+
+// ---------- Start ----------
+async function start() {
+  try {
+    status = await api("GET", "/api/v1/status");
+  } catch (e) {
+    if (!(e instanceof AuthError)) {
+      $("#login").hidden = false;
+      const err = $("#login-error");
+      err.textContent = e.message;
+      err.hidden = false;
+    }
+    return;
+  }
+  $("#login").hidden = true;
+  $("#app").hidden = false;
+  let tab = "downloads";
+  try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
+  selectTab(["downloads", "search", "sharing"].includes(tab) ? tab : "downloads");
+  startPolling();
+}
+
+translatePage();
+start();

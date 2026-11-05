@@ -23,8 +23,11 @@ FreeBSD, and ARM boards or NAS devices.
   (`status`, `add`, `pause`, `cancel`...) over a local, token-protected API
 - `mymule top`: live full-screen view; search, pick what to download and
   pause, resume or cancel downloads without leaving it
-- HTTP API for scripts, and Radarr/Sonarr/Lidarr/Readarr/Prowlarr support
-  (Torznab indexer + qBittorrent-compatible client)
+- Optional web interface (downloads, search, sharing) that works on phones
+  too; off by default
+- HTTP API for scripts, and optional Radarr/Sonarr/Lidarr/Readarr/Prowlarr
+  support (Torznab indexer + qBittorrent-compatible client)
+- Light: about 15 MB of RAM
 - Portable: settings and data live next to the executable
 
 Not implemented yet: Kad, protocol obfuscation, credits.
@@ -65,6 +68,7 @@ upload_slots = 3       # peers served at the same time; the rest queue
 upload_limit = 100     # KB/s, 0 = no limit
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
+web_ui = false         # true: web interface at http://127.0.0.1:4711/
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see below)
 search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
 ```
@@ -86,6 +90,35 @@ so forwarding the TCP port (`port` in the config) to your machine gets you
 far more sources. `mymule status` shows whether you have HighID or LowID.
 If you have a listen port configured but get LowID, MyMule tries other
 servers, since some servers never test the port.
+
+## Web interface
+
+An optional web interface, built into the program (no extra files). It is
+**off by default**; turn it on in `mymule.conf` and restart the daemon:
+
+```ini
+web_ui = true
+```
+
+Then open `http://127.0.0.1:4711/` (the `api_listen` address) and log in
+with the `api_key` from `mymule.conf`. It has three tabs:
+
+- **Downloads**: progress, speed, sources and queue position; pause,
+  resume, cancel, clear finished, and add `ed2k://` links.
+- **Search**: search every known server, with type, size and extension
+  filters; sort and filter the results and download one or several.
+- **Sharing**: shared files, upload speed and who is downloading from you.
+
+It works on phones, follows the system's light or dark theme and is shown
+in English or Spanish depending on the browser's language.
+
+To use it from another device (a phone, another computer), set
+`api_listen = 0.0.0.0:4711` and open `http://<computer-ip>:4711/`. Only do
+this on a network you trust, and never forward port 4711 in your router.
+The session lasts 30 days; changing `api_key` logs everybody out.
+
+When `web_ui = false` the pages don't exist and nothing extra runs; the
+interface only uses resources while a browser has it open.
 
 ## HTTP API for scripts
 

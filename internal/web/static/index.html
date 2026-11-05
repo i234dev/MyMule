@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>MyMule</title>
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js" defer></script>
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form id="login-form" class="card login-card">
+    <div class="brand big"><img src="/assets/icon.svg" alt="" width="40" height="40"><span>MyMule</span></div>
+    <label for="login-key" data-t="login.label">API key</label>
+    <input id="login-key" type="password" autocomplete="current-password" required autofocus>
+    <p class="hint" data-t="login.hint">It is the api_key line in mymule.conf, next to the program.</p>
+    <p id="login-error" class="error" hidden></p>
+    <button type="submit" class="primary" data-t="login.submit">Log in</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand"><img src="/assets/icon.svg" alt="" width="28" height="28"><span>MyMule</span></div>
+    <div class="chips">
+      <span id="chip-server" class="chip"></span>
+      <span id="chip-down" class="chip" title=""></span>
+      <span id="chip-up" class="chip" title=""></span>
+    </div>
+    <button id="logout" class="ghost small" data-t="logout">Log out</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="downloads" data-t="tab.downloads">Downloads</button>
+    <button role="tab" data-tab="search" data-t="tab.search">Search</button>
+    <button role="tab" data-tab="sharing" data-t="tab.sharing">Sharing</button>
+  </nav>
+
+  <main>
+    <section id="tab-downloads" class="tab">
+      <form id="add-form" class="card row-form">
+        <input id="add-links" type="text" data-tp="add.placeholder" placeholder="Paste ed2k:// links here" autocomplete="off">
+        <button type="submit" class="primary" data-t="add.submit">Add</button>
+      </form>
+      <p id="add-msg" class="msg" hidden></p>
+      <div class="toolbar">
+        <span id="dl-summary" class="muted"></span>
+        <button id="dl-clear" class="ghost small" data-t="dl.clear">Clear finished</button>
+      </div>
+      <div id="dl-list" class="list"></div>
+    </section>
+
+    <section id="tab-search" class="tab" hidden>
+      <form id="search-form" class="card search-form">
+        <input id="s-q" type="search" data-tp="search.placeholder" placeholder="What are you looking for?" required autocomplete="off">
+        <div class="filters">
+          <label><span data-t="search.type">Type</span>
+            <select id="s-type">
+              <option value="" data-t="type.any">Any</option>
+              <option value="video" data-t="type.video">Video</option>
+              <option value="audio" data-t="type.audio">Audio</option>
+              <option value="doc" data-t="type.doc">Documents</option>
+              <option value="program" data-t="type.program">Programs</option>
+              <option value="archive" data-t="type.archive">Archives</option>
+              <option value="cdimage" data-t="type.cdimage">CD/DVD images</option>
+              <option value="image" data-t="type.image">Images</option>
+            </select>
+          </label>
+          <label><span data-t="search.min">Min. MB</span><input id="s-min" type="number" min="0" inputmode="numeric"></label>
+          <label><span data-t="search.max">Max. MB</span><input id="s-max" type="number" min="0" inputmode="numeric"></label>
+          <label><span data-t="search.ext">Extension</span><input id="s-ext" type="text" maxlength="8" placeholder="mkv"></label>
+        </div>
+        <button type="submit" class="primary" data-t="search.submit">Search</button>
+      </form>
+      <p id="search-msg" class="msg" hidden></p>
+      <div id="results-bar" class="toolbar" hidden>
+        <span id="results-summary" class="muted"></span>
+        <input id="results-filter" type="search" class="small-input" data-tp="results.filter" placeholder="Filter results">
+        <button id="results-get" class="primary small" disabled data-t="results.get">Download selected</button>
+      </div>
+      <div class="table-wrap">
+        <table id="results" class="results" hidden>
+          <thead><tr>
+            <th class="check"><input type="checkbox" id="results-all" aria-label="Select all"></th>
+            <th data-sort="name" data-t="col.name">Name</th>
+            <th data-sort="size" class="num" data-t="col.size">Size</th>
+            <th data-sort="complete" class="num" data-t="col.sources">Sources</th>
+            <th class="act"></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-sharing" class="tab" hidden>
+      <div class="cards">
+        <div class="card stat"><span class="label" data-t="share.files">Shared files</span><span id="sh-files" class="value"></span><span id="sh-files-sub" class="muted"></span></div>
+        <div class="card stat"><span class="label" data-t="share.upload">Upload</span><span id="sh-speed" class="value"></span><span id="sh-speed-sub" class="muted"></span></div>
+        <div class="card stat"><span class="label" data-t="share.slots">Upload slots</span><span id="sh-slots" class="value"></span><span id="sh-slots-sub" class="muted"></span></div>
+      </div>
+      <h2 id="slots-title" data-t="share.uploading">Uploading now</h2>
+      <div id="slots" class="list"></div>
+    </section>
+  </main>
+  <footer class="foot"><span id="version"></span> · <a href="https://github.com/i234dev/MyMule" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
+</div>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <p id="confirm-text"></p>
+    <p id="confirm-name" class="mono"></p>
+    <div class="dialog-buttons">
+      <button value="cancel" class="ghost" data-t="confirm.no">Keep it</button>
+      <button value="ok" id="confirm-ok" class="danger"></button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

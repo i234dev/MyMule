@@ -26,7 +26,12 @@ type REST struct {
 	key     string
 	version string
 	mux     *http.ServeMux
+	also    func(*http.Request) bool // extra check, e.g. the web interface session
 }
+
+// AlsoAllow accepts requests for which f returns true, in addition to the
+// API key. The web interface uses it for its session cookie.
+func (r *REST) AlsoAllow(f func(*http.Request) bool) { r.also = f }
 
 // NewREST builds the API handler. key must not be empty.
 func NewREST(m *download.Manager, key, version string) *REST {
@@ -57,7 +62,10 @@ func (r *REST) Authorized(req *http.Request) bool {
 	if got == "" {
 		got = req.URL.Query().Get("apikey")
 	}
-	return r.key != "" && subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1
+	if r.key != "" && subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1 {
+		return true
+	}
+	return r.also != nil && r.also(req)
 }
 
 func (r *REST) ServeHTTP(w http.ResponseWriter, req *http.Request) {

@@ -34,6 +34,9 @@ type Settings struct {
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
 
+	// WebUI serves the web interface on api_listen. Off by default.
+	WebUI bool
+
 	// ArrSupport turns on the Torznab indexer and the qBittorrent-
 	// compatible API for Radarr, Sonarr and the like. Off by default.
 	ArrSupport bool
@@ -97,6 +100,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
 		func(s Settings) string { return s.APIKey }},
+	{"web_ui", "Web interface in your browser, on the api_listen address\n(e.g. http://127.0.0.1:4711/). Log in with api_key. true or false.",
+		func(s Settings) string { return strconv.FormatBool(s.WebUI) }},
 	{"arr_support", "Radarr, Sonarr, Lidarr, Readarr and Prowlarr support (see docs/ARR.md):\ntrue serves a Torznab indexer and a qBittorrent-compatible API on\napi_listen. false = off.",
 		func(s Settings) string { return strconv.FormatBool(s.ArrSupport) }},
 	{"search_languages", "With arr_support: Radarr/Sonarr only search by the original or English\ntitle. List language codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
@@ -289,6 +294,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: upload_limit must be 0 (no limit) or a speed in KB/s", line)
 			}
 			s.UploadLimit = n
+		case "web_ui":
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: web_ui must be true or false", line)
+			}
+			s.WebUI = b
 		case "arr_support":
 			b, err := strconv.ParseBool(val)
 			if err != nil {

@@ -23,6 +23,7 @@ import (
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
+	"mymule/internal/web"
 )
 
 // daemonClient returns a client for the running daemon, or ErrNotRunning.
@@ -459,6 +460,11 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 	mux := http.NewServeMux()
 	rest := api.NewREST(m, settings.APIKey, version)
 	mux.Handle("/api/v1/", rest)
+	if settings.WebUI {
+		ui := web.New(settings.APIKey, version)
+		rest.AlsoAllow(ui.Session)
+		ui.Routes(mux)
+	}
 	if settings.ArrSupport {
 		store, _ := config.Path("arr.json")
 		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
@@ -473,6 +479,9 @@ func publicRoutes(m *download.Manager, downloadDir string) http.Handler {
 func startPublicAPI(m *download.Manager, downloadDir string) func() {
 	if settings.APIListen == "" {
 		logf("HTTP API disabled (api_listen is empty)")
+		if settings.WebUI || settings.ArrSupport {
+			logf("warning: web_ui and arr_support need api_listen; they are off too")
+		}
 		return nil
 	}
 	ln, err := net.Listen("tcp", settings.APIListen)
@@ -484,6 +493,9 @@ func startPublicAPI(m *download.Manager, downloadDir string) func() {
 	go hs.Serve(ln)
 	// The key is never logged: logs get pasted into bug reports.
 	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
+	if settings.WebUI {
+		logf("web interface on %s (log in with api_key)", webURL(ln.Addr()))
+	}
 	if settings.ArrSupport {
 		logf("Radarr/Sonarr support on: Torznab at /torznab, qBittorrent API at /api/v2")
 		if len(settings.SearchLanguages) > 0 {
@@ -495,4 +507,17 @@ func startPublicAPI(m *download.Manager, downloadDir string) func() {
 		defer cancel()
 		hs.Shutdown(ctx)
 	}
+}
+
+// webURL is the address to open in a browser for a listener address:
+// a wildcard address is shown as localhost.
+func webURL(a net.Addr) string {
+	host, port, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return "http://" + a.String() + "/"
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/"
 }

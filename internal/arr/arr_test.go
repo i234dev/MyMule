@@ -34,6 +34,7 @@ var fakeResults = []api.SearchResult{
 
 type fixture struct {
 	srv       *httptest.Server
+	a         *Adapter
 	m         *download.Manager
 	downloads string
 	searches  []server.Query
@@ -48,6 +49,7 @@ func newFixture(t *testing.T) *fixture {
 	rest := api.NewREST(fx.m, testKey, "test")
 	a := New(Config{Manager: fx.m, REST: rest, Key: testKey, DownloadDir: fx.downloads,
 		StorePath: filepath.Join(t.TempDir(), "arr.json")})
+	fx.a = a
 	a.search = func(ctx context.Context, q server.Query, global bool) ([]api.SearchResult, error) {
 		fx.searches = append(fx.searches, q)
 		return fakeResults, nil

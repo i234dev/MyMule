@@ -23,6 +23,11 @@ type Config struct {
 	DownloadDir string    // where finished files end up
 	StorePath   string    // small JSON file with categories (arr.json)
 	Log         func(format string, args ...any)
+
+	// Languages (e.g. "es") whose titles are also searched for, looked up
+	// on Wikidata from the ids the apps send. Empty = no lookups.
+	Languages []string
+	UserAgent string // for Wikidata requests
 }
 
 // Adapter serves the Torznab indexer and the qBittorrent-compatible API.
@@ -36,6 +41,9 @@ type Adapter struct {
 
 	// search runs eD2K searches; REST.Search by default, replaceable in tests.
 	search func(ctx context.Context, q server.Query, global bool) ([]api.SearchResult, error)
+
+	lookup titleLookup // nil when Languages is empty
+	cache  titleCache
 }
 
 type storeEntry struct {
@@ -57,6 +65,13 @@ func New(cfg Config) *Adapter {
 	a := &Adapter{cfg: cfg, sessions: map[string]time.Time{}, hashes: map[ed2k.Hash]string{}}
 	if cfg.REST != nil {
 		a.search = cfg.REST.Search
+	}
+	if len(cfg.Languages) > 0 {
+		ua := cfg.UserAgent
+		if ua == "" {
+			ua = "MyMule (https://github.com/i234dev/MyMule)"
+		}
+		a.lookup = newWikidata(ua).Titles
 	}
 	if data, err := os.ReadFile(cfg.StorePath); err == nil {
 		json.Unmarshal(data, &a.store)

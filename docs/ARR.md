@@ -79,6 +79,28 @@ app must see that folder **at the same path**:
   - Remote Path: `C:\MyMule\downloads\` (as MyMule reports it)
   - Local Path: `/downloads/` (as the app sees it)
 
+## 5. Optional: search in your language
+
+Radarr and Sonarr search by the original or English title, but many files
+on eD2K are named in the uploader's language ("La noche de los muertos
+vivientes" rather than "Night of the Living Dead"). Add the language codes
+you want to `mymule.conf` and restart the daemon:
+
+```ini
+search_languages = es        # or several: es, fr, it
+```
+
+MyMule then offers the apps searches by IMDb/TMDB/TVDB id, looks up the
+title in those languages on [Wikidata](https://www.wikidata.org) and runs
+one eD2K search per title, merging the results. Only the id of the movie or
+show is sent to Wikidata; lookups are cached while the daemon runs. Each
+extra title adds a few seconds to the search. Wikidata uses the official
+title of each language's Wikipedia, so a movie released under its English
+title in your country keeps that title.
+
+In the app, also set the language you want in the quality profile
+(*Settings* → *Profiles*), so it prefers releases in that language.
+
 ## How it works
 
 - A search in the app becomes an eD2K search on **all known servers**,

@@ -33,6 +33,10 @@ type Settings struct {
 
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
+
+	// SearchLanguages are language codes (e.g. "es") whose titles the
+	// *arr indexer also searches for, looked up on Wikidata. Empty = off.
+	SearchLanguages []string
 }
 
 // Defaults returns the built-in settings (directories relative).
@@ -89,6 +93,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
 		func(s Settings) string { return s.APIKey }},
+	{"search_languages", "Radarr/Sonarr only search by the original or English title. List\nlanguage codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
+		func(s Settings) string { return strings.Join(s.SearchLanguages, ", ") }},
 }
 
 func renderSetting(st setting, s Settings) string {
@@ -175,6 +181,9 @@ func LoadSettings() (Settings, error) {
 }
 
 var emptyKeyLine = regexp.MustCompile(`(?m)^(\s*)api_key\s*=\s*"?"?\s*$`)
+
+// languageCodeRe accepts codes like "es", "pt-br" or "zh-hans" (Wikidata's).
+var languageCodeRe = regexp.MustCompile(`^[a-z]{2,3}(-[a-z]{2,4})?$`)
 
 func absUnder(base, p string) string {
 	if filepath.IsAbs(p) {
@@ -274,6 +283,15 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: upload_limit must be 0 (no limit) or a speed in KB/s", line)
 			}
 			s.UploadLimit = n
+		case "search_languages":
+			s.SearchLanguages = nil
+			for _, l := range strings.FieldsFunc(val, func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {
+				l = strings.ToLower(l)
+				if !languageCodeRe.MatchString(l) {
+					return present, fmt.Errorf("line %d: search_languages: %q is not a language code (e.g. es, fr, pt-br)", line, l)
+				}
+				s.SearchLanguages = append(s.SearchLanguages, l)
+			}
 		default:
 			return present, fmt.Errorf("line %d: unknown setting %q", line, key)
 		}

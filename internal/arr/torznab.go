@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"mymule/internal/api"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/server"
@@ -86,14 +87,21 @@ func torznabError(w http.ResponseWriter, status, code int, msg string) {
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n"+`<error code="%d" description="%s"/>`+"\n", code, xmlEscape(msg))
 }
 
-const capsXML = `<?xml version="1.0" encoding="UTF-8"?>
+// caps describes what the indexer supports. The ids are only offered
+// when titles in other languages are looked up from them.
+func (a *Adapter) caps() string {
+	movieParams, tvParams := "q", "q,season,ep"
+	if a.lookup != nil {
+		movieParams, tvParams = "q,imdbid,tmdbid", "q,season,ep,imdbid,tvdbid"
+	}
+	return `<?xml version="1.0" encoding="UTF-8"?>
 <caps>
   <server version="1.0" title="MyMule" strapline="eD2K network search" url="https://github.com/i234dev/MyMule"/>
   <limits max="100" default="50"/>
   <searching>
     <search available="yes" supportedParams="q"/>
-    <tv-search available="yes" supportedParams="q,season,ep"/>
-    <movie-search available="yes" supportedParams="q"/>
+    <tv-search available="yes" supportedParams="` + tvParams + `"/>
+    <movie-search available="yes" supportedParams="` + movieParams + `"/>
     <music-search available="yes" supportedParams="q"/>
     <audio-search available="yes" supportedParams="q"/>
     <book-search available="yes" supportedParams="q"/>
@@ -108,6 +116,7 @@ const capsXML = `<?xml version="1.0" encoding="UTF-8"?>
   </categories>
 </caps>
 `
+}
 
 // torznab serves /torznab/api: t=caps and the search functions.
 func (a *Adapter) torznab(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +128,7 @@ func (a *Adapter) torznab(w http.ResponseWriter, r *http.Request) {
 	switch t := q.Get("t"); t {
 	case "caps":
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		fmt.Fprint(w, capsXML)
+		fmt.Fprint(w, a.caps())
 	case "search", "tvsearch", "movie", "music", "audio", "book":
 		a.tzSearch(w, r, t)
 	default:
@@ -150,27 +159,50 @@ func (a *Adapter) tzSearch(w http.ResponseWriter, r *http.Request, t string) {
 		}
 	}
 
+	ids := idsFromQuery(q, t == "tvsearch")
+	var queries []string
+	if t == "movie" || t == "tvsearch" {
+		queries = a.searchTitles(r.Context(), text, ids)
+	} else if s := searchText(text); s != "" {
+		queries = []string{s}
+	}
+
 	var items []tzItem
-	if text == "" {
+	if len(queries) == 0 && text == "" && ids.empty() {
 		// Apps run an empty search to test the indexer and for RSS
 		// syncs; eD2K has no "latest" feed, so answer with a single,
 		// clearly labelled item that never matches a real release.
 		items = []tzItem{{link: ed2k.Link{Name: "MyMule indexer test - search with a query to get real results",
 			Size: 1024, Hash: ed2k.Hash{0x4D, 0x79, 0x4D, 0x75, 0x6C, 0x65}}, sources: 1, cat: catOther}}
 	} else {
-		sq := server.Query{Keywords: text}
+		var ftype string
 		switch t {
 		case "movie", "tvsearch":
-			sq.Type = server.TypeVideo
+			ftype = server.TypeVideo
 		case "music", "audio":
-			sq.Type = server.TypeAudio
+			ftype = server.TypeAudio
 		case "book":
-			sq.Type = server.TypeDocument
+			ftype = server.TypeDocument
 		}
-		results, err := a.search(r.Context(), sq, true)
-		if err != nil {
-			torznabError(w, http.StatusServiceUnavailable, 900, "search failed: "+err.Error())
-			return
+		// One eD2K search per title, one after another: global (UDP)
+		// answers don't say which search they belong to.
+		var results []api.SearchResult
+		seen := map[ed2k.Hash]bool{}
+		for i, text := range queries {
+			res, err := a.search(r.Context(), server.Query{Keywords: text, Type: ftype}, true)
+			if err != nil {
+				if i == 0 {
+					torznabError(w, http.StatusServiceUnavailable, 900, "search failed: "+err.Error())
+					return
+				}
+				break
+			}
+			for _, x := range res {
+				if !seen[x.Hash] {
+					seen[x.Hash] = true
+					results = append(results, x)
+				}
+			}
 		}
 		for _, res := range results {
 			// Results nobody shares can never complete; some servers

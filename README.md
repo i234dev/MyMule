@@ -65,6 +65,7 @@ upload_slots = 3       # peers served at the same time; the rest queue
 upload_limit = 100     # KB/s, 0 = no limit
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
+search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
 ```
 
 Settings added in newer versions are appended to an existing file, with

@@ -4,6 +4,10 @@ A command-line client for the eD2K network (the eMule network), written in Go.
 One static binary, no dependencies, runs anywhere: Windows, Linux, macOS,
 FreeBSD, and ARM boards or NAS devices.
 
+> **Please read the [terms of use and disclaimer](#terms-of-use-and-disclaimer)
+> before using MyMule.** In short: only use it for content you are allowed
+> to download and share.
+
 ![mymule top: live view of downloads, uploads and shared files](docs/top-demo.png)
 
 <sub>`mymule top` with demo data (`mymule top -demo`).</sub>
@@ -267,10 +271,40 @@ Every push builds and tests on Windows, Linux and macOS, and the binaries
 are attached to the workflow run. Pushing a tag `vX.Y.Z` publishes a
 Release with archives for every platform and a `SHA256SUMS` file.
 
-## Legal
+## Terms of use and disclaimer
 
-MyMule is a protocol client. Only share and download content you have the
-right to.
+By downloading, installing or using MyMule you accept these terms. If you
+don't accept them, don't use MyMule.
+
+1. **What MyMule is.** MyMule is free, open-source software that connects
+   to the public eD2K network. It is a tool: it doesn't host, index,
+   provide, control or endorse any content found on that network.
+2. **Lawful use only.** You may only use MyMule to search, download,
+   share or distribute content that is in the public domain, that is
+   released under a license that allows it (for example free software or
+   Creative Commons works), that you own, that you have permission from
+   the rights holder to use, or whose download and sharing is allowed by
+   the laws of your country. Downloading or sharing copyrighted material
+   without permission may be illegal where you live.
+3. **You are responsible.** You alone are responsible for what you search,
+   download and share with MyMule, and for complying with the laws that
+   apply to you (copyright, intellectual property, privacy and others).
+   Note that eD2K is a public network: other users can see your IP address
+   and the files you share, and by default MyMule shares your completed
+   downloads and the verified parts of the files you are downloading.
+4. **No warranty.** MyMule is provided "as is", without warranty of any
+   kind, as stated in the GNU General Public License (sections 15 and 16).
+5. **No liability.** The authors and contributors of MyMule are not
+   responsible for how it is used, for the content other users share on
+   the network, or for any damage, loss or legal consequence resulting from
+   its use.
+6. **Third parties.** File names and search results come from other users
+   of the network. Servers, TMDB, Wikidata and any other services MyMule
+   talks to have their own terms; MyMule is not affiliated with or endorsed
+   by any of them, nor by any rights holder.
+
+This text is not legal advice. If you are unsure whether something is
+allowed where you live, don't download or share it.
 
 ## License
 

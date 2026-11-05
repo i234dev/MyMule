@@ -840,6 +840,42 @@ function renderSharing() {
       el("span", { text: "↑ " + size(s.sent) })))));
 }
 
+// ---------- Terms of use ----------
+const TERMS_TEXT = TERMS[LANG] || TERMS.en;
+
+function termsAccepted() {
+  try { return localStorage.getItem("mymule.terms") === TERMS_VERSION; } catch { return false; }
+}
+
+// showTerms opens the terms. First time (mustAccept): accept to go on,
+// or decline to log out. Later, from the footer link, just to read them.
+function showTerms(mustAccept) {
+  const T = TERMS_TEXT, dlg = $("#terms");
+  $("#terms-title").textContent = T.title;
+  $("#terms-intro").textContent = T.intro;
+  $("#terms-items").replaceChildren(...T.items.map(([head, body]) =>
+    el("li", {}, el("strong", { text: head }), " " + body)));
+  $("#terms-outro").textContent = T.outro;
+  $("#terms-accept").textContent = mustAccept ? T.accept : T.close;
+  $("#terms-decline").textContent = T.decline;
+  $("#terms-decline").hidden = !mustAccept;
+  dlg.returnValue = "";
+  dlg.onclose = () => {
+    if (!mustAccept) return;
+    if (dlg.returnValue === "accept") {
+      try { localStorage.setItem("mymule.terms", TERMS_VERSION); } catch {}
+    } else {
+      $("#logout").click();
+    }
+  };
+  // Esc would close it without an answer: treat it as "not yet".
+  dlg.oncancel = e => { if (mustAccept) e.preventDefault(); };
+  dlg.showModal();
+}
+
+$("#terms-link").textContent = TERMS_TEXT.link;
+$("#terms-link").addEventListener("click", e => { e.preventDefault(); showTerms(false); });
+
 // ---------- Start ----------
 async function start() {
   try {
@@ -859,6 +895,7 @@ async function start() {
   try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
   selectTab(["downloads", "media", "search", "sharing", "settings"].includes(tab) ? tab : "downloads");
   startPolling();
+  if (!termsAccepted()) showTerms(true);
 }
 
 translatePage();

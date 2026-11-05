@@ -7,6 +7,7 @@
 <title>MyMule</title>
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/terms.js" defer></script>
 <script src="/assets/app.js" defer></script>
 </head>
 <body>
@@ -173,12 +174,26 @@
       </form>
     </section>
   </main>
-  <footer class="foot"><span id="version"></span> · <a href="https://github.com/i234dev/MyMule" target="_blank" rel="noopener noreferrer">GitHub</a>
+  <footer class="foot"><span id="version"></span> · <a href="https://github.com/i234dev/MyMule" target="_blank" rel="noopener noreferrer">GitHub</a> ·
+    <a href="#" id="terms-link"></a>
     <p class="credits">Movie and series data:
       <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">TMDB</a> and
       <a href="https://www.wikidata.org" target="_blank" rel="noopener noreferrer">Wikidata</a>.
       This product uses the TMDB API but is not endorsed or certified by TMDB.</p></footer>
 </div>
+
+<dialog id="terms" class="terms">
+  <form method="dialog">
+    <h2 id="terms-title"></h2>
+    <p id="terms-intro"></p>
+    <ol id="terms-items"></ol>
+    <p id="terms-outro" class="muted"></p>
+    <div class="dialog-buttons">
+      <button value="decline" id="terms-decline" class="ghost"></button>
+      <button value="accept" id="terms-accept" class="primary"></button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="confirm">
   <form method="dialog">

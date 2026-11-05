@@ -60,7 +60,7 @@ func TestPagesAndHeaders(t *testing.T) {
 	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Fatalf("CSP: %q", csp)
 	}
-	for _, p := range []string{"/assets/app.js", "/assets/app.css", "/assets/icon.svg"} {
+	for _, p := range []string{"/assets/app.js", "/assets/terms.js", "/assets/app.css", "/assets/icon.svg"} {
 		if resp, _ := do(t, http.DefaultClient, "GET", srv.URL+p, "", false); resp.StatusCode != 200 {
 			t.Errorf("%s: %d", p, resp.StatusCode)
 		}

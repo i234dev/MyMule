@@ -517,7 +517,7 @@ func webURL(a net.Addr) string {
 		return "http://" + a.String() + "/"
 	}
 	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
-		host = "127.0.0.1"
+		return "http://127.0.0.1:" + port + "/ (from other devices: http://<this computer's IP>:" + port + "/)"
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/"
 }

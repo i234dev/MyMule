@@ -173,6 +173,11 @@ func (a *Adapter) tzSearch(w http.ResponseWriter, r *http.Request, t string) {
 			return
 		}
 		for _, res := range results {
+			// Results nobody shares can never complete; some servers
+			// also list such entries as filler. Leave them out.
+			if res.Sources == 0 {
+				continue
+			}
 			if !matchesEpisode(res.Name, season, ep) {
 				continue
 			}

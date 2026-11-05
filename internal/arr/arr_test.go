@@ -29,6 +29,7 @@ var fakeResults = []api.SearchResult{
 	{Hash: ed2k.Hash{2}, Name: "Example Show 1x03 (demo).avi", Size: 350_000_000, Sources: 5, Complete: 5},
 	{Hash: ed2k.Hash{3}, Name: "Example Movie 2024 1080p (demo).mkv", Size: 2_000_000_000, Sources: 30, Complete: 28},
 	{Hash: ed2k.Hash{4}, Name: "Example Book (demo).epub", Size: 2_000_000, Sources: 3, Complete: 3},
+	{Hash: ed2k.Hash{5}, Name: "Example Movie 2024 2160p (no sources).mkv", Size: 9_000_000_000},
 }
 
 type fixture struct {
@@ -119,7 +120,7 @@ func TestTorznab(t *testing.T) {
 		t.Fatalf("tv search sent to eD2K: %+v", last)
 	}
 
-	// Category filter: movies only.
+	// Category filter: movies only. The result without sources is dropped.
 	_, body = get(t, c, base+"?t=movie&q=Example&cat=2000,2040&apikey="+testKey)
 	if strings.Count(body, "<item>") != 1 || !strings.Contains(body, "Example Movie 2024") {
 		t.Fatalf("movie search: %s", body)

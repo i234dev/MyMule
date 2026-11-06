@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"mymule/internal/fsutil"
 	"mymule/internal/library"
 )
 
@@ -206,11 +207,7 @@ func (s *Store) Set(p Preferences) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
+	if err := fsutil.WriteFile(s.path, b, 0o600); err != nil {
 		return err
 	}
 	s.p = p

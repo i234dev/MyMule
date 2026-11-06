@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"mymule/internal/fsutil"
 )
 
 // SettingsFile is the name of the configuration file in the base directory.
@@ -158,7 +160,7 @@ func LoadSettings() (Settings, error) {
 		for _, st := range settingsDoc {
 			b.WriteString("\n" + renderSetting(st, s))
 		}
-		if werr := os.WriteFile(p, []byte(b.String()), 0o600); werr != nil {
+		if werr := fsutil.WriteFile(p, []byte(b.String()), 0o600); werr != nil {
 			return s, fmt.Errorf("cannot create %s (is the folder writable? set MYMULE_HOME to use another one): %w", p, werr)
 		}
 	case err != nil:
@@ -192,7 +194,7 @@ func LoadSettings() (Settings, error) {
 			changed = true
 		}
 		if changed {
-			os.WriteFile(p, []byte(text), 0o600) // best effort
+			fsutil.WriteFile(p, []byte(text), 0o600) // best effort
 		}
 	}
 	s.TempDir = absUnder(base, s.TempDir)

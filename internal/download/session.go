@@ -337,8 +337,8 @@ func (s *session) handle(p *proto.Packet) error {
 
 	case peer.OpMessage:
 		// Anyone can send these: printable, short and quoted, so a message
-		// cannot pose as other log lines.
-		s.m.cfg.Log("message from %s: %q", s.src.key, netutil.CleanText(r.Str16(), 200))
+		// cannot pose as other log lines, and limited in number.
+		s.m.logPeerMessage(s.src.key, netutil.CleanText(r.Str16(), 200))
 	}
 	return nil
 }

@@ -187,3 +187,24 @@ func TestSessionPanicIsContained(t *testing.T) {
 		t.Fatalf("%d sessions ran, want 2 (the manager kept accepting)", panics)
 	}
 }
+
+// A flood of chat messages from peers is not all written to the log.
+func TestPeerMessagesAreCapped(t *testing.T) {
+	var mu sync.Mutex
+	lines := 0
+	m := NewManager(Config{Log: func(string, ...any) { mu.Lock(); lines++; mu.Unlock() }})
+	for i := 0; i < 1000; i++ {
+		m.logPeerMessage("198.51.100.7:4662", "spam")
+	}
+	if lines != maxPeerMessagesPerMinute {
+		t.Fatalf("%d lines logged for 1000 messages, want %d", lines, maxPeerMessagesPerMinute)
+	}
+	// The next minute: a summary of what was dropped, then messages again.
+	m.msgMu.Lock()
+	m.msgWindow = m.msgWindow.Add(-time.Minute)
+	m.msgMu.Unlock()
+	m.logPeerMessage("198.51.100.7:4662", "hello")
+	if lines != maxPeerMessagesPerMinute+2 {
+		t.Fatalf("after a minute: %d lines, want the summary and the message", lines-maxPeerMessagesPerMinute)
+	}
+}

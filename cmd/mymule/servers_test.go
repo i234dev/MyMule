@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -102,5 +104,23 @@ func TestHTTPServerTimeouts(t *testing.T) {
 	}
 	if hs.WriteTimeout < 60*time.Second {
 		t.Fatalf("write timeout %v leaves no room for a 45 s search", hs.WriteTimeout)
+	}
+}
+
+func TestRotateLog(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "mymule.log")
+	os.WriteFile(p, make([]byte, 100), 0o600)
+	rotateLog(p, 1000)
+	if _, err := os.Stat(p + ".1"); err == nil {
+		t.Fatal("small log rotated")
+	}
+	os.WriteFile(p, make([]byte, 2000), 0o600)
+	rotateLog(p, 1000)
+	if st, err := os.Stat(p + ".1"); err != nil || st.Size() != 2000 {
+		t.Fatal("big log not kept as .1")
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Fatal("old log still in place")
 	}
 }

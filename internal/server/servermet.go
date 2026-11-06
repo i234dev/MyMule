@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 
+	"mymule/internal/fsutil"
 	"mymule/internal/netutil"
 	"mymule/internal/proto"
 )
@@ -169,11 +170,7 @@ func SaveServerMet(path string, list []Info) error {
 	if err := WriteServerMet(&buf, list); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 // SortByQuality orders servers: fewest failures first, then most users.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"unicode"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/fsutil"
 	"mymule/internal/md4"
 	"mymule/internal/netutil"
 	"mymule/internal/peer"
@@ -66,10 +68,33 @@ func (pf *PartFile) partRange(p int) Range {
 	return Range{start, min(start+ed2k.PartSize, pf.Size)}
 }
 
+// freeSpaceMargin is left free on top of a new download's size.
+const freeSpaceMargin = 64 << 20
+
+// diskFree is freeSpace, replaced in tests.
+var diskFree = freeSpace
+
+func humanBytes(n uint64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	default:
+		return fmt.Sprintf("%d KB", n>>10)
+	}
+}
+
 // Create starts a new download in dir.
 func Create(dir string, link ed2k.Link) (*PartFile, error) {
 	if !ed2k.ValidSize(link.Size) {
 		return nil, fmt.Errorf("invalid file size %d", link.Size)
+	}
+	// Better to say so now than to fail with a full disk halfway through
+	// (and fill the disk for everything else on the machine).
+	if free, ok := diskFree(dir); ok && free < uint64(link.Size)+freeSpaceMargin {
+		return nil, fmt.Errorf("not enough free space in %s: the file needs %s and %s are free",
+			dir, humanBytes(uint64(link.Size)), humanBytes(free))
 	}
 	base := filepath.Join(dir, link.Hash.String())
 	if _, err := os.Stat(base + ".part.json"); err == nil {
@@ -207,11 +232,7 @@ func (pf *PartFile) saveLocked() error {
 	if pf.f != nil {
 		pf.f.Sync() // data before state, so state never claims unwritten bytes
 	}
-	tmp := pf.metaPath + ".tmp"
-	if err := writeSynced(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, pf.metaPath); err != nil {
+	if err := fsutil.WriteFile(pf.metaPath, data, 0o600); err != nil {
 		return err
 	}
 	pf.dirty = false
@@ -530,10 +551,17 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 	if err := pf.Close(); err != nil {
 		return "", err
 	}
-	dst := uniquePath(filepath.Join(dir, SanitizeName(pf.Name)))
+	dst, err := ReserveName(filepath.Join(dir, SanitizeName(pf.Name)))
+	if err != nil {
+		if rerr := pf.reopen(); rerr != nil {
+			return "", fmt.Errorf("%w (and reopening it: %v)", err, rerr)
+		}
+		return "", err
+	}
 	if err := os.Rename(pf.dataPath, dst); err != nil {
 		// Different volume: copy instead.
 		if err := copyFile(pf.dataPath, dst); err != nil {
+			os.Remove(dst) // the reserved, still empty name
 			// Leave the download as it was, so finishing can be retried.
 			if rerr := pf.reopen(); rerr != nil {
 				return "", fmt.Errorf("%w (and reopening it: %v)", err, rerr)
@@ -544,25 +572,6 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 	}
 	os.Remove(pf.metaPath)
 	return dst, nil
-}
-
-// writeSynced writes a file and flushes it to disk before returning, so
-// a rename that follows never exposes an empty or partial file after a
-// power cut.
-func writeSynced(path string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
 }
 
 // reopen opens the data file again after a failed Finish.
@@ -604,10 +613,16 @@ func copyFile(src, dst string) error {
 	defer in.Close()
 	// Copy under a temporary name and rename at the end, so dst never
 	// exists half-written (a crash or a full disk midway leaves only the
-	// temporary file, which is never shared and is replaced next time).
-	tmp := dst + ".mymule-tmp"
-	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	// temporary file, which is never shared). The temporary name is random
+	// and created exclusively, so nothing planted there is written through.
+	out, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*.mymule-tmp")
 	if err != nil {
+		return err
+	}
+	tmp := out.Name()
+	if err := out.Chmod(0o644); err != nil && runtime.GOOS != "windows" {
+		out.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
@@ -685,24 +700,26 @@ func SanitizeName(name string) string {
 	return s
 }
 
-// uniquePath returns p, or p with " (1)", " (2)"... added if it exists.
-// Only an existing file moves it on to the next name: any other error
-// (a name too long, a missing permission) returns the name as is, so the
-// move that follows reports the real problem. This used to loop forever
-// on such errors, leaving the download stuck at 100%.
-func uniquePath(p string) string {
-	if _, err := os.Stat(p); err != nil {
-		return p // free, or an error the move will report
-	}
+// ReserveName claims a free name for a new file: p, or p with " (1)",
+// " (2)"... added. It creates the file, empty, with O_EXCL, so two
+// downloads finishing at once with the same name cannot both get it (a
+// check followed by a rename could); the caller then renames over it.
+func ReserveName(p string) (string, error) {
 	ext := filepath.Ext(p)
 	base := strings.TrimSuffix(p, ext)
+	cand := p
 	for i := 1; i < 10000; i++ {
-		cand := fmt.Sprintf("%s (%d)%s", base, i, ext)
-		if _, err := os.Stat(cand); err != nil {
-			return cand // free, or an error the move will report
+		f, err := os.OpenFile(cand, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			f.Close()
+			return cand, nil
 		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err // a real problem (name too long, no permission)
+		}
+		cand = fmt.Sprintf("%s (%d)%s", base, i, ext)
 	}
-	return p
+	return "", fmt.Errorf("too many files named %s", filepath.Base(p))
 }
 
 // VerifiedParts returns which parts have passed hash verification.

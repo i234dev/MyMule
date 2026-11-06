@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mymule/internal/fsutil"
 )
 
 // Posters serves TMDB poster images through MyMule, so the browser never
@@ -97,9 +99,7 @@ func (p *Posters) save(path string, data []byte) {
 	if os.MkdirAll(p.dir, 0o700) != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, data, 0o600) != nil || os.Rename(tmp, path) != nil {
-		os.Remove(tmp)
+	if fsutil.WriteFile(path, data, 0o600) != nil {
 		return
 	}
 	entries, err := os.ReadDir(p.dir)

@@ -149,6 +149,11 @@ type Manager struct {
 
 	inbound   connLimiter  // incoming peer connections
 	callbacks callbackGate // server callback requests we act on
+
+	msgMu      sync.Mutex // peer chat messages logged in the current minute
+	msgWindow  time.Time
+	msgLogged  int
+	msgDropped int
 }
 
 // NewManager creates a manager. Add files, then call Run.
@@ -746,6 +751,33 @@ func (m *Manager) retryFinish() {
 			go m.finish(f)
 		}
 	}
+}
+
+// maxPeerMessagesPerMinute caps how many chat messages from peers are
+// written to the log: anyone can send them, and without a cap a flood of
+// them could fill the disk the log is on.
+const maxPeerMessagesPerMinute = 20
+
+// logPeerMessage logs a chat message from a peer, within the cap.
+func (m *Manager) logPeerMessage(from, text string) {
+	m.msgMu.Lock()
+	now := time.Now()
+	dropped := 0
+	if now.Sub(m.msgWindow) >= time.Minute {
+		dropped = m.msgDropped
+		m.msgWindow, m.msgLogged, m.msgDropped = now, 0, 0
+	}
+	if m.msgLogged >= maxPeerMessagesPerMinute {
+		m.msgDropped++
+		m.msgMu.Unlock()
+		return
+	}
+	m.msgLogged++
+	m.msgMu.Unlock()
+	if dropped > 0 {
+		m.cfg.Log("%d more messages from peers were not logged (too many)", dropped)
+	}
+	m.cfg.Log("message from %s: %q", from, text)
 }
 
 // testSessionHook, when set by a test, runs at the start of every peer

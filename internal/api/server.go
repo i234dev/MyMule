@@ -16,6 +16,7 @@ import (
 
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/fsutil"
 	"mymule/internal/server"
 )
 
@@ -43,12 +44,7 @@ func Listen(m *download.Manager, dataDir string, stop func()) (*Server, error) {
 	s := &Server{m: m, stop: stop, token: hex.EncodeToString(tok), info: filepath.Join(dataDir, InfoFile)}
 
 	data, _ := json.Marshal(Info{Addr: ln.Addr().String(), Token: s.token, PID: os.Getpid()})
-	tmp := s.info + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		ln.Close()
-		return nil, err
-	}
-	if err := os.Rename(tmp, s.info); err != nil {
+	if err := fsutil.WriteFile(s.info, data, 0o600); err != nil {
 		ln.Close()
 		return nil, err
 	}

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"mymule/internal/authlimit"
+	"mymule/internal/fsutil"
 )
 
 //go:embed static
@@ -76,10 +77,7 @@ func (u *UI) revoke(id string, exp int64) {
 	u.revoked[id] = exp
 	if u.statePath != "" {
 		if b, err := json.Marshal(u.revoked); err == nil {
-			tmp := u.statePath + ".tmp"
-			if os.WriteFile(tmp, b, 0o600) == nil {
-				os.Rename(tmp, u.statePath)
-			}
+			fsutil.WriteFile(u.statePath, b, 0o600)
 		}
 	}
 }

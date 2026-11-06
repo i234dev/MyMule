@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"mymule/internal/fsutil"
 )
 
 // Item is what we know about a download started from a movie or series.
@@ -260,11 +262,18 @@ func Move(src, dst string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
+	// Claim the name with an exclusive create, so two files moved at the
+	// same time to the same name cannot both get it; then rename over it.
 	ext := filepath.Ext(dst)
 	stem := strings.TrimSuffix(dst, ext)
 	for i := 2; ; i++ {
-		if _, err := os.Lstat(dst); errors.Is(err, os.ErrNotExist) {
+		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			f.Close()
 			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
 		}
 		if i > 99 {
 			return "", fmt.Errorf("too many files named %s", filepath.Base(stem))
@@ -277,15 +286,21 @@ func Move(src, dst string) (string, error) {
 	// Different disk: copy and remove.
 	in, err := os.Open(src)
 	if err != nil {
+		os.Remove(dst) // the reserved, still empty name
 		return "", err
 	}
 	defer in.Close()
-	tmp := dst + ".mymule-tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	out, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*.mymule-tmp")
 	if err != nil {
+		os.Remove(dst)
 		return "", err
 	}
+	tmp := out.Name()
+	out.Chmod(0o644)
 	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -294,6 +309,7 @@ func Move(src, dst string) (string, error) {
 	}
 	if err != nil {
 		os.Remove(tmp)
+		os.Remove(dst)
 		return "", err
 	}
 	in.Close()
@@ -357,10 +373,7 @@ func (s *Store) saveLocked() {
 	if err != nil {
 		return
 	}
-	tmp := s.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		os.Rename(tmp, s.path)
-	}
+	fsutil.WriteFile(s.path, b, 0o600)
 }
 
 // mediaExt lists the file types that belong in a movie or series library:

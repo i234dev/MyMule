@@ -12,6 +12,7 @@ import (
 	"mymule/internal/api"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/fsutil"
 	"mymule/internal/meta"
 	"mymule/internal/server"
 )
@@ -105,10 +106,7 @@ func (a *Adapter) saveLocked() {
 	if err != nil {
 		return
 	}
-	tmp := a.cfg.StorePath + ".tmp"
-	if os.WriteFile(tmp, data, 0o600) == nil {
-		os.Rename(tmp, a.cfg.StorePath)
-	}
+	fsutil.WriteFile(a.cfg.StorePath, data, 0o600)
 }
 
 // infoHash returns (and caches) the info hash of a download.

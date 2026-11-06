@@ -19,6 +19,7 @@ import (
 
 	"mymule/internal/config"
 	"mymule/internal/ed2k"
+	"mymule/internal/fsutil"
 	"mymule/internal/library"
 )
 
@@ -390,10 +391,7 @@ func (l *Library) saveCache() {
 	if err != nil || l.cachePath == "" {
 		return
 	}
-	tmp := l.cachePath + ".tmp"
-	if os.WriteFile(tmp, data, 0o600) == nil {
-		os.Rename(tmp, l.cachePath)
-	}
+	fsutil.WriteFile(l.cachePath, data, 0o600)
 }
 
 // AddComplete shares a file whose hashes are already known (e.g. a

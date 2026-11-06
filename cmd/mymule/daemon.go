@@ -324,6 +324,7 @@ func cmdStart(args []string) error {
 	if err != nil {
 		return err
 	}
+	rotateLog(logPath, maxLogSize)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
@@ -636,6 +637,18 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		hs.Shutdown(ctx)
+	}
+}
+
+// maxLogSize is when "mymule start" starts a new log. (Under a service
+// manager the log belongs to it; see the README for logrotate.)
+const maxLogSize = 20 << 20
+
+// rotateLog keeps one previous log: path is renamed to path.1 when it is
+// bigger than max.
+func rotateLog(path string, max int64) {
+	if st, err := os.Stat(path); err == nil && st.Size() > max {
+		os.Rename(path, path+".1")
 	}
 }
 

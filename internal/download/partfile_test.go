@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -497,24 +498,89 @@ func TestReopenAfterFailedMove(t *testing.T) {
 	}
 }
 
-// uniquePath must not loop when a name cannot even be checked (here, a
-// name longer than file systems allow): it used to try " (1)", " (2)"...
-// forever, which hung the final step of the download.
-func TestUniquePathDoesNotHang(t *testing.T) {
+// ReserveName must not loop when a name cannot even be checked (here, a
+// name longer than file systems allow): the old uniquePath tried " (1)",
+// " (2)"... forever, which hung the final step of the download.
+func TestReserveNameDoesNotHang(t *testing.T) {
 	dir := t.TempDir()
-	done := make(chan string, 1)
-	go func() { done <- uniquePath(filepath.Join(dir, strings.Repeat("a", 400)+".mkv")) }()
+	done := make(chan error, 1)
+	go func() {
+		_, err := ReserveName(filepath.Join(dir, strings.Repeat("a", 400)+".mkv"))
+		done <- err
+	}()
 	select {
-	case <-done:
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a 400-byte name was reserved")
+		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("uniquePath hung on a name that cannot be checked")
+		t.Fatal("ReserveName hung on a name that cannot be created")
 	}
 	p := filepath.Join(dir, "x.mkv")
-	if uniquePath(p) != p {
-		t.Fatal("free name changed")
+	if got, err := ReserveName(p); err != nil || got != p {
+		t.Fatalf("free name: %s %v", got, err)
 	}
-	os.WriteFile(p, nil, 0o644)
-	if got := uniquePath(p); got != filepath.Join(dir, "x (1).mkv") {
-		t.Fatalf("taken name: %s", got)
+	if got, err := ReserveName(p); err != nil || got != filepath.Join(dir, "x (1).mkv") {
+		t.Fatalf("taken name: %s %v", got, err)
+	}
+}
+
+// Downloads finishing at the same time with the same name each get their
+// own file (a check followed by a rename could give two the same name, and
+// one would overwrite the other).
+func TestReserveNameConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "same.mkv")
+	names := make(chan string, 20)
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, err := ReserveName(p)
+			if err != nil {
+				t.Error(err)
+			}
+			names <- n
+		}()
+	}
+	wg.Wait()
+	close(names)
+	seen := map[string]bool{}
+	for n := range names {
+		if seen[n] {
+			t.Fatalf("name %s given twice", n)
+		}
+		seen[n] = true
+	}
+}
+
+// A download that does not fit in the free space is refused at once,
+// instead of failing with a full disk halfway through.
+func TestCreateChecksFreeSpace(t *testing.T) {
+	old := diskFree
+	defer func() { diskFree = old }()
+	diskFree = func(string) (uint64, bool) { return 500 << 20, true } // 500 MB free
+	dir := t.TempDir()
+	if _, err := Create(dir, ed2k.Link{Name: "big.mkv", Size: 2 << 30, Hash: ed2k.Hash{1}}); err == nil || !strings.Contains(err.Error(), "free space") {
+		t.Fatalf("2 GB download with 500 MB free: %v", err)
+	}
+	pf, err := Create(dir, ed2k.Link{Name: "small.mkv", Size: 100 << 20, Hash: ed2k.Hash{2}})
+	if err != nil {
+		t.Fatalf("100 MB download with 500 MB free: %v", err)
+	}
+	pf.Close()
+	diskFree = func(string) (uint64, bool) { return 0, false } // unknown: no check
+	if pf, err := Create(dir, ed2k.Link{Name: "any.mkv", Size: 2 << 30, Hash: ed2k.Hash{3}}); err != nil {
+		t.Fatalf("free space unknown: %v", err)
+	} else {
+		pf.Close()
+	}
+}
+
+// The real free-space query answers on this system.
+func TestFreeSpaceWorks(t *testing.T) {
+	if n, ok := freeSpace(t.TempDir()); ok && n == 0 {
+		t.Fatal("0 bytes free reported for the temporary folder")
 	}
 }

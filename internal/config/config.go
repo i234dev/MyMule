@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/fsutil"
 )
 
 // Dir returns the base directory: the folder containing the mymule
@@ -69,7 +70,7 @@ func UserHash() (ed2k.Hash, error) {
 		return h, err
 	}
 	h[5], h[14] = 14, 111
-	if err := os.WriteFile(p, h[:], 0o600); err != nil {
+	if err := fsutil.WriteFile(p, h[:], 0o600); err != nil {
 		return h, fmt.Errorf("saving user hash: %w", err)
 	}
 	return h, nil

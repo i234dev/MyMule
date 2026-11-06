@@ -1,12 +1,8 @@
 package download
 
 import (
-	"bytes"
-	"compress/zlib"
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"time"
 
@@ -24,6 +20,10 @@ const (
 )
 
 var errDone = errors.New("session finished")
+
+// errCompressed ends a session whose peer sends compressed blocks, which
+// we do not support and never ask for.
+var errCompressed = errors.New("peer sent a compressed block, which we do not accept")
 
 // runSession performs the hello handshake on a fresh connection, works out
 // which source it belongs to and then drives the download protocol.
@@ -89,7 +89,7 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	f := src.file
 	m.mu.Unlock()
 
-	s := &session{m: m, c: c, src: src, f: f, pf: f.pf, owner: src.key, packed: map[int64]*packedBlock{}, hello: hello}
+	s := &session{m: m, c: c, src: src, f: f, pf: f.pf, owner: src.key, hello: hello}
 	err = s.run(ctx)
 	s.releaseAll()
 	// The peer may still be downloading from us on this connection.
@@ -181,11 +181,6 @@ func (m *Manager) serveUploads(c *peer.Conn, hello peer.Hello) {
 	}
 }
 
-type packedBlock struct {
-	size uint32
-	buf  bytes.Buffer
-}
-
 type session struct {
 	m     *Manager
 	c     *peer.Conn
@@ -195,7 +190,6 @@ type session struct {
 	owner string
 
 	pending []Range // blocks requested from this peer
-	packed  map[int64]*packedBlock
 	askedAt time.Time
 	timeout time.Duration
 	hello   peer.Hello
@@ -375,36 +369,16 @@ func (s *session) onData(p *proto.Packet) error {
 	if err != nil {
 		return err
 	}
+	if d.Compressed {
+		// We never announce compression, so honest peers never send it.
+		// Accepting it meant buffering in memory as many bytes as the
+		// peer claimed (up to 4 GB) before anything could be checked.
+		return errCompressed
+	}
 	if d.Hash != s.pf.Hash {
 		return nil
 	}
 
-	if d.Compressed {
-		blk, ok := s.findPending(d.Start, d.Start+1)
-		if !ok || blk.Start != d.Start {
-			return nil
-		}
-		pb := s.packed[d.Start]
-		if pb == nil {
-			pb = &packedBlock{size: d.PackedSize}
-			s.packed[d.Start] = pb
-		}
-		pb.buf.Write(d.Data)
-		if uint32(pb.buf.Len()) < pb.size {
-			return nil
-		}
-		delete(s.packed, d.Start)
-		zr, err := zlib.NewReader(&pb.buf)
-		if err != nil {
-			return fmt.Errorf("compressed block: %w", err)
-		}
-		data, err := io.ReadAll(io.LimitReader(zr, blk.Len()))
-		zr.Close()
-		if err != nil {
-			return fmt.Errorf("compressed block: %w", err)
-		}
-		return s.store(d.Start, data)
-	}
 
 	if _, ok := s.findPending(d.Start, d.End); !ok {
 		return nil // stale data for a block we no longer track

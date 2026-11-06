@@ -3,6 +3,9 @@ package proto
 import (
 	"bytes"
 	"compress/zlib"
+	"encoding/binary"
+	"io"
+	"runtime"
 	"testing"
 )
 
@@ -89,5 +92,54 @@ func TestReadTagsRejectsBadCount(t *testing.T) {
 	tags, err := r.ReadTags(1)
 	if err != nil || len(tags) != 1 || tags[0].Int != 7 {
 		t.Fatalf("ReadTags(1) = %v, %v; want one tag with value 7", tags, err)
+	}
+}
+
+// A header that announces a big packet must not make us allocate that
+// much before the data arrives: here 4 MB are announced, 10 bytes sent.
+func TestReadPacketLyingHeader(t *testing.T) {
+	var msg []byte
+	msg = append(msg, ProtoEDonkey)
+	msg = binary.LittleEndian.AppendUint32(msg, MaxPacketSize)
+	msg = append(msg, OpLoginRequest)
+	msg = append(msg, make([]byte, 10)...)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := ReadPacket(bytes.NewReader(msg))
+	runtime.ReadMemStats(&after)
+	if err != io.ErrUnexpectedEOF {
+		t.Fatalf("err = %v, want io.ErrUnexpectedEOF", err)
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 256<<10 {
+		t.Fatalf("allocated %d bytes for a 10-byte body", got)
+	}
+}
+
+func TestReadPacketSizeLimit(t *testing.T) {
+	p := &Packet{Proto: ProtoEDonkey, Opcode: OpLoginRequest, Payload: make([]byte, 2000)}
+	if _, err := ReadPacketMax(bytes.NewReader(p.Encode()), 1000); err == nil {
+		t.Fatal("packet over the limit accepted")
+	}
+	got, err := ReadPacketMax(bytes.NewReader(p.Encode()), 4000)
+	if err != nil || len(got.Payload) != 2000 {
+		t.Fatalf("packet under the limit: %v, %d bytes", err, len(got.Payload))
+	}
+}
+
+// A few KB of zlib that expand past the limit (a "zip bomb") are rejected
+// instead of being decompressed into memory.
+func TestPackedPacketBomb(t *testing.T) {
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zw.Write(make([]byte, MaxPeerPacketSize+1))
+	zw.Close()
+	if z.Len() > 16<<10 {
+		t.Fatalf("setup: bomb is %d bytes compressed", z.Len())
+	}
+	p := &Packet{Proto: ProtoPacked, Opcode: OpSearchResult, Payload: z.Bytes()}
+	if _, err := ReadPacketMax(bytes.NewReader(p.Encode()), MaxPeerPacketSize); err == nil {
+		t.Fatal("packed packet expanding past the limit accepted")
 	}
 }

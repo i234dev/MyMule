@@ -12,12 +12,15 @@ import (
 )
 
 const (
-	handshakeTimeout = 30 * time.Second
-	askTimeout       = 40 * time.Second
-	queuedTimeout    = 15 * time.Minute // stay connected while the peer allows it
-	transferTimeout  = 100 * time.Second
-	pipelineBlocks   = 3
+	askTimeout      = 40 * time.Second
+	queuedTimeout   = 15 * time.Minute // stay connected while the peer allows it
+	transferTimeout = 100 * time.Second
+	pipelineBlocks  = 3
 )
+
+// handshakeTimeout is how long a new connection has, in total, to
+// complete the hello exchange. (A variable so tests can shorten it.)
+var handshakeTimeout = 30 * time.Second
 
 var errDone = errors.New("session finished")
 
@@ -129,8 +132,16 @@ func (m *Manager) handshake(c *peer.Conn, outbound bool) (peer.Hello, error) {
 			return peer.Hello{}, err
 		}
 	}
+	// One deadline for the whole exchange: a per-read timeout let a peer
+	// keep a connection that never identifies itself open for minutes by
+	// sending a packet now and then.
+	deadline := time.Now().Add(handshakeTimeout)
 	for i := 0; i < 4; i++ {
-		p, err := c.Read(handshakeTimeout)
+		left := time.Until(deadline)
+		if left <= 0 {
+			return peer.Hello{}, errors.New("no hello received in time")
+		}
+		p, err := c.Read(left)
 		if err != nil {
 			return peer.Hello{}, err
 		}
@@ -378,7 +389,6 @@ func (s *session) onData(p *proto.Packet) error {
 	if d.Hash != s.pf.Hash {
 		return nil
 	}
-
 
 	if _, ok := s.findPending(d.Start, d.End); !ok {
 		return nil // stale data for a block we no longer track

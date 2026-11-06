@@ -131,6 +131,8 @@ type Manager struct {
 
 	ctx          context.Context
 	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
+
+	inbound connLimiter // incoming peer connections
 }
 
 // NewManager creates a manager. Add files, then call Run.
@@ -566,9 +568,16 @@ func (m *Manager) acceptLoop(ctx context.Context, ln net.Listener) {
 			time.Sleep(time.Second)
 			continue
 		}
+		ip := remoteIP(nc)
+		if !m.inbound.acquire(ip) {
+			m.cfg.Debug("incoming connection from %s refused: too many connections", ip)
+			nc.Close()
+			continue
+		}
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
+			defer m.inbound.release(ip)
 			m.runSession(ctx, nc, false, nil)
 		}()
 	}

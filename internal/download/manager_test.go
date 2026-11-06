@@ -161,6 +161,8 @@ func TestManagerEndToEnd(t *testing.T) {
 		},
 		Log:        t.Logf,
 		OnComplete: func(_ ed2k.Hash, name, path string) { donePath = path },
+		// The fake server hands out a source on 127.0.0.1.
+		allowPrivateSources: true,
 	})
 	m.Add(pf)
 

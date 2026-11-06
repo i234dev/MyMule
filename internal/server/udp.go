@@ -38,6 +38,10 @@ type FileReq struct {
 // maxFilesPerUDPRequest keeps datagrams small; eMule uses a similar limit.
 const maxFilesPerUDPRequest = 30
 
+// udpReplyWindow is how long after we last sent to a server we accept
+// datagrams from its IP. Replies arrive within seconds; this is generous.
+const udpReplyWindow = 10 * time.Minute
+
 // UDP is a socket for talking to many servers at once without logging in.
 type UDP struct {
 	conn *net.UDPConn
@@ -48,6 +52,7 @@ type UDP struct {
 	mu       sync.Mutex
 	searches map[int]func(from *net.UDPAddr, r Result)
 	nextID   int
+	asked    map[string]time.Time // server IP -> last datagram we sent it
 }
 
 // ListenUDP opens the UDP socket on a random local port, on host (empty
@@ -57,7 +62,7 @@ func ListenUDP(host string) (*UDP, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &UDP{conn: c, searches: map[int]func(*net.UDPAddr, Result){}}, nil
+	return &UDP{conn: c, searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}, nil
 }
 
 // UDPAddr is the UDP address of a server.
@@ -68,6 +73,7 @@ func (s Info) UDPAddr() *net.UDPAddr {
 func (u *UDP) Close() error { return u.conn.Close() }
 
 func (u *UDP) send(to *net.UDPAddr, opcode byte, payload []byte) error {
+	u.noteAsked(to.IP, time.Now())
 	b := make([]byte, 0, 2+len(payload))
 	b = append(b, proto.ProtoEDonkey, opcode)
 	b = append(b, payload...)
@@ -144,6 +150,32 @@ func (u *UDP) Search(ctx context.Context, servers []Info, q Query, wait time.Dur
 	return nil
 }
 
+// noteAsked records that we sent a datagram to ip, so its replies are
+// accepted for udpReplyWindow. Old entries are dropped as we go.
+func (u *UDP) noteAsked(ip net.IP, now time.Time) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if len(u.asked) > 1000 {
+		for k, t := range u.asked {
+			if now.Sub(t) > udpReplyWindow {
+				delete(u.asked, k)
+			}
+		}
+	}
+	u.asked[ip.String()] = now
+}
+
+// expected reports whether we recently sent something to ip. Only the
+// servers we ask may answer: anyone else could otherwise feed us fake
+// sources or search results just by knowing our UDP port. The port is not
+// checked because some servers reply from a different one.
+func (u *UDP) expected(ip net.IP, now time.Time) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	t, ok := u.asked[ip.String()]
+	return ok && now.Sub(t) <= udpReplyWindow
+}
+
 // Run reads and dispatches datagrams until the socket is closed.
 func (u *UDP) Run() {
 	buf := make([]byte, 64*1024)
@@ -159,6 +191,9 @@ func (u *UDP) Run() {
 // dispatch handles one datagram, which may hold several packets
 // concatenated (each starting with 0xE3 and an opcode).
 func (u *UDP) dispatch(from *net.UDPAddr, data []byte) {
+	if !u.expected(from.IP, time.Now()) {
+		return // unsolicited
+	}
 	r := proto.NewReader(data)
 	for r.Len() >= 2 {
 		if r.U8() != proto.ProtoEDonkey {

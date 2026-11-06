@@ -122,3 +122,36 @@ func TestUDPSourcesAndSearch(t *testing.T) {
 		t.Fatalf("results: %+v", results)
 	}
 }
+
+// Only servers we sent something to may answer over UDP: anyone else who
+// knows our port could otherwise inject fake sources or search results.
+func TestUDPIgnoresUnsolicitedReplies(t *testing.T) {
+	u := &UDP{searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}
+	calls := 0
+	u.OnSources = func(*net.UDPAddr, ed2k.Hash, []Source) { calls++ }
+
+	var w proto.Writer
+	w.U8(proto.ProtoEDonkey)
+	w.U8(OpGlobFoundSources)
+	w.Bytes(make([]byte, 16))
+	w.U8(1)
+	w.U32(IPToU32(net.IPv4(9, 9, 9, 9)))
+	w.U16(4662)
+	from := &net.UDPAddr{IP: net.IPv4(203, 0, 113, 7), Port: 4665}
+
+	u.dispatch(from, w.B)
+	if calls != 0 {
+		t.Fatal("reply from a server we never asked was accepted")
+	}
+	u.noteAsked(from.IP, time.Now().Add(-udpReplyWindow-time.Minute))
+	u.dispatch(from, w.B)
+	if calls != 0 {
+		t.Fatal("reply accepted long after we last asked that server")
+	}
+	u.noteAsked(from.IP, time.Now())
+	// Some servers reply from another port than the one we sent to.
+	u.dispatch(&net.UDPAddr{IP: from.IP, Port: 4672}, w.B)
+	if calls != 1 {
+		t.Fatalf("reply from a server we just asked: %d calls, want 1", calls)
+	}
+}

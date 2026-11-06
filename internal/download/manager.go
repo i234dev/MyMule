@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -52,7 +53,19 @@ type Config struct {
 	Debug      func(format string, args ...any) // per-peer chatter
 	Trace      bool                             // log every peer packet via Debug
 	OnComplete func(hash ed2k.Hash, name, path string)
+
+	// allowPrivateSources accepts server-provided sources on loopback
+	// and private addresses. Only tests set it.
+	allowPrivateSources bool
 }
+
+// Limits on the sources kept per download. Servers and UDP replies can
+// hand us any addresses; without limits a single reply could make us
+// connect to thousands of ports of one host, and the list never shrank.
+const (
+	MaxSourcesPerFile = 500 // eMule's default is 400
+	MaxSourcesPerIP   = 3   // a few clients on one public IP (NAT) is normal
+)
 
 // SourceState is where we stand with a given peer for a given file.
 type SourceState int
@@ -395,10 +408,21 @@ func (m *Manager) requestSources(ctx context.Context, c *server.Conn) {
 // addSources merges server-provided sources into f. LowID sources are
 // only useful when they come from the server we are logged into (it
 // relays callbacks), so allowLowID is false for other servers.
+//
+// Addresses come from servers and are not trusted: sources that are not
+// public IPv4 addresses (our own machine or network) or have port 0 are
+// dropped, at most MaxSourcesPerIP are kept per IP, and at most
+// MaxSourcesPerFile in total, making room by forgetting dead sources.
 func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID uint32, allowLowID bool) int {
 	added := 0
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	perIP := map[string]int{}
+	for _, src := range f.sources {
+		if src.IP != nil {
+			perIP[src.IP.String()]++
+		}
+	}
 	for _, s := range srcs {
 		// Skip ourselves. Another machine behind the same router (e.g. a
 		// NAS) has our public IP but a different port, so keep that one.
@@ -415,14 +439,43 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 			src.key = fmt.Sprintf("lowid:%d@%s", s.ID, src.server)
 		} else {
 			src.IP = server.IPFromU32(s.ID)
+			if s.Port == 0 || (!netutil.IsPublicIPv4(src.IP) && !m.cfg.allowPrivateSources) {
+				continue
+			}
 			src.key = net.JoinHostPort(src.IP.String(), strconv.Itoa(int(s.Port)))
 		}
-		if _, ok := f.sources[src.key]; !ok {
-			f.sources[src.key] = src
-			added++
+		if _, ok := f.sources[src.key]; ok {
+			continue
 		}
+		if src.IP != nil && perIP[src.IP.String()] >= MaxSourcesPerIP {
+			continue
+		}
+		if len(f.sources) >= MaxSourcesPerFile && !evictDeadSource(f) {
+			break // full of sources that may still work
+		}
+		f.sources[src.key] = src
+		if src.IP != nil {
+			perIP[src.IP.String()]++
+		}
+		added++
 	}
 	return added
+}
+
+// evictDeadSource forgets one source of f that will not be asked again:
+// one without the file, or unreachable too many times. It reports false
+// if there is none. Callers hold m.mu.
+func evictDeadSource(f *File) bool {
+	for key, src := range f.sources {
+		if src.busy {
+			continue
+		}
+		if src.State == StateNoFile || (src.State == StateUnreachable && src.Fails >= maxSourceFails) {
+			delete(f.sources, key)
+			return true
+		}
+	}
+	return false
 }
 
 // ---- UDP source requests to every known server ----

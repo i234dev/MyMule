@@ -2,9 +2,13 @@ package api
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,10 +35,38 @@ func Connect(dataDir string) (*Client, error) {
 		return nil, ErrNotRunning
 	}
 	c := &Client{info: info, http: &http.Client{Timeout: 60 * time.Second}}
+	// After a crash api.json points at a port anything may be using now,
+	// even another user's program. Make whatever answers there prove it
+	// knows the token before sending the token to it.
+	if !c.verify() {
+		return nil, ErrNotRunning
+	}
 	if err := c.do("GET", "/v1/ping", nil, nil); err != nil {
 		return nil, ErrNotRunning // stale api.json from a crashed daemon
 	}
 	return c, nil
+}
+
+// verify asks the daemon to prove it knows the token (see Proof).
+func (c *Client) verify() bool {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return false
+	}
+	nonce := hex.EncodeToString(b)
+	hc := &http.Client{Timeout: 10 * time.Second}
+	resp, err := hc.Get("http://" + c.info.Addr + "/v1/hello?nonce=" + nonce)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Proof string `json:"proof"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out) != nil {
+		return false
+	}
+	return hmac.Equal([]byte(out.Proof), []byte(Proof(c.info.Token, nonce)))
 }
 
 // PID returns the daemon's process ID.

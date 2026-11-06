@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,5 +89,28 @@ func TestAPI(t *testing.T) {
 	srv.Close()
 	if _, err := Connect(dir); err != ErrNotRunning {
 		t.Fatalf("after close: %v", err)
+	}
+}
+
+// A stale api.json may point at a port someone else is using now. Connect
+// must find out without ever sending the token there.
+func TestConnectRefusesImpostor(t *testing.T) {
+	dir := t.TempDir()
+	got := make(chan string, 10)
+	imp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Get("Authorization")
+		w.Write([]byte(`{"proof":"0000"}`))
+	}))
+	defer imp.Close()
+	info, _ := json.Marshal(Info{Addr: strings.TrimPrefix(imp.URL, "http://"), Token: "secret-token-1234567890", PID: 1})
+	os.WriteFile(filepath.Join(dir, InfoFile), info, 0o600)
+	if _, err := Connect(dir); err != ErrNotRunning {
+		t.Fatalf("Connect to an impostor: %v", err)
+	}
+	close(got)
+	for a := range got {
+		if a != "" {
+			t.Fatalf("the token was sent to the impostor: %q", a)
+		}
 	}
 }

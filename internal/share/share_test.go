@@ -213,3 +213,26 @@ func TestOwnFilesNeverShared(t *testing.T) {
 		t.Fatal("mymule.conf was shared as a finished download")
 	}
 }
+
+// A shared file changed after it was hashed is no longer served with the
+// old hash: reads fail until a rescan hashes it again.
+func TestChangedFileNotServed(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "video.mkv")
+	data := bytes.Repeat([]byte("v"), 4000)
+	os.WriteFile(p, data, 0o644)
+	fh, _ := ed2k.HashReader(bytes.NewReader(data), nil)
+	l := NewLibrary([]string{dir}, filepath.Join(t.TempDir(), "known.json"), nil)
+	l.AddComplete(p, fh.Root, nil)
+	f := l.Get(fh.Root)
+	buf := make([]byte, 100)
+	if _, err := f.ReadAt(buf, 0); err != nil {
+		t.Fatalf("read before change: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	os.WriteFile(p, bytes.Repeat([]byte("w"), 4000), 0o644) // same size, new content
+	os.Chtimes(p, time.Now().Add(time.Hour), time.Now().Add(time.Hour))
+	if _, err := f.ReadAt(buf, 0); err != ErrNotAvailable {
+		t.Fatalf("read after change: %v, want ErrNotAvailable", err)
+	}
+}

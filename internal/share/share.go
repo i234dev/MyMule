@@ -43,11 +43,13 @@ var ErrNotAvailable = errors.New("range not available")
 
 // diskFile is a complete file on disk.
 type diskFile struct {
-	path  string
-	name  string
-	size  int64
-	hash  ed2k.Hash
-	parts []ed2k.Hash
+	path    string
+	name    string
+	size    int64
+	mtime   int64 // when it was hashed (UnixNano)
+	hash    ed2k.Hash
+	parts   []ed2k.Hash
+	changed func() // asks for a rescan
 }
 
 func (d *diskFile) FileHash() ed2k.Hash     { return d.hash }
@@ -57,8 +59,15 @@ func (d *diskFile) PartHashes() []ed2k.Hash { return d.parts }
 func (d *diskFile) Avail() []bool           { return nil }
 func (d *diskFile) Partial() bool           { return false }
 
+// ReadAt reads from the file only while it is still the one that was
+// hashed: same size and modification time, and a regular file (not since
+// replaced by a link). Otherwise peers would get data that no longer
+// matches the hash we offer, until the next scan noticed.
 func (d *diskFile) ReadAt(p []byte, off int64) (int, error) {
-	if off < 0 || off+int64(len(p)) > d.size {
+	if off < 0 || off > d.size-int64(len(p)) {
+		return 0, ErrNotAvailable
+	}
+	if !d.unchanged(os.Lstat(d.path)) {
 		return 0, ErrNotAvailable
 	}
 	f, err := os.Open(d.path)
@@ -66,7 +75,20 @@ func (d *diskFile) ReadAt(p []byte, off int64) (int, error) {
 		return 0, err
 	}
 	defer f.Close()
+	if !d.unchanged(f.Stat()) {
+		return 0, ErrNotAvailable
+	}
 	return f.ReadAt(p, off)
+}
+
+func (d *diskFile) unchanged(st os.FileInfo, err error) bool {
+	if err == nil && st.Mode().IsRegular() && st.Size() == d.size && st.ModTime().UnixNano() == d.mtime {
+		return true
+	}
+	if d.changed != nil {
+		d.changed()
+	}
+	return false
 }
 
 // cacheEntry is how a hashed file is remembered in known.json.
@@ -361,7 +383,7 @@ func (l *Library) scan(ctx context.Context) {
 }
 
 func (l *Library) addDiskLocked(path string, ce cacheEntry) {
-	d := &diskFile{path: path, name: filepath.Base(path), size: ce.Size, hash: ce.Hash}
+	d := &diskFile{path: path, name: filepath.Base(path), size: ce.Size, mtime: ce.MTime, hash: ce.Hash, changed: l.Rescan}
 	for _, s := range ce.Parts {
 		if h, err := ed2k.ParseHash(s); err == nil {
 			d.parts = append(d.parts, h)

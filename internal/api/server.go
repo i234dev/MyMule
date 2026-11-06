@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -80,12 +82,31 @@ func (s *Server) Close() {
 func (s *Server) auth(next http.Handler) http.Handler {
 	want := []byte("Bearer " + s.token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The one call without the token: the daemon proves it knows the
+		// token before the client sends it (see Connect).
+		if r.URL.Path == "/v1/hello" {
+			nonce := r.URL.Query().Get("nonce")
+			if len(nonce) < 16 || len(nonce) > 128 {
+				fail(w, http.StatusBadRequest, errors.New("bad nonce"))
+				return
+			}
+			reply(w, map[string]string{"proof": Proof(s.token, nonce)})
+			return
+		}
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
 			fail(w, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Proof is what the daemon answers to a client's nonce: an HMAC of the
+// nonce keyed with the token from api.json.
+func Proof(token, nonce string) string {
+	m := hmac.New(sha256.New, []byte(token))
+	m.Write([]byte("mymule-control-hello|" + nonce))
+	return hex.EncodeToString(m.Sum(nil))
 }
 
 func reply(w http.ResponseWriter, v any) {

@@ -302,6 +302,11 @@ func DecodeDataPart(p *proto.Packet) (DataPart, error) {
 		return d, r.Err()
 	}
 	d.Data = r.B
+	// 64-bit offsets above 2^63 turn negative as int64: refuse them here
+	// rather than rely on every later check.
+	if d.Start < 0 || (!d.Compressed && d.End < d.Start) {
+		return d, fmt.Errorf("data packet with an impossible range %d-%d", d.Start, d.End)
+	}
 	if !d.Compressed && d.End-d.Start != int64(len(d.Data)) {
 		return d, fmt.Errorf("data packet size mismatch: range %d-%d, %d bytes", d.Start, d.End, len(d.Data))
 	}

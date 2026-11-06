@@ -75,3 +75,18 @@ func TestHelloNameIsCleaned(t *testing.T) {
 		t.Fatalf("Name() = %q", got)
 	}
 }
+
+// 64-bit offsets above 2^63 (negative as int64) and reversed ranges are
+// refused when decoding, before any other check sees them.
+func TestDataPartImpossibleRanges(t *testing.T) {
+	for _, r := range [][2]uint64{{1 << 63, 1<<63 + 4}, {100, 50}, {^uint64(0) - 3, ^uint64(0)}} {
+		var w proto.Writer
+		w.Bytes(make([]byte, 16))
+		w.U64(r[0])
+		w.U64(r[1])
+		w.Bytes([]byte{1, 2, 3, 4})
+		if _, err := DecodeDataPart(&proto.Packet{Proto: proto.ProtoEMule, Opcode: OpSendingPartI64, Payload: w.B}); err == nil {
+			t.Errorf("range %d-%d accepted", r[0], r[1])
+		}
+	}
+}

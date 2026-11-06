@@ -69,8 +69,8 @@ type Manager struct {
 	limiter *limiter
 
 	mu      sync.Mutex
-	clients map[ed2k.Hash]*client // by user hash
-	queue   []*client             // waiting, in order
+	clients map[clientID]*client // by user hash and IP
+	queue   []*client            // waiting, in order
 	byConn  map[*peer.Conn]*client
 
 	total      atomic.Int64
@@ -93,17 +93,31 @@ func New(cfg Config) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		limiter:   newLimiter(cfg.LimitKBps * 1024),
-		clients:   map[ed2k.Hash]*client{},
+		clients:   map[clientID]*client{},
 		byConn:    map[*peer.Conn]*client{},
 		speedTime: time.Now(),
 	}
 }
 
+// clientID identifies a peer in the queue by user hash and IP. The user
+// hash alone is whatever the peer says: keyed by it, anyone could take
+// another user's place in the queue by sending that user's hash.
+type clientID struct {
+	hash ed2k.Hash
+	ip   string
+}
+
+func idOf(h ed2k.Hash, ip net.IP) clientID { return clientID{h, ip.String()} }
+
+// maxQueuePerIP caps the queue places one IP address may hold: a few
+// users behind one router, not one host filling the queue.
+const maxQueuePerIP = 3
+
 // Connected tells the manager that a peer finished the hello handshake.
 // If that peer was waiting for its slot, the slot starts now.
 func (m *Manager) Connected(c *peer.Conn, h peer.Hello, ip net.IP) {
 	m.mu.Lock()
-	cl := m.clients[h.UserHash]
+	cl := m.clients[idOf(h.UserHash, ip)]
 	if cl == nil {
 		m.mu.Unlock()
 		return
@@ -264,14 +278,14 @@ func (m *Manager) onStartUpload(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.
 	}
 
 	m.mu.Lock()
-	cl := m.clients[h.UserHash]
+	cl := m.clients[idOf(h.UserHash, ip)]
 	if cl == nil {
-		if len(m.queue) >= maxQueue {
+		if len(m.queue) >= maxQueue || m.queuedFromLocked(ip) >= maxQueuePerIP {
 			m.mu.Unlock()
 			return nil // queue full: eMule stays silent too
 		}
-		cl = &client{userHash: h.UserHash, queuedAt: time.Now(), speedTime: time.Now()}
-		m.clients[h.UserHash] = cl
+		cl = &client{userHash: h.UserHash, ip: ip, queuedAt: time.Now(), speedTime: time.Now()}
+		m.clients[idOf(h.UserHash, ip)] = cl
 		m.queue = append(m.queue, cl)
 		m.cfg.Debug("upload queue: added %s (%s)", h.Name(), ip)
 	}
@@ -354,10 +368,10 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 
 	buf := make([]byte, chunkSize)
 	for i := range starts {
-		s, e := int64(starts[i]), int64(ends[i])
-		if e <= s || e > f.FileSize() || e-s > maxRange {
+		if !validRange(starts[i], ends[i], f.FileSize()) {
 			continue
 		}
+		s, e := int64(starts[i]), int64(ends[i])
 		for off := s; off < e; off += chunkSize {
 			n := min(int64(chunkSize), e-off)
 			data := buf[:n]
@@ -405,6 +419,14 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 	return nil
 }
 
+// validRange reports whether a requested [start, end) is a real piece of a
+// file of size bytes, at most maxRange long. It is checked on the unsigned
+// values: converted to int64 first, offsets above 2^63 would be negative
+// and could pass the checks.
+func validRange(start, end uint64, size int64) bool {
+	return size >= 0 && end > start && end <= uint64(size) && end-start <= maxRange
+}
+
 // ---- queue bookkeeping (m.mu held) ----
 
 func (m *Manager) uploadingLocked() int {
@@ -418,6 +440,17 @@ func (m *Manager) uploadingLocked() int {
 }
 
 func (m *Manager) freeSlotsLocked() int { return m.cfg.Slots - m.uploadingLocked() }
+
+// queuedFromLocked counts the peers from ip in the queue or uploading.
+func (m *Manager) queuedFromLocked(ip net.IP) int {
+	n := 0
+	for _, cl := range m.clients {
+		if cl.ip.Equal(ip) {
+			n++
+		}
+	}
+	return n
+}
 
 func (m *Manager) firstWaitingLocked() *client {
 	for _, cl := range m.queue {
@@ -468,7 +501,7 @@ func (m *Manager) removeLocked(cl *client) {
 			break
 		}
 	}
-	delete(m.clients, cl.userHash)
+	delete(m.clients, idOf(cl.userHash, cl.ip))
 	if cl.conn != nil {
 		delete(m.byConn, cl.conn)
 	}

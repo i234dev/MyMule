@@ -40,29 +40,31 @@ func (a *Adapter) qbit() http.Handler {
 		writeJSON(w, map[string]any{"qt": "6", "libtorrent": "2", "bitness": 64, "app": "MyMule"})
 	})
 	mux.HandleFunc("/api/v2/app/preferences", a.qPreferences)
-	mux.HandleFunc("/api/v2/app/setPreferences", ok)
+	mux.HandleFunc("POST /api/v2/app/setPreferences", ok)
 	mux.HandleFunc("/api/v2/app/defaultSavePath", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, a.cfg.DownloadDir) })
 	mux.HandleFunc("/api/v2/torrents/info", a.qInfo)
 	mux.HandleFunc("/api/v2/torrents/properties", a.qProperties)
 	mux.HandleFunc("/api/v2/torrents/files", a.qFiles)
 	mux.HandleFunc("/api/v2/torrents/trackers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, []any{}) })
 	mux.HandleFunc("/api/v2/torrents/categories", a.qCategories)
-	mux.HandleFunc("/api/v2/torrents/createCategory", a.qCreateCategory)
-	mux.HandleFunc("/api/v2/torrents/editCategory", a.qCreateCategory)
-	mux.HandleFunc("/api/v2/torrents/setCategory", a.qSetCategory)
-	mux.HandleFunc("/api/v2/torrents/add", a.qAdd)
-	mux.HandleFunc("/api/v2/torrents/delete", a.qDelete)
+	// Everything that changes something needs POST, as in qBittorrent:
+	// a GET (a link, an image) must never add, delete or pause anything.
+	mux.HandleFunc("POST /api/v2/torrents/createCategory", a.qCreateCategory)
+	mux.HandleFunc("POST /api/v2/torrents/editCategory", a.qCreateCategory)
+	mux.HandleFunc("POST /api/v2/torrents/setCategory", a.qSetCategory)
+	mux.HandleFunc("POST /api/v2/torrents/add", a.qAdd)
+	mux.HandleFunc("POST /api/v2/torrents/delete", a.qDelete)
 	for _, p := range []string{"pause", "stop"} {
-		mux.HandleFunc("/api/v2/torrents/"+p, a.qPause(true))
+		mux.HandleFunc("POST /api/v2/torrents/"+p, a.qPause(true))
 	}
 	for _, p := range []string{"resume", "start"} {
-		mux.HandleFunc("/api/v2/torrents/"+p, a.qPause(false))
+		mux.HandleFunc("POST /api/v2/torrents/"+p, a.qPause(false))
 	}
 	// Accepted and ignored: queue priority, share limits, tags, rechecks.
 	for _, p := range []string{"topPrio", "bottomPrio", "increasePrio", "decreasePrio", "setForceStart",
 		"setShareLimits", "setSuperSeeding", "recheck", "reannounce", "addTags", "removeTags",
 		"setAutoManagement", "setLocation", "createTags", "deleteTags"} {
-		mux.HandleFunc("/api/v2/torrents/"+p, ok)
+		mux.HandleFunc("POST /api/v2/torrents/"+p, ok)
 	}
 	mux.HandleFunc("/api/v2/torrents/tags", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, []string{}) })
 	mux.HandleFunc("/api/v2/sync/maindata", a.qMaindata)

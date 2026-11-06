@@ -37,9 +37,18 @@ func (r *REST) getPrefs(w http.ResponseWriter, req *http.Request) {
 func (r *REST) putPrefs(w http.ResponseWriter, req *http.Request) {
 	// Start from the current preferences: a request may send only one
 	// section (e.g. {"library": {...}}).
-	p := r.prefs.Get()
+	before := r.prefs.Get()
+	p := before
 	if !decode(w, req, &p) {
 		return
+	}
+	// The preferred server is chosen from the known list (as in the
+	// server endpoints), not any address a client sends.
+	if p.Server != "" && p.Server != before.Server && r.servers != nil {
+		if err := r.knownServer(p.Server); err != nil {
+			fail(w, http.StatusBadRequest, errors.New("server: "+err.Error()))
+			return
+		}
 	}
 	if err := r.prefs.Set(p); err != nil {
 		fail(w, http.StatusBadRequest, err)

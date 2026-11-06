@@ -331,3 +331,51 @@ func TestQBittorrentAddLimits(t *testing.T) {
 		t.Fatalf("normal torrent: %q", body)
 	}
 }
+
+// Feed links carry a signature for their file instead of the api_key;
+// they work without the key, only for that file, and old ?apikey= links
+// still work.
+func TestTorznabSignedLinks(t *testing.T) {
+	fx := newFixture(t)
+	_, feed := get(t, http.DefaultClient, fx.srv.URL+"/torznab/api?t=search&q=example&apikey="+testKey)
+	if strings.Contains(feed, testKey) {
+		t.Fatal("the feed contains the api_key")
+	}
+	start := strings.Index(feed, "<link>")
+	end := strings.Index(feed, "</link>")
+	if start < 0 || end < start {
+		t.Fatalf("no link in feed: %s", feed)
+	}
+	link := strings.ReplaceAll(feed[start+len("<link>"):end], "&amp;", "&")
+	if code, _ := get(t, http.DefaultClient, link); code != 200 {
+		t.Fatalf("signed link: %d", code)
+	}
+	if code, _ := get(t, http.DefaultClient, strings.Replace(link, "size=", "size=1", 1)); code != 401 {
+		t.Fatalf("signed link for another size: %d", code)
+	}
+	u, _ := url.Parse(link)
+	q := u.Query()
+	q.Del("sig")
+	q.Set("apikey", testKey)
+	u.RawQuery = q.Encode()
+	if code, _ := get(t, http.DefaultClient, u.String()); code != 200 {
+		t.Fatalf("old link with apikey: %d", code)
+	}
+}
+
+// Changes need POST: a GET (a link or an image on a page) must not delete.
+func TestQBittorrentChangesNeedPOST(t *testing.T) {
+	fx := newFixture(t)
+	link := ed2k.Link{Name: "kept.mkv", Size: 1000, Hash: ed2k.Hash{6}}
+	if err := fx.m.AddLink(link); err != nil {
+		t.Fatal(err)
+	}
+	h := InfoHash(link)
+	if code, _ := get(t, http.DefaultClient, fx.srv.URL+"/api/v2/torrents/delete?hashes=all&deleteFiles=true&apikey="+testKey); code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET delete: %d", code)
+	}
+	_, files := fx.m.Status()
+	if len(files) != 1 {
+		t.Fatalf("download deleted by a GET (%s)", h)
+	}
+}

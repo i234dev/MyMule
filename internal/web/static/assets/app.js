@@ -328,7 +328,7 @@ $("#login-form").addEventListener("submit", async e => {
 });
 
 async function logout() {
-  await fetch("/web/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+  await fetch("/web/logout", { method: "POST", credentials: "same-origin", headers: { "X-MyMule-UI": "1" } }).catch(() => {});
   status = null;
   showLogin();
 }

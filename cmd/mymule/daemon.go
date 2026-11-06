@@ -578,6 +578,9 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 	mux.Handle("/api/v1/", rest)
 	if settings.WebUI {
 		ui := web.New(settings.APIKey, version)
+		if p, err := config.Path("web_sessions.json"); err == nil {
+			ui.SetStateFile(p)
+		}
 		rest.AlsoAllow(ui.Session)
 		rest.EnableMedia(mediaSource())
 		rest.EnableLibrary(e.prefs, e.items, e.updateShared)

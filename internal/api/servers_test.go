@@ -78,3 +78,23 @@ func TestServersAPI(t *testing.T) {
 		t.Fatalf("update: %d %+v", code, upd)
 	}
 }
+
+// The preferred server, too, must be one of the known servers.
+func TestPreferredServerInPreferences(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "temp")
+	os.MkdirAll(tmp, 0o755)
+	m := download.NewManager(download.Config{TempDir: tmp})
+	rest := NewREST(m, restKey, "test")
+	data := t.TempDir()
+	ps := prefs.Open(filepath.Join(data, "preferences.json"), data)
+	rest.EnableLibrary(ps, library.OpenStore(filepath.Join(data, "library.json")), nil)
+	rest.EnableServers(&fakeServers{})
+	srv := httptest.NewServer(rest)
+	defer srv.Close()
+	if code := call(t, srv, "PUT", "/api/v1/preferences", "application/json", `{"server":"203.0.113.5:4661"}`, nil); code != 400 {
+		t.Fatalf("unknown server saved: %d", code)
+	}
+	if code := call(t, srv, "PUT", "/api/v1/preferences", "application/json", `{"server":"192.0.2.10:4661"}`, nil); code != 200 || ps.Get().Server != "192.0.2.10:4661" {
+		t.Fatalf("known server: %d %q", code, ps.Get().Server)
+	}
+}

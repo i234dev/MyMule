@@ -4,6 +4,7 @@ package web
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -11,8 +12,10 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mymule/internal/authlimit"
@@ -35,11 +38,57 @@ type UI struct {
 	key     string // the api_key: login password and session signing key
 	version string
 	now     func() time.Time
+
+	mu        sync.Mutex
+	revoked   map[string]int64 // session id -> expiry, for sessions logged out
+	statePath string           // where revoked is kept; empty = memory only
 }
 
 // New creates the web interface. key must not be empty.
 func New(key, version string) *UI {
-	return &UI{key: key, version: version, now: time.Now}
+	return &UI{key: key, version: version, now: time.Now, revoked: map[string]int64{}}
+}
+
+// SetStateFile keeps logged-out sessions in path, so logging out still
+// holds after a restart. Call it before serving.
+func (u *UI) SetStateFile(path string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.statePath = path
+	if b, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(b, &u.revoked)
+		if u.revoked == nil {
+			u.revoked = map[string]int64{}
+		}
+	}
+}
+
+// revoke records that session id (valid until exp) was logged out.
+func (u *UI) revoke(id string, exp int64) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	now := u.now().Unix()
+	for k, e := range u.revoked {
+		if e < now {
+			delete(u.revoked, k) // expired anyway
+		}
+	}
+	u.revoked[id] = exp
+	if u.statePath != "" {
+		if b, err := json.Marshal(u.revoked); err == nil {
+			tmp := u.statePath + ".tmp"
+			if os.WriteFile(tmp, b, 0o600) == nil {
+				os.Rename(tmp, u.statePath)
+			}
+		}
+	}
+}
+
+func (u *UI) isRevoked(id string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	_, ok := u.revoked[id]
+	return ok
 }
 
 // Routes mounts the pages and the login endpoints on mux.
@@ -85,11 +134,35 @@ func (u *UI) RequireLogin(h http.Handler) http.Handler {
 	})
 }
 
-// sign returns the signature of a session that expires at exp.
-func (u *UI) sign(exp int64) string {
+// sign returns the signature of session id, which expires at exp.
+func (u *UI) sign(exp int64, id string) string {
 	m := hmac.New(sha256.New, []byte(u.key))
-	m.Write([]byte("mymule-web-session|" + strconv.FormatInt(exp, 10)))
+	m.Write([]byte("mymule-web-session|" + strconv.FormatInt(exp, 10) + "|" + id))
 	return hex.EncodeToString(m.Sum(nil))
+}
+
+// parseCookie checks a session cookie's signature and expiry and returns
+// its id and expiry. The value is "exp.id.signature".
+func (u *UI) parseCookie(r *http.Request) (id string, exp int64, ok bool) {
+	if u.key == "" {
+		return "", 0, false
+	}
+	c, err := r.Cookie(cookieName)
+	if err != nil {
+		return "", 0, false
+	}
+	parts := strings.Split(c.Value, ".")
+	if len(parts) != 3 || len(parts[1]) != 32 {
+		return "", 0, false
+	}
+	exp, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || u.now().Unix() > exp {
+		return "", 0, false
+	}
+	if !hmac.Equal([]byte(parts[2]), []byte(u.sign(exp, parts[1]))) {
+		return "", 0, false
+	}
+	return parts[1], exp, true
 }
 
 // Session reports whether r carries a valid session cookie and the UI
@@ -99,24 +172,18 @@ func (u *UI) Session(r *http.Request) bool {
 	return r.Header.Get(uiHeader) != "" && u.cookieOK(r)
 }
 
-// cookieOK reports whether r carries a valid, unexpired session cookie.
+// cookieOK reports whether r carries a valid, unexpired session cookie
+// that was not logged out.
 func (u *UI) cookieOK(r *http.Request) bool {
-	if u.key == "" {
-		return false
-	}
-	c, err := r.Cookie(cookieName)
-	if err != nil {
-		return false
-	}
-	expStr, sig, ok := strings.Cut(c.Value, ".")
-	if !ok {
-		return false
-	}
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil || u.now().Unix() > exp {
-		return false
-	}
-	return hmac.Equal([]byte(sig), []byte(u.sign(exp)))
+	id, _, ok := u.parseCookie(r)
+	return ok && !u.isRevoked(id)
+}
+
+// secureRequest reports whether the browser reached us over HTTPS,
+// directly or through a reverse proxy that says so. (Trusting the proxy
+// header can only make the cookie stricter.)
+func secureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func (u *UI) login(w http.ResponseWriter, r *http.Request) {
@@ -144,18 +211,31 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := u.now().Add(sessionTTL).Unix()
+	idb := make([]byte, 16)
+	rand.Read(idb)
+	id := hex.EncodeToString(idb)
 	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: strconv.FormatInt(exp, 10) + "." + u.sign(exp),
+		Name: cookieName, Value: strconv.FormatInt(exp, 10) + "." + id + "." + u.sign(exp, id),
 		Path: "/", MaxAge: int(sessionTTL.Seconds()), HttpOnly: true,
-		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil,
+		SameSite: http.SameSiteStrictMode, Secure: secureRequest(r),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}` + "\n"))
 }
 
+// logout ends the session for good: the cookie is cleared in the browser
+// and its id is refused from now on, so a copy of it stops working too.
+// It needs the UI header, so another site cannot log the user out.
 func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get(uiHeader) == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if id, exp, ok := u.parseCookie(r); ok {
+		u.revoke(id, exp)
+	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureRequest(r)})
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}` + "\n"))
 }

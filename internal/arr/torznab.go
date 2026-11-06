@@ -2,6 +2,9 @@ package arr
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -251,8 +254,8 @@ func (a *Adapter) writeFeed(w http.ResponseWriter, r *http.Request, items []tzIt
 	b.WriteString(`<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">` + "\n")
 	b.WriteString("<channel>\n<title>MyMule</title>\n<description>eD2K network search</description>\n")
 	for _, it := range items {
-		dl := fmt.Sprintf("%s/torznab/download/%s?name=%s&size=%d&apikey=%s", base, it.link.Hash,
-			url.QueryEscape(it.link.Name), it.link.Size, url.QueryEscape(a.cfg.Key))
+		dl := fmt.Sprintf("%s/torznab/download/%s?name=%s&size=%d&sig=%s", base, it.link.Hash,
+			url.QueryEscape(it.link.Name), it.link.Size, a.linkSig(it.link))
 		peers := it.sources
 		seeders := max(it.complete, min(it.sources, 1))
 		fmt.Fprintf(&b, "<item>\n<title>%s</title>\n<guid isPermaLink=\"false\">%s</guid>\n", xmlEscape(releaseTitle(it.link.Name)), it.link.Hash)
@@ -280,18 +283,31 @@ func (a *Adapter) writeFeed(w http.ResponseWriter, r *http.Request, items []tzIt
 // torrentFile serves the stand-in .torrent that the apps "download" and
 // then hand to the qBittorrent-compatible API.
 func (a *Adapter) torrentFile(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.REST.Authorized(r) {
-		http.Error(w, "missing or wrong API key", http.StatusUnauthorized)
-		return
-	}
 	link, err := linkFromDownloadURL(r.URL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Our feed's links are signed for their own file only, so they work
+	// without the api_key in the URL (where it ends up in logs and the
+	// apps' history). Older links with ?apikey= keep working.
+	if sig := r.URL.Query().Get("sig"); sig == "" || !hmac.Equal([]byte(sig), []byte(a.linkSig(link))) {
+		if !a.cfg.REST.Authorized(r) {
+			http.Error(w, "missing or wrong API key", http.StatusUnauthorized)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/x-bittorrent")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(download.SanitizeName(link.Name), `"`, "")+`.torrent"`)
 	w.Write(Torrent(link))
+}
+
+// linkSig signs a download link of our feed with the api_key, so the link
+// works for that file only and without the key in it.
+func (a *Adapter) linkSig(l ed2k.Link) string {
+	m := hmac.New(sha256.New, []byte(a.cfg.Key))
+	fmt.Fprintf(m, "mymule-torznab-link|%s|%d|%s", l.Hash, l.Size, l.Name)
+	return hex.EncodeToString(m.Sum(nil))[:32]
 }
 
 // linkFromDownloadURL rebuilds the ed2k link from a /torznab/download URL.

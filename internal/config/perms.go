@@ -11,7 +11,7 @@ import (
 // api_key, the user hash, the paths of everything shared, and the log;
 // other users of the machine must not read them.
 var PrivateFiles = []string{SettingsFile, "api.json", "userhash.dat", "known.json",
-	"preferences.json", "library.json", "arr.json", "mymule.log", "mymule.lock"}
+	"preferences.json", "library.json", "arr.json", "mymule.log", "mymule.lock", "web_sessions.json"}
 
 // TightenPermissions makes the private files in dir readable by their
 // owner only. Older versions created them readable by everyone; new

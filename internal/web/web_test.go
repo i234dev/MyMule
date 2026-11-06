@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -154,5 +155,66 @@ func TestLoginGuessingBlocked(t *testing.T) {
 	resp, _ := do(t, c, "POST", srv.URL+"/web/login", `{"key":"`+testKey+`"}`, true)
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("right key while blocked: %d, want 429", resp.StatusCode)
+	}
+}
+
+// Logging out ends the session on the server: a copy of the cookie stops
+// working too, also after a restart. Logging out needs the UI header.
+func TestLogoutRevokesSession(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "web_sessions.json")
+	ui, srv := newServer(t)
+	ui.SetStateFile(state)
+	resp, _ := do(t, srv.Client(), "POST", srv.URL+"/web/login", `{"key":"`+testKey+`"}`, true)
+	ck := resp.Cookies()[0]
+	withCookie := func(method, path string, header bool) int {
+		req, _ := http.NewRequest(method, srv.URL+path, nil)
+		req.AddCookie(ck)
+		if header {
+			req.Header.Set("X-MyMule-UI", "1")
+		}
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		return r.StatusCode
+	}
+	if c := withCookie("GET", "/api/v1/status", true); c != 200 {
+		t.Fatalf("session: %d", c)
+	}
+	if c := withCookie("POST", "/web/logout", false); c != 403 {
+		t.Fatalf("logout without the UI header: %d", c)
+	}
+	if c := withCookie("GET", "/api/v1/status", true); c != 200 {
+		t.Fatalf("session ended by a logout without header: %d", c)
+	}
+	withCookie("POST", "/web/logout", true)
+	if c := withCookie("GET", "/api/v1/status", true); c != 401 {
+		t.Fatalf("copied cookie after logout: %d", c)
+	}
+	// Another process (a restart) reading the same state file.
+	again := New(testKey, "test")
+	again.SetStateFile(state)
+	req := httptest.NewRequest("GET", "/api/v1/status", nil)
+	req.AddCookie(ck)
+	req.Header.Set("X-MyMule-UI", "1")
+	if again.Session(req) {
+		t.Fatal("logged-out session valid again after a restart")
+	}
+}
+
+// Behind a reverse proxy that serves HTTPS the cookie is marked Secure.
+func TestSecureCookieBehindProxy(t *testing.T) {
+	_, srv := newServer(t)
+	req, _ := http.NewRequest("POST", srv.URL+"/web/login", strings.NewReader(`{"key":"`+testKey+`"}`))
+	req.Header.Set("X-MyMule-UI", "1")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if ck := resp.Cookies(); len(ck) != 1 || !ck[0].Secure {
+		t.Fatalf("cookie behind an HTTPS proxy: %+v", ck)
 	}
 }

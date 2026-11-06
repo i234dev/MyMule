@@ -160,13 +160,16 @@
 
       <form id="lib-form" class="card settings">
         <h2 data-t="set.library">Movie and series library</h2>
-        <p class="muted" data-t="set.libhint">Movies and episodes you download from the Movies &amp; series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.</p>
+        <p class="muted" data-t="set.libhint">Movies and episodes you download from the Movies &amp; series tab can be renamed, and moved to their own folders, when they finish.</p>
+        <label class="inline switch"><input id="set-organize" type="checkbox"> <strong data-t="set.organize">Organize movies and series</strong></label>
+        <p id="lib-off" class="hint" data-t="set.liboff">Off: downloads stay in the downloads folder with their original names.</p>
 
+        <div id="lib-opts">
         <label class="field"><span data-t="set.moviesdir">Movies folder</span>
           <input id="set-movies-dir" type="text" autocomplete="off" spellcheck="false" placeholder="/data/movies"></label>
         <label class="field"><span data-t="set.seriesdir">Series folder</span>
           <input id="set-series-dir" type="text" autocomplete="off" spellcheck="false" placeholder="/data/series"></label>
-        <p class="hint" data-t="set.dirhint">A folder on the computer where MyMule runs. It is created if it doesn't exist.</p>
+        <p class="hint" data-t="set.dirhint">A folder on the computer where MyMule runs; it is created if it doesn't exist. Leave it empty to rename the files inside the downloads folder.</p>
 
         <label class="field"><span data-t="set.movietmpl">Movie file name</span>
           <select id="set-movie-preset"></select>
@@ -186,6 +189,7 @@
           <label class="inline"><input type="radio" name="set-title" value="original"> <span data-t="set.titleorig">Original title</span></label>
         </fieldset>
         <label class="inline"><input id="set-share" type="checkbox"> <span data-t="set.share">Share the movie and series folders (with their subfolders)</span></label>
+        </div>
 
         <p id="lib-msg" class="msg" hidden></p>
         <div><button type="submit" class="primary" data-t="set.save">Save</button></div>

@@ -59,9 +59,14 @@ const STRINGS = {
     "srv.updated": "{n} servers ({new} new).",
     "tab.settings": "Settings",
     "set.library": "Movie and series library",
-    "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed and moved to their own folders when they finish. Leave a folder empty to keep those files in the downloads folder.",
+    "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed, and moved to their own folders, when they finish.",
+    "set.organize": "Organize movies and series",
+    "set.liboff": "Off: downloads stay in the downloads folder with their original names.",
     "set.moviesdir": "Movies folder", "set.seriesdir": "Series folder",
-    "set.dirhint": "A folder on the computer where MyMule runs. It is created if it doesn't exist.",
+    "set.dirhint": "A folder on the computer where MyMule runs; it is created if it doesn't exist. Leave it empty to rename the files inside the downloads folder.",
+    "media.saveas": "When it finishes it will be saved as {path}",
+    "media.renameas": "When it finishes it will be renamed {path} (in the downloads folder)",
+    "media.noorganize": "It will keep its name: turn on \"Organize movies and series\" in Settings to rename it.",
     "set.movietmpl": "Movie file name", "set.seriestmpl": "Episode file name",
     "set.example": "Example:", "set.custom": "Custom…",
     "set.tags": "Tags:", "set.tagshint": "\"/\" makes a folder; {season:2} adds a leading zero (01).",
@@ -160,9 +165,14 @@ const STRINGS = {
     "srv.updated": "{n} servidores ({new} nuevos).",
     "tab.settings": "Ajustes",
     "set.library": "Biblioteca de películas y series",
-    "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar y mover a sus propias carpetas al terminar. Deja una carpeta vacía para que se queden en la carpeta de descargas.",
+    "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar, y mover a sus propias carpetas, al terminar.",
+    "set.organize": "Organizar películas y series",
+    "set.liboff": "Desactivado: las descargas se quedan en la carpeta de descargas con su nombre original.",
     "set.moviesdir": "Carpeta de películas", "set.seriesdir": "Carpeta de series",
-    "set.dirhint": "Una carpeta del equipo donde funciona MyMule. Se crea si no existe.",
+    "set.dirhint": "Una carpeta del equipo donde funciona MyMule; se crea si no existe. Déjala vacía para renombrar los ficheros dentro de la carpeta de descargas.",
+    "media.saveas": "Al terminar se guardará como {path}",
+    "media.renameas": "Al terminar se renombrará a {path} (en la carpeta de descargas)",
+    "media.noorganize": "Conservará su nombre: activa «Organizar películas y series» en Ajustes para renombrarlo.",
     "set.movietmpl": "Nombre de las películas", "set.seriestmpl": "Nombre de los episodios",
     "set.example": "Ejemplo:", "set.custom": "Personalizada…",
     "set.tags": "Etiquetas:", "set.tagshint": "\"/\" crea una carpeta; {season:2} añade un cero delante (01).",
@@ -799,7 +809,12 @@ async function downloadRelease(r) {
   }
   try {
     const res = await api("POST", "/api/v1/media/download", body);
-    showMsg(msg, t("add.done", { n: res.added.length }), "ok");
+    // Say right away what will happen to the file when it finishes.
+    let what;
+    if (!res.organize) what = t("media.noorganize");
+    else if (res.folder) what = t("media.saveas", { path: res.folder.replace(/[\\/]+$/, "") + "/" + res.file });
+    else what = t("media.renameas", { path: res.file });
+    showMsg(msg, t("add.done", { n: res.added.length }) + " · " + what, res.organize ? "ok" : "warn");
   } catch (err) {
     if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
   }
@@ -835,6 +850,8 @@ async function loadSettings() {
     const r = await api("GET", "/api/v1/preferences");
     presets = r.presets;
     const l = r.preferences.library;
+    $("#set-organize").checked = !!l.organize;
+    showLibraryOptions();
     $("#set-movies-dir").value = l.movies_dir || "";
     $("#set-series-dir").value = l.series_dir || "";
     $("#set-movie-tmpl").value = l.movie_template;
@@ -856,8 +873,18 @@ async function loadSettings() {
   }
 }
 
+// showLibraryOptions shows the folders and templates only while organising
+// is on, so nothing looks active when it is not.
+function showLibraryOptions() {
+  const on = $("#set-organize").checked;
+  $("#lib-opts").hidden = !on;
+  $("#lib-off").hidden = on;
+}
+$("#set-organize").addEventListener("change", showLibraryOptions);
+
 function libraryForm() {
   return {
+    organize: $("#set-organize").checked,
     movies_dir: $("#set-movies-dir").value.trim(),
     series_dir: $("#set-series-dir").value.trim(),
     movie_template: $("#set-movie-tmpl").value.trim(),

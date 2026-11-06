@@ -31,8 +31,11 @@ type Item struct {
 
 // Settings say where and how finished files are organised.
 type Settings struct {
-	MoviesDir      string `json:"movies_dir"`      // empty = leave movies in download_dir
-	SeriesDir      string `json:"series_dir"`      // empty = leave series in download_dir
+	// Organize turns renaming on. Off, finished files keep their names
+	// and stay in the download folder.
+	Organize       bool   `json:"organize"`
+	MoviesDir      string `json:"movies_dir"`      // empty = rename movies inside the download folder
+	SeriesDir      string `json:"series_dir"`      // empty = rename episodes inside the download folder
 	MovieTemplate  string `json:"movie_template"`  // see Presets
 	SeriesTemplate string `json:"series_template"` // see Presets
 	OriginalTitles bool   `json:"original_titles"` // name files with the original title
@@ -55,7 +58,7 @@ var (
 	}
 )
 
-// DefaultSettings: organising is off until a folder is chosen.
+// DefaultSettings: organising is off until the user turns it on.
 func DefaultSettings() Settings {
 	return Settings{MovieTemplate: MoviePresets[0], SeriesTemplate: SeriesPresets[0], Share: true}
 }
@@ -199,37 +202,56 @@ func tidy(s string) string {
 	return strings.TrimRight(strings.TrimSpace(s), ". ")
 }
 
-// Destination returns where a finished file goes, or "" when it should
-// stay where it is (no folder set for its kind).
+// Plan says where a finished file src would go: the folder (base) and the
+// path under it (rel, with the extension). ok is false when the file stays
+// as it is: organising is off, or it is not a video, audio or subtitle
+// file (see IsMedia).
 //
-// Only video, audio and subtitle files are moved (see IsMedia).
-func Destination(st Settings, it Item, src string) string {
-	if !IsMedia(src) {
-		return ""
+// Without a folder for its kind the file is renamed where it is (base is
+// src's folder) and only the template's last part is used, so it does not
+// go into subfolders: the download folder is shared without them.
+func Plan(st Settings, it Item, src string) (base, rel string, ok bool) {
+	if !st.Organize || !IsMedia(src) {
+		return "", "", false
 	}
 	base, tmpl := st.MoviesDir, st.MovieTemplate
 	if it.Kind == "series" {
 		base, tmpl = st.SeriesDir, st.SeriesTemplate
 	}
-	if base == "" {
-		return ""
+	inPlace := base == ""
+	if inPlace {
+		base = filepath.Dir(src)
 	}
 	ext := strings.ToLower(filepath.Ext(src))
-	rel := Render(tmpl, it, st.OriginalTitles)
+	rel = Render(tmpl, it, st.OriginalTitles)
 	if it.Kind == "series" && it.Episode == 0 {
 		// A whole season in one file: the season's folder, original name.
 		rel = filepath.Join(filepath.Dir(rel), filepath.Base(strings.TrimSuffix(src, filepath.Ext(src))))
 	}
-	if rel == "" || rel == "." {
-		return ""
+	if inPlace {
+		rel = filepath.Base(rel)
 	}
-	dst := filepath.Join(base, rel+ext)
+	if rel == "" || rel == "." || rel == string(filepath.Separator) {
+		return "", "", false
+	}
+	rel += ext
 	// Never outside the chosen folder.
+	dst := filepath.Join(base, rel)
 	if r, err := filepath.Rel(filepath.Clean(base), dst); err != nil || r == ".." ||
 		strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return "", "", false
+	}
+	return base, rel, true
+}
+
+// Destination returns where a finished file goes, or "" when it should
+// stay as it is (see Plan).
+func Destination(st Settings, it Item, src string) string {
+	base, rel, ok := Plan(st, it, src)
+	if !ok {
 		return ""
 	}
-	return dst
+	return filepath.Join(base, rel)
 }
 
 // Move moves src to dst, creating folders. If dst exists, " (2)", " (3)"...

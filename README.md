@@ -182,10 +182,15 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 Files downloaded from the **Movies & series** tab can be renamed and moved
 into their own folders when they finish, ready for Plex, Jellyfin or Kodi.
-In **Settings** choose:
+It is off until you turn on **Organize movies and series** in **Settings**;
+when you download a file, the web interface tells you where it will go.
+Then choose:
 
 - **Movies folder** and **Series folder** on the computer where MyMule
-  runs (empty = leave those files in `download_dir`).
+  runs. Leave one empty to rename those files inside `download_dir`
+  instead (only the last part of the template is used there, so they
+  stay in that folder and keep being shared). MyMule must be able to
+  write in the folders: on Linux, give them to the user it runs as.
 - **File names** from ready-made templates or your own, with a live
   example. Templates use tags: `{title}`, `{original_title}`, `{year}`,
   `{quality}`, `{language}`, `{season}`, `{episode}`, `{episode_title}`;
@@ -198,9 +203,10 @@ In **Settings** choose:
 - Whether to **share** those folders (with their subfolders). Moved files
   keep being shared without hashing them again.
 
-Names are made safe for Windows, macOS and Linux, files are never
-overwritten (a ` (2)` is added) and nothing is ever written outside the
-chosen folders. Settings are kept in `preferences.json`.
+Only video, audio and subtitle files are organised. Names are made safe
+for Windows, macOS and Linux, files are never overwritten (a ` (2)` is
+added) and nothing is ever written outside the chosen folders. Settings
+are kept in `preferences.json`.
 
 ## HTTP API for scripts
 

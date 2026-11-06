@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -58,6 +59,16 @@ func Open(path, base string) *Store {
 	s := &Store{path: path, base: base, p: Defaults()}
 	if b, err := os.ReadFile(path); err == nil {
 		json.Unmarshal(b, &s.p)
+		// Saved before the "organize" switch existed: organising was on
+		// whenever a folder was set, so keep it that way.
+		var probe struct {
+			Library map[string]json.RawMessage `json:"library"`
+		}
+		if json.Unmarshal(b, &probe) == nil && probe.Library != nil {
+			if _, has := probe.Library["organize"]; !has {
+				s.p.Library.Organize = s.p.Library.MoviesDir != "" || s.p.Library.SeriesDir != ""
+			}
+		}
 	}
 	if s.p.Search.Resolution == "" {
 		s.p.Search = Defaults().Search
@@ -207,13 +218,19 @@ func (s *Store) Set(p Preferences) error {
 }
 
 // writable creates dir if needed and checks a file can be written in it.
+// The error names the user MyMule runs as, since that is usually what to
+// fix (a folder owned by another user, such as root on a NAS).
 func writable(dir string) error {
+	who := "MyMule"
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		who = "MyMule (user " + u.Username + ")"
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return errors.New("can't create it")
+		return fmt.Errorf("%s can't create it; create it and let that user write in it", who)
 	}
 	f, err := os.CreateTemp(dir, ".mymule-write-test-*")
 	if err != nil {
-		return errors.New("can't write in it")
+		return fmt.Errorf("%s can't write in it; give that user permission to write there", who)
 	}
 	name := f.Name()
 	f.Close()

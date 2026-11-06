@@ -3,8 +3,10 @@ package api
 import (
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 
+	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
 	"mymule/internal/meta"
@@ -131,5 +133,24 @@ func (r *REST) mediaDownload(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	r.items.Put(link.Hash.String(), it)
-	reply(w, AddResponse{Added: []string{link.Name}})
+	resp := mediaDownloadResponse{Added: []string{link.Name}}
+	// Tell the user now what will happen to the file when it finishes.
+	const downloads = "downloads"
+	if base, rel, ok := library.Plan(r.prefs.Library(), it, filepath.Join(downloads, download.SanitizeName(link.Name))); ok {
+		resp.Organize, resp.File = true, filepath.ToSlash(rel)
+		if base != downloads {
+			resp.Folder = base
+		}
+	}
+	reply(w, resp)
+}
+
+// mediaDownloadResponse says what was added and where it will go: File
+// (under Folder, or renamed inside the download folder when Folder is
+// empty), or nothing when Organize is false.
+type mediaDownloadResponse struct {
+	Added    []string `json:"added"`
+	Organize bool     `json:"organize"`
+	Folder   string   `json:"folder,omitempty"`
+	File     string   `json:"file,omitempty"`
 }

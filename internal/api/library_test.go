@@ -19,6 +19,9 @@ type fakeSource struct{}
 
 func (fakeSource) Search(context.Context, string, string) ([]meta.Work, error) { return nil, nil }
 func (fakeSource) Get(_ context.Context, id, _ string) (meta.Work, error) {
+	if strings.HasPrefix(id, "tmdb-movie-") {
+		return meta.Work{ID: id, Kind: meta.Movie, Title: "La Película", OriginalTitle: "The Film", Year: 1999}, nil
+	}
 	return meta.Work{ID: id, Kind: meta.Series, Title: "La Serie", OriginalTitle: "The Show", Year: 2001}, nil
 }
 func (fakeSource) EpisodeTitle(_ context.Context, _ string, s, e int, _ string) (string, error) {
@@ -67,7 +70,15 @@ o-such-appdata-for-tests`)
 	}
 
 	series := filepath.Join(t.TempDir(), "Series")
-	body := `{"library":{"series_dir":` + jsonString(series) + `,"movie_template":"{title} ({year})",` +
+	// Organising is off by default: a download says so and keeps its name.
+	var off mediaDownloadResponse
+	call(t, srv, "POST", "/api/v1/media/download", "application/json",
+		`{"link":"ed2k://|file|Some.Movie.1999.1080p.mkv|20000000|AAAA456789ABCDEF0123456789ABCDEF|/","work_id":"tmdb-movie-1","lang":"es-ES"}`, &off)
+	if off.Organize || off.File != "" {
+		t.Fatalf("organising reported while off: %+v", off)
+	}
+
+	body := `{"library":{"organize":true,"series_dir":` + jsonString(series) + `,"movie_template":"{title} ({year})",` +
 		`"series_template":"{title}/S{season:2}/{title} - {season}x{episode:2} - {episode_title}","share":true}}`
 	if code := call(t, srv, "PUT", "/api/v1/preferences", "application/json", body, nil); code != 200 || changed != 1 {
 		t.Fatalf("put: %d, changed %d", code, changed)
@@ -78,9 +89,21 @@ o-such-appdata-for-tests`)
 	}
 
 	link := "ed2k://|file|The.Show.S02E05.720p.mkv|20000000|0123456789ABCDEF0123456789ABCDEF|/"
+	var got2 mediaDownloadResponse
 	if code := call(t, srv, "POST", "/api/v1/media/download", "application/json",
-		`{"link":`+jsonString(link)+`,"work_id":"tmdb-tv-1","lang":"es-ES","season":2}`, nil); code != 200 {
+		`{"link":`+jsonString(link)+`,"work_id":"tmdb-tv-1","lang":"es-ES","season":2}`, &got2); code != 200 {
 		t.Fatalf("download: %d", code)
+	}
+	// The response says where it will go.
+	if !got2.Organize || got2.Folder != series || got2.File != "La Serie/S02/La Serie - 2x05 - Episodio Inventado.mkv" {
+		t.Fatalf("planned destination: %+v", got2)
+	}
+	// No movies folder: renamed inside the download folder, no subfolders.
+	var inPlace mediaDownloadResponse
+	call(t, srv, "POST", "/api/v1/media/download", "application/json",
+		`{"link":"ed2k://|file|Other.Movie.2001.mkv|20000000|BBBB456789ABCDEF0123456789ABCDEF|/","work_id":"tmdb-movie-2","lang":"es-ES"}`, &inPlace)
+	if !inPlace.Organize || inPlace.Folder != "" || inPlace.File != "La Película (1999).mkv" {
+		t.Fatalf("rename in place: %+v", inPlace)
 	}
 	it, ok := items.Get("0123456789ABCDEF0123456789ABCDEF")
 	if !ok || it.Season != 2 || it.Episode != 5 || it.EpisodeTitle != "Episodio Inventado" || it.Quality != "720p" {

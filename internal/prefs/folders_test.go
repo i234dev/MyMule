@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -111,4 +112,42 @@ func TestLibraryIgnoresSavedBadFolder(t *testing.T) {
 func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// Preferences saved before the "organize" switch: organising was on
+// whenever a folder was set, and stays that way after the upgrade.
+func TestOrganizeSwitchUpgrade(t *testing.T) {
+	awayFromAppData(t)
+	folder := filepath.Join(t.TempDir(), "Movies")
+	for name, c := range map[string]struct {
+		json string
+		want bool
+	}{
+		"old, with a folder":     {`{"library":{"movies_dir":` + quote(folder) + `}}`, true},
+		"old, without folders":   {`{"library":{"movies_dir":""}}`, false},
+		"new, switched off":      {`{"library":{"organize":false,"movies_dir":` + quote(folder) + `}}`, false},
+		"new, on without folder": {`{"library":{"organize":true}}`, true},
+	} {
+		base := t.TempDir()
+		os.WriteFile(filepath.Join(base, "preferences.json"), []byte(c.json), 0o600)
+		if got := Open(filepath.Join(base, "preferences.json"), base).Get().Library.Organize; got != c.want {
+			t.Errorf("%s: organize=%v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// A folder MyMule cannot create says who MyMule runs as, which is what
+// the user has to fix.
+func TestFolderErrorNamesTheUser(t *testing.T) {
+	awayFromAppData(t)
+	base := t.TempDir()
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, []byte("x"), 0o600)
+	s := Open(filepath.Join(base, "preferences.json"), base)
+	p := s.Get()
+	p.Library.MoviesDir = filepath.Join(blocker, "Movies")
+	err := s.Set(p)
+	if err == nil || !strings.Contains(err.Error(), "MyMule") || !strings.Contains(err.Error(), "can't create it") {
+		t.Fatalf("error = %v", err)
+	}
 }

@@ -65,6 +65,10 @@ func TestDestinationAndMove(t *testing.T) {
 	movies, series, incoming := t.TempDir(), t.TempDir(), t.TempDir()
 	st := DefaultSettings()
 	st.MoviesDir, st.SeriesDir = movies, series
+	if Destination(st, movie, filepath.Join(incoming, "x.mkv")) != "" {
+		t.Fatal("organised while organising is off (the default)")
+	}
+	st.Organize = true
 
 	src := filepath.Join(incoming, "the.movie.1982.1080p.MKV")
 	os.WriteFile(src, []byte("video"), 0o644)
@@ -95,9 +99,10 @@ func TestDestinationAndMove(t *testing.T) {
 	if d := Destination(st, season, p(incoming, "La Serie T3 completa.avi")); d != p(series, "La Serie", "Season 03", "La Serie T3 completa.avi") {
 		t.Fatalf("season pack: %s", d)
 	}
-	// No folder for the kind: leave it.
+	// No folder for the kind: renamed where it is, without subfolders (the
+	// download folder is shared without them).
 	st.SeriesDir = ""
-	if d := Destination(st, episode, src); d != "" {
+	if d := Destination(st, episode, src); d != filepath.Join(incoming, "La Serie - S02E05.mkv") {
 		t.Fatalf("no series folder: %s", d)
 	}
 	// Never outside the chosen folder, whatever the title says.
@@ -126,7 +131,7 @@ func TestStore(t *testing.T) {
 // Only media is moved into the library: a download named like a script or
 // a shortcut stays where it is, whatever folder the library points to.
 func TestDestinationOnlyMedia(t *testing.T) {
-	st := Settings{MoviesDir: t.TempDir(), MovieTemplate: MoviePresets[0]}
+	st := Settings{Organize: true, MoviesDir: t.TempDir(), MovieTemplate: MoviePresets[0]}
 	it := Item{Kind: "movie", Title: "Example Movie", Year: 2001}
 	for _, name := range []string{"x.bat", "x.cmd", "x.exe", "x.lnk", "x.ps1", "x.sh", "x.desktop", "x.url", "x"} {
 		if d := Destination(st, it, filepath.Join("in", name)); d != "" {

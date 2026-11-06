@@ -85,6 +85,8 @@ h2 { font-size: 16px; margin: 22px 0 10px; }
 .msg { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); }
 .msg.bad { color: var(--bad); }
 .msg.ok { color: var(--ok); }
+.msg.warn { color: var(--warn); }
+.switch { margin: 4px 0; font-size: 15px; }
 .row-form { display: flex; gap: 8px; }
 .row-form input { flex: 1; }
 

@@ -150,7 +150,7 @@ func (e *engine) updateShared() {
 	}
 	st := e.prefs.Library()
 	var trees []string
-	if st.Share {
+	if st.Organize && st.Share { // only while the library is in use
 		for _, d := range []string{st.MoviesDir, st.SeriesDir} {
 			if d != "" {
 				trees = append(trees, d)

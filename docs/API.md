@@ -10,7 +10,7 @@ The API is configured in `mymule.conf`, next to the executable:
 
 ```ini
 api_listen = 127.0.0.1:4711
-api_key = 3f1c9a6e0b7d48a2a5e1c0d9b8f7e6a5
+api_key = (a random key, generated on the first run)
 ```
 
 - **`api_listen`**: where the API listens.

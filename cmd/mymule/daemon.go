@@ -312,6 +312,9 @@ func cmdDaemon(args []string) error {
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
+	if settings.Sharing && settings.ShareDownloads {
+		logf("finished downloads are shared with other eD2K users, as in eMule (share_downloads = false in mymule.conf to stop)")
+	}
 	if dir, err := config.Dir(); err == nil {
 		if w := config.LocationWarning(dir); w != "" {
 			logf("WARNING: %s", w)

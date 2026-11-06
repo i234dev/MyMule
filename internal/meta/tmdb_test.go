@@ -185,3 +185,18 @@ func TestPosters(t *testing.T) {
 		t.Fatalf("newest poster missing from cache")
 	}
 }
+
+// Builders can set their own key with -ldflags "-X ...ProjectTMDBKey=...".
+// Checked when MYMULE_EXPECT_TMDB_KEY says which key the build was given.
+func TestProjectKeyOverride(t *testing.T) {
+	want := os.Getenv("MYMULE_EXPECT_TMDB_KEY")
+	if want == "" {
+		if ProjectTMDBKey == "" {
+			t.Fatal("no built-in TMDB key")
+		}
+		t.Skip("set MYMULE_EXPECT_TMDB_KEY and build with -ldflags -X to check an override")
+	}
+	if ProjectTMDBKey != want {
+		t.Fatalf("ProjectTMDBKey = %q, want %q from -ldflags", ProjectTMDBKey, want)
+	}
+}

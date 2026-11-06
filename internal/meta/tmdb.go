@@ -16,7 +16,13 @@ import (
 // ProjectTMDBKey is MyMule's own TMDB API key (a v3 "API key", meant to be
 // embedded in apps, as Jellyfin and Kodi do). Users can set their own with
 // tmdb_api_key in mymule.conf, or turn TMDB off.
-const ProjectTMDBKey = "88b98470185a4c4f6126eaa7acd191ad"
+//
+// It is a variable so that whoever builds MyMule can use their own key:
+//
+//	go build -ldflags "-X mymule/internal/meta.ProjectTMDBKey=THEIR_KEY" ./cmd/mymule
+//
+// If this one is ever revoked, builds with another key keep posters working.
+var ProjectTMDBKey = "88b98470185a4c4f6126eaa7acd191ad"
 
 // TMDBAttribution must be shown wherever TMDB data is used.
 const TMDBAttribution = "This product uses the TMDB API but is not endorsed or certified by TMDB."

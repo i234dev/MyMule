@@ -215,8 +215,13 @@ const (
 )
 
 // connectedGrace is how long a global search still waits for the
-// connected server once the other servers have had their time.
-const connectedGrace = 3 * time.Second
+// connected server once the other servers have had their time (a
+// variable so tests can shorten it).
+var connectedGrace = 3 * time.Second
+
+// silentAfter is how many searches in a row the connected server may
+// leave unanswered before Config.OnSilentServer is told.
+const silentAfter = 3
 
 // SearchGlobal runs a search on the connected server (TCP) and on every
 // known server over UDP, merging results by hash. Source counts from
@@ -243,10 +248,12 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 	tcpDone := make(chan struct{})
 	tctx, cancelTCP := context.WithCancel(ctx)
 	defer cancelTCP()
+	answered := false
 	if c != nil {
 		go func() {
 			defer close(tcpDone)
 			if res, err := m.Search(tctx, q, 0); err == nil {
+				answered = true
 				for _, r := range res {
 					mg.add(c.Info().IP.String(), r)
 				}
@@ -275,9 +282,36 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 		cancelTCP()
 	}
 	<-tcpDone // returns at once after cancelTCP; without UDP, waits as before
+	if c != nil && ctx.Err() == nil {
+		m.noteSearchAnswer(c, answered)
+	}
 
 	out, nServers := mg.results()
 	return out, nServers, nil
+}
+
+// noteSearchAnswer counts searches the connected server c left without
+// answer, and reports it once when it reaches silentAfter in a row.
+func (m *Manager) noteSearchAnswer(c *server.Conn, answered bool) {
+	m.mu.Lock()
+	if m.srv != c {
+		m.mu.Unlock()
+		return
+	}
+	if answered {
+		m.searchMisses = 0
+		m.mu.Unlock()
+		return
+	}
+	m.searchMisses++
+	report := m.searchMisses >= silentAfter && !m.silentReported
+	if report {
+		m.silentReported = true
+	}
+	m.mu.Unlock()
+	if report && m.cfg.OnSilentServer != nil {
+		go m.cfg.OnSilentServer(c.Info().Addr())
+	}
 }
 
 // resultMerger merges search results from several servers (see the

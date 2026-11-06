@@ -167,3 +167,60 @@ func TestGlobalSearchDoesNotWaitForSilentServer(t *testing.T) {
 		t.Fatalf("search took %v waiting for a server that never answers", took)
 	}
 }
+
+// After several searches in a row without an answer from the connected
+// server, OnSilentServer is told once (the daemon then warns, or moves
+// to another server if the user did not choose this one).
+func TestSilentServerReported(t *testing.T) {
+	old := connectedGrace
+	connectedGrace = 100 * time.Millisecond
+	defer func() { connectedGrace = old }()
+
+	srvLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srvLn.Close()
+	go fakeServer(t, srvLn, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}) // ignores searches
+	sa := srvLn.Addr().(*net.TCPAddr)
+	other := fakeUDPSearchServer(t)
+
+	reported := make(chan string, 5)
+	m := NewManager(Config{Servers: func() []server.Info { return []server.Info{other} },
+		OnSilentServer: func(addr string) { reported <- addr }})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := server.Dial(ctx, server.Info{IP: sa.IP, Port: uint16(sa.Port)}, server.Config{Nick: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	u, err := server.ListenUDP("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	go u.Run()
+	m.mu.Lock()
+	m.srv, m.udp = conn, u
+	m.mu.Unlock()
+
+	for i := 0; i < silentAfter+2; i++ {
+		m.SearchGlobal(ctx, server.Query{Keywords: "example"}, 200*time.Millisecond)
+		if i == silentAfter-2 && len(reported) > 0 {
+			t.Fatal("reported before enough searches went unanswered")
+		}
+	}
+	select {
+	case addr := <-reported:
+		if addr != conn.Info().Addr() {
+			t.Fatalf("reported %s, want %s", addr, conn.Info().Addr())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("silent server not reported")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if len(reported) != 0 {
+		t.Fatal("reported more than once for the same connection")
+	}
+}

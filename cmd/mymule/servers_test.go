@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"mymule/internal/download"
+	"mymule/internal/prefs"
 	"mymule/internal/proto"
 	"mymule/internal/server"
 )
@@ -122,5 +124,44 @@ func TestRotateLog(t *testing.T) {
 	}
 	if _, err := os.Stat(p); err == nil {
 		t.Fatal("old log still in place")
+	}
+}
+
+// A server that stops answering searches: kept (with a warning) when the
+// user chose it, otherwise replaced by the best other known server.
+func TestSilentServerPolicy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	list := []server.Info{info("11.0.0.1", 4661), info("11.0.0.2", 4661)}
+	list[1].Users = 5000 // the better one
+	if err := saveServers(list); err != nil {
+		t.Fatal(err)
+	}
+	newEngine := func(preferred string) *engine {
+		ps := prefs.Open(filepath.Join(t.TempDir(), "preferences.json"), t.TempDir())
+		if preferred != "" {
+			p := ps.Get()
+			p.Server = preferred
+			if err := ps.Set(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return &engine{Manager: download.NewManager(download.Config{}), prefs: ps}
+	}
+
+	e := newEngine("11.0.0.1:4661")
+	e.silentServer("11.0.0.1:4661", "")
+	if e.next != "" {
+		t.Fatalf("switched away from the user's chosen server, to %s", e.next)
+	}
+	e = newEngine("")
+	e.silentServer("11.0.0.2:4661", "11.0.0.2:4661") // chosen in mymule.conf
+	if e.next != "" {
+		t.Fatalf("switched away from the server set in mymule.conf, to %s", e.next)
+	}
+	e = newEngine("")
+	e.silentServer("11.0.0.2:4661", "")
+	if e.next != "11.0.0.1:4661" {
+		t.Fatalf("switched to %q, want the other server", e.next)
 	}
 }

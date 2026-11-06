@@ -99,6 +99,32 @@ func (e *engine) serverTarget(flag string) string {
 	return flag
 }
 
+// silentServer handles a connected server that stopped answering
+// searches. A server the user chose (in the web interface or in
+// mymule.conf) is kept and a warning logged; otherwise MyMule moves to
+// the best other known server.
+func (e *engine) silentServer(addr, configured string) {
+	chosen := configured
+	if e.prefs != nil && e.prefs.Get().Server != "" {
+		chosen = e.prefs.Get().Server
+	}
+	if chosen == addr {
+		logf("server %s is not answering searches; results come from the other servers meanwhile. "+
+			"It is your chosen server, so MyMule stays on it: pick another one if this goes on.", addr)
+		return
+	}
+	list, _ := loadServers()
+	server.SortByQuality(list)
+	for _, s := range list {
+		if s.Addr() != addr {
+			logf("server %s is not answering searches; switching to %s", addr, s.Addr())
+			e.ConnectTo(s.Addr())
+			return
+		}
+	}
+	logf("server %s is not answering searches, and there is no other server to switch to", addr)
+}
+
 // ConnectTo switches to another server now.
 func (e *engine) ConnectTo(addr string) {
 	e.nextMu.Lock()
@@ -224,9 +250,10 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 			server.SortByQuality(list)
 			return list
 		},
-		Log:   logf,
-		Debug: debug,
-		Trace: os.Getenv("MYMULE_TRACE") != "",
+		Log:            logf,
+		Debug:          debug,
+		Trace:          os.Getenv("MYMULE_TRACE") != "",
+		OnSilentServer: func(addr string) { eng.silentServer(addr, *e.conn.server) },
 		OnComplete: func(h ed2k.Hash, name, path string) {
 			logf("COMPLETED %s -> %s", name, path)
 			go eng.organize(h, name, path) // moving to another disk can take a while

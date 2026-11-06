@@ -55,6 +55,11 @@ type Config struct {
 	Trace      bool                             // log every peer packet via Debug
 	OnComplete func(hash ed2k.Hash, name, path string)
 
+	// OnSilentServer is called once per connection when the connected
+	// server (address addr) leaves several searches in a row without an
+	// answer; the other servers have been answering them meanwhile.
+	OnSilentServer func(addr string)
+
 	// allowPrivateSources accepts server-provided sources on loopback
 	// and private addresses. Only tests set it.
 	allowPrivateSources bool
@@ -149,6 +154,9 @@ type Manager struct {
 
 	inbound   connLimiter  // incoming peer connections
 	callbacks callbackGate // server callback requests we act on
+
+	searchMisses   int  // searches in a row the connected server left unanswered
+	silentReported bool // OnSilentServer was called for the connected server
 
 	msgMu      sync.Mutex // peer chat messages logged in the current minute
 	msgWindow  time.Time
@@ -311,6 +319,7 @@ func (m *Manager) serverLoop(ctx context.Context) {
 		}
 		m.mu.Lock()
 		m.srv = c
+		m.searchMisses, m.silentReported = 0, false
 		m.mu.Unlock()
 
 		offered := -1

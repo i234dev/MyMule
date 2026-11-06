@@ -137,6 +137,22 @@ func (c *Conn) Close() error {
 func (c *Conn) Done() <-chan struct{} { return c.closed }
 func (c *Conn) Err() error            { return c.err }
 
+// readIdle is how long the server may stay silent before the connection
+// is checked with a keep-alive (a variable so tests can shorten it).
+var readIdle = 10 * time.Minute
+
+// countingReader counts the bytes read through it.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
 func (c *Conn) shutdown(err error) {
 	c.once.Do(func() {
 		c.err = err
@@ -181,11 +197,21 @@ func (c *Conn) sendLogin() error {
 // readLoop dispatches incoming packets. Packets with a registered waiter
 // are delivered there; status packets update state; the rest are logged.
 func (c *Conn) readLoop() {
+	cr := &countingReader{r: c.conn}
 	for {
-		// Servers ping-pong rarely; allow long idle periods.
-		c.conn.SetReadDeadline(time.Now().Add(10 * time.Minute))
-		p, err := proto.ReadPacket(c.conn)
+		c.conn.SetReadDeadline(time.Now().Add(readIdle))
+		cr.n = 0
+		p, err := proto.ReadPacket(cr)
 		if err != nil {
+			// Servers can stay silent for a long time when they have
+			// nothing to say; that used to drop the connection every few
+			// minutes. If nothing at all arrived, check the connection by
+			// sending a keep-alive instead: it fails if the connection is
+			// dead. (A timeout in the middle of a packet still closes it.)
+			var ne net.Error
+			if cr.n == 0 && errors.As(err, &ne) && ne.Timeout() && c.KeepAlive() == nil {
+				continue
+			}
 			c.shutdown(err)
 			return
 		}

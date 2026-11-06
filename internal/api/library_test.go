@@ -26,6 +26,12 @@ func (fakeSource) EpisodeTitle(_ context.Context, _ string, s, e int, _ string) 
 }
 
 func TestLibraryAPI(t *testing.T) {
+	// Library folders under the Windows per-user application folders are
+	// refused, and that is where test temporary folders live there.
+	t.Setenv("LOCALAPPDATA", `Z:
+o-such-appdata-for-tests`)
+	t.Setenv("APPDATA", `Z:
+o-such-appdata-for-tests`)
 	tmp := filepath.Join(t.TempDir(), "temp")
 	os.MkdirAll(tmp, 0o755)
 	m := download.NewManager(download.Config{TempDir: tmp})

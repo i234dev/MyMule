@@ -122,3 +122,20 @@ func TestStore(t *testing.T) {
 		t.Fatal("still there after take")
 	}
 }
+
+// Only media is moved into the library: a download named like a script or
+// a shortcut stays where it is, whatever folder the library points to.
+func TestDestinationOnlyMedia(t *testing.T) {
+	st := Settings{MoviesDir: t.TempDir(), MovieTemplate: MoviePresets[0]}
+	it := Item{Kind: "movie", Title: "Example Movie", Year: 2001}
+	for _, name := range []string{"x.bat", "x.cmd", "x.exe", "x.lnk", "x.ps1", "x.sh", "x.desktop", "x.url", "x"} {
+		if d := Destination(st, it, filepath.Join("in", name)); d != "" {
+			t.Errorf("%s would be moved to %s", name, d)
+		}
+	}
+	for _, name := range []string{"x.mkv", "X.MP4", "x.avi", "x.srt"} {
+		if Destination(st, it, filepath.Join("in", name)) == "" {
+			t.Errorf("%s would not be moved", name)
+		}
+	}
+}

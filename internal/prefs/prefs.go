@@ -45,10 +45,11 @@ var (
 
 // Store loads and saves preferences.json.
 type Store struct {
-	path string
-	base string // folder relative paths are resolved against
-	mu   sync.Mutex
-	p    Preferences
+	path    string
+	base    string // folder relative paths are resolved against
+	mu      sync.Mutex
+	p       Preferences
+	protect []string // folders a library folder must not overlap at all
 }
 
 // Open loads preferences from path (defaults if missing). Relative folder
@@ -70,6 +71,21 @@ func Open(path, base string) *Store {
 	return s
 }
 
+// Protect adds folders (such as the temporary folder) that a library
+// folder may not be, contain, or be inside. The data folder may hold
+// library folders but may not be one or be inside one.
+func (s *Store) Protect(dirs ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range dirs {
+		if d != "" {
+			if abs, err := filepath.Abs(d); err == nil {
+				s.protect = append(s.protect, abs)
+			}
+		}
+	}
+}
+
 // Get returns the current preferences.
 func (s *Store) Get() Preferences {
 	s.mu.Lock()
@@ -85,11 +101,37 @@ func (s *Store) Abs(dir string) string {
 	return filepath.Join(s.base, dir)
 }
 
-// Library returns the library settings with absolute folders.
+// Library returns the library settings with absolute folders. A folder
+// that is not acceptable (for instance saved by an older version) is
+// returned empty, so nothing is shared from it or moved into it.
 func (s *Store) Library() library.Settings {
 	l := s.Get().Library
-	l.MoviesDir, l.SeriesDir = s.Abs(l.MoviesDir), s.Abs(l.SeriesDir)
+	l.MoviesDir, l.SeriesDir = s.usable(l.MoviesDir), s.usable(l.SeriesDir)
 	return l
+}
+
+// check applies checkFolder with this store's protected folders.
+func (s *Store) check(abs string) error {
+	s.mu.Lock()
+	noInside := append([]string{}, s.protect...)
+	s.mu.Unlock()
+	base := s.base
+	if b, err := filepath.Abs(base); err == nil {
+		base = b
+	}
+	return checkFolder(abs, []string{base}, noInside)
+}
+
+// usable resolves a library folder, or returns "" if it is not acceptable.
+func (s *Store) usable(dir string) string {
+	abs := s.Abs(dir)
+	if abs == "" {
+		return ""
+	}
+	if s.check(abs) != nil {
+		return ""
+	}
+	return abs
 }
 
 // Set validates and saves new preferences. Folders are created and must
@@ -136,7 +178,14 @@ func (s *Store) Set(p Preferences) error {
 		if d == "" {
 			continue
 		}
+		if err := s.check(s.Abs(d)); err != nil {
+			return fmt.Errorf("folder %s: %w", d, err)
+		}
 		if err := writable(s.Abs(d)); err != nil {
+			return fmt.Errorf("folder %s: %w", d, err)
+		}
+		// Checked again now that it exists, in case it is a link.
+		if err := s.check(s.Abs(d)); err != nil {
 			return fmt.Errorf("folder %s: %w", d, err)
 		}
 	}

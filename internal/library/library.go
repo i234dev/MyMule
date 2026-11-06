@@ -201,7 +201,12 @@ func tidy(s string) string {
 
 // Destination returns where a finished file goes, or "" when it should
 // stay where it is (no folder set for its kind).
+//
+// Only video, audio and subtitle files are moved (see IsMedia).
 func Destination(st Settings, it Item, src string) string {
+	if !IsMedia(src) {
+		return ""
+	}
 	base, tmpl := st.MoviesDir, st.MovieTemplate
 	if it.Kind == "series" {
 		base, tmpl = st.SeriesDir, st.SeriesTemplate
@@ -334,4 +339,27 @@ func (s *Store) saveLocked() {
 	if os.WriteFile(tmp, b, 0o644) == nil {
 		os.Rename(tmp, s.path)
 	}
+}
+
+// mediaExt lists the file types that belong in a movie or series library:
+// video, audio and subtitles. Only these are moved into the library
+// folders and shared from them. Library folders can be changed with the
+// api_key and receive files named by the network, so anything else (a
+// script, a shortcut, a document) must never end up there or be
+// published from there.
+var mediaExt = map[string]bool{
+	// video
+	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true, ".wmv": true,
+	".mpg": true, ".mpeg": true, ".m2ts": true, ".mts": true, ".ts": true, ".vob": true,
+	".webm": true, ".flv": true, ".ogm": true, ".ogv": true, ".divx": true, ".3gp": true,
+	// audio
+	".mp3": true, ".flac": true, ".aac": true, ".ac3": true, ".dts": true, ".m4a": true,
+	".mka": true, ".ogg": true, ".opus": true, ".wav": true, ".wma": true,
+	// subtitles
+	".srt": true, ".sub": true, ".idx": true, ".ass": true, ".ssa": true, ".vtt": true, ".sup": true,
+}
+
+// IsMedia reports whether name is a video, audio or subtitle file.
+func IsMedia(name string) bool {
+	return mediaExt[strings.ToLower(filepath.Ext(name))]
 }

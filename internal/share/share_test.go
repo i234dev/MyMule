@@ -129,3 +129,38 @@ func TestTreesAndMoved(t *testing.T) {
 		t.Fatalf("tree scan: %d files", l.Status().Files)
 	}
 }
+
+// Movie and series folders share only video, audio and subtitle files, and
+// never what is in recycle bins or NAS index folders. Folders from the
+// shared folder list keep sharing every kind of file, as before.
+func TestTreesShareOnlyMedia(t *testing.T) {
+	tree, plain := t.TempDir(), t.TempDir()
+	put := func(dir, rel, content string) {
+		p := filepath.Join(dir, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+	put(tree, "Film (2001)/Film (2001).mkv", "video one")
+	put(tree, "Film (2001)/Film (2001).es.SRT", "subtitles")
+	put(tree, "Film (2001)/run.bat", "script")
+	put(tree, "notes.txt", "private notes")
+	put(tree, "photo.jpg", "a picture")
+	put(tree, "#recycle/old.mkv", "deleted video")
+	put(tree, "$RECYCLE.BIN/S-1-5/old2.mkv", "deleted video 2")
+	put(tree, "@eaDir/thumb.mkv", "index")
+	put(plain, "readme.txt", "shared on purpose")
+
+	l := NewLibrary([]string{plain}, filepath.Join(t.TempDir(), "known.json"), nil)
+	l.SetTrees([]string{tree})
+	l.scan(context.Background())
+	if n := l.Status().Files; n != 3 {
+		t.Fatalf("%d files shared, want 3 (the video, its subtitles and the plain folder's file)", n)
+	}
+
+	// A finished download that is not media is not published from a tree.
+	bat := filepath.Join(tree, "Film (2001)", "run.bat")
+	l.AddComplete(bat, ed2k.Hash{7}, nil)
+	if l.Get(ed2k.Hash{7}) != nil {
+		t.Fatal("a .bat inside a movie folder was shared")
+	}
+}

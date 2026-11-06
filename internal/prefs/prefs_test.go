@@ -6,6 +6,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
+	awayFromAppData(t)
 	base := t.TempDir()
 	path := filepath.Join(base, "preferences.json")
 	s := Open(path, base)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/library"
 )
 
 // File is something we can serve to peers.
@@ -170,6 +171,18 @@ func skipName(name string) bool {
 	return false
 }
 
+// skipDirName reports folders never walked inside a shared tree: hidden
+// ones, and the recycle bins, snapshots and index folders that NAS boxes
+// and Windows keep inside shares (they hold files the user deleted).
+func skipDirName(name string) bool {
+	switch strings.ToLower(name) {
+	case "#recycle", "@recycle", "$recycle.bin", "recycler", "#snapshot", "@eadir",
+		"@tmp", "system volume information", "lost+found", ".trash", ".trashes":
+		return true
+	}
+	return strings.HasPrefix(name, ".")
+}
+
 func (l *Library) scan(ctx context.Context) {
 	type cand struct {
 		path  string
@@ -188,12 +201,13 @@ func (l *Library) scan(ctx context.Context) {
 			}
 			if e.IsDir() {
 				rel, _ := filepath.Rel(root, path)
-				if path != root && (strings.HasPrefix(e.Name(), ".") || strings.Count(rel, string(filepath.Separator)) >= maxTreeDepth) {
+				if path != root && (skipDirName(e.Name()) || strings.Count(rel, string(filepath.Separator)) >= maxTreeDepth) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			if !e.Type().IsRegular() || skipName(e.Name()) {
+			// Trees are the movie and series folders: only media there.
+			if !e.Type().IsRegular() || skipName(e.Name()) || !library.IsMedia(e.Name()) {
 				return nil
 			}
 			if info, err := e.Info(); err == nil && info.Size() > 0 {
@@ -352,6 +366,9 @@ func (l *Library) inSharedDirLocked(path string) bool {
 		if strings.EqualFold(filepath.Clean(d), dir) {
 			return true
 		}
+	}
+	if !library.IsMedia(path) {
+		return false // trees only share media
 	}
 	for _, t := range l.trees {
 		if rel, err := filepath.Rel(filepath.Clean(t), dir); err == nil && rel != ".." &&

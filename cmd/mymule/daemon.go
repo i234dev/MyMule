@@ -121,6 +121,10 @@ func (e *engine) organize(h ed2k.Hash, name, path string) {
 	if !ok {
 		return
 	}
+	if !library.IsMedia(path) {
+		logf("%s: not a video, audio or subtitle file; left in %s", name, filepath.Dir(path))
+		return
+	}
 	dst := library.Destination(e.prefs.Library(), it, path)
 	if dst == "" {
 		return
@@ -235,6 +239,7 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 	*eng = engine{Manager: m, lib: lib, up: up,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
+	eng.prefs.Protect(tmp)
 	eng.updateShared()
 	return eng, nil
 }

@@ -613,7 +613,7 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 		logf("HTTP API disabled: cannot listen on %s: %v", settings.APIListen, err)
 		return nil
 	}
-	hs := &http.Server{Handler: publicRoutes(m, downloadDir), ReadHeaderTimeout: 10 * time.Second}
+	hs := newHTTPServer(publicRoutes(m, downloadDir))
 	go hs.Serve(ln)
 	// The key is never logged: logs get pasted into bug reports.
 	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
@@ -634,6 +634,15 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 		defer cancel()
 		hs.Shutdown(ctx)
 	}
+}
+
+// newHTTPServer is the public API's server. Without the time limits a
+// client could keep connections open for ever by sending its request, or
+// reading the answer, very slowly. The write limit leaves room for a
+// global search (up to 45 s).
+func newHTTPServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 60 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
 }
 
 // webURL is the address to open in a browser for a listener address:

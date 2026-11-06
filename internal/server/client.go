@@ -15,6 +15,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
 	"mymule/internal/proto"
+	"mymule/internal/safe"
 )
 
 // Version constants we advertise. These match a modern eMule-compatible
@@ -188,11 +189,22 @@ func (c *Conn) readLoop() {
 			c.shutdown(err)
 			return
 		}
-		c.handle(p)
+		// A panic caused by what the server sent drops this connection
+		// (MyMule reconnects) instead of the whole program.
+		if safe.Catch(c.cfg.Log, "packet from server "+c.info.Addr(), func() { c.handle(p) }, &c.mu) {
+			c.shutdown(errors.New("internal error while handling a server packet"))
+			return
+		}
 	}
 }
 
+// testHandleHook, when set by a test, runs before every server packet.
+var testHandleHook func(*proto.Packet)
+
 func (c *Conn) handle(p *proto.Packet) {
+	if testHandleHook != nil {
+		testHandleHook(p)
+	}
 	r := proto.NewReader(p.Payload)
 	switch p.Opcode {
 	case proto.OpServerMessage:

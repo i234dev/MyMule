@@ -10,6 +10,7 @@ import (
 	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
+	"mymule/internal/safe"
 )
 
 const (
@@ -55,6 +56,12 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	m.trackConn(c, true)
 	defer m.trackConn(c, false)
 	defer c.Close()
+	// Deferred last, so it runs first: a panic caused by what a peer sent
+	// ends this session only (see package safe).
+	defer safe.Recover(m.cfg.Log, "peer session with "+nc.RemoteAddr().String(), m.locks()...)
+	if testSessionHook != nil {
+		testSessionHook()
+	}
 
 	hello, err := m.handshake(c, outbound)
 	if err == nil && m.cfg.Upload != nil {

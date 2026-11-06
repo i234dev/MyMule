@@ -67,7 +67,8 @@ func Listen(m *download.Manager, dataDir string, stop func()) (*Server, error) {
 		go s.stop()
 	})
 
-	s.srv = &http.Server{Handler: s.auth(mux), ReadHeaderTimeout: 10 * time.Second}
+	s.srv = &http.Server{Handler: s.auth(mux), ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 60 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
 	go s.srv.Serve(ln)
 	return s, nil
 }

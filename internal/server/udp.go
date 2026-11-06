@@ -9,6 +9,7 @@ import (
 
 	"mymule/internal/ed2k"
 	"mymule/internal/proto"
+	"mymule/internal/safe"
 )
 
 // UDP opcodes for client <-> server. Server UDP port = TCP port + 4.
@@ -45,6 +46,9 @@ const udpReplyWindow = 10 * time.Minute
 // UDP is a socket for talking to many servers at once without logging in.
 type UDP struct {
 	conn *net.UDPConn
+
+	// Log reports problems (a recovered panic); nil = silent.
+	Log func(format string, args ...any)
 
 	// OnSources is called for every OP_GLOBFOUNDSOURCES record.
 	OnSources func(from *net.UDPAddr, h ed2k.Hash, srcs []Source)
@@ -184,13 +188,21 @@ func (u *UDP) Run() {
 		if err != nil {
 			return
 		}
-		u.dispatch(from, append([]byte(nil), buf[:n]...))
+		data := append([]byte(nil), buf[:n]...)
+		// One bad datagram must not stop UDP for good (or MyMule).
+		safe.Catch(u.Log, "UDP datagram from "+from.String(), func() { u.dispatch(from, data) }, &u.mu)
 	}
 }
 
 // dispatch handles one datagram, which may hold several packets
 // concatenated (each starting with 0xE3 and an opcode).
+// testDispatchHook, when set by a test, runs before every datagram.
+var testDispatchHook func()
+
 func (u *UDP) dispatch(from *net.UDPAddr, data []byte) {
+	if testDispatchHook != nil {
+		testDispatchHook()
+	}
 	if !u.expected(from.IP, time.Now()) {
 		return // unsolicited
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"mymule/internal/proto"
 	"mymule/internal/server"
@@ -90,5 +91,16 @@ func TestServerListRefusesHTTPDowngrade(t *testing.T) {
 
 	if _, err := fetchServerMet(tlsSrv.URL + "/server.met"); err == nil {
 		t.Fatal("followed a redirect from HTTPS to HTTP")
+	}
+}
+
+// Slow clients must not be able to hold API connections open for ever.
+func TestHTTPServerTimeouts(t *testing.T) {
+	hs := newHTTPServer(http.NotFoundHandler())
+	if hs.ReadHeaderTimeout <= 0 || hs.ReadTimeout <= 0 || hs.WriteTimeout <= 0 || hs.IdleTimeout <= 0 {
+		t.Fatalf("missing timeouts: %+v", hs)
+	}
+	if hs.WriteTimeout < 60*time.Second {
+		t.Fatalf("write timeout %v leaves no room for a 45 s search", hs.WriteTimeout)
 	}
 }

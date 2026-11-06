@@ -2,8 +2,11 @@ package download
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -131,5 +134,56 @@ func TestHandshakeHasOneDeadline(t *testing.T) {
 	}
 	if took := time.Since(start); took > 600*time.Millisecond {
 		t.Fatalf("handshake gave up after %v, want about %v", took, handshakeTimeout)
+	}
+}
+
+// A panic inside a peer session (a bug some input triggers) ends that
+// session only: the manager keeps accepting connections and is not left
+// locked.
+func TestSessionPanicIsContained(t *testing.T) {
+	var mu sync.Mutex
+	panics := 0
+	testSessionHook = func() {
+		mu.Lock()
+		panics++
+		mu.Unlock()
+		panic("bad session")
+	}
+	defer func() { testSessionHook = nil }()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := make(chan string, 10)
+	m := NewManager(Config{Log: func(f string, a ...any) { logged <- fmt.Sprintf(f, a...) }})
+	ctx, cancel := context.WithCancel(context.Background())
+	m.wg.Add(1)
+	go m.acceptLoop(ctx, ln)
+	defer func() { cancel(); ln.Close(); m.wg.Wait() }()
+
+	for i := 0; i < 2; i++ {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case msg := <-logged:
+			if !strings.Contains(msg, "recovered from a panic") {
+				t.Fatalf("log: %q", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("session %d: panic not reported", i+1)
+		}
+		c.Close()
+	}
+	if !m.mu.TryLock() {
+		t.Fatal("manager lock left held")
+	}
+	m.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
+	if panics != 2 {
+		t.Fatalf("%d sessions ran, want 2 (the manager kept accepting)", panics)
 	}
 }

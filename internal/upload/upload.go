@@ -14,6 +14,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
+	"mymule/internal/safe"
 	"mymule/internal/share"
 )
 
@@ -474,6 +475,7 @@ func (m *Manager) removeLocked(cl *client) {
 }
 
 // Run hands out free slots and expires stale entries until ctx ends.
+// A panic in one round is logged and the next round runs as usual.
 func (m *Manager) Run(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
@@ -483,9 +485,14 @@ func (m *Manager) Run(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		m.tick()
+		safe.Catch(m.cfg.Log, "upload scheduler", m.tick, m)
 	}
 }
+
+// TryLock and Unlock let a recovered panic check that the upload lock
+// was not left held (see package safe).
+func (m *Manager) TryLock() bool { return m.mu.TryLock() }
+func (m *Manager) Unlock()       { m.mu.Unlock() }
 
 func (m *Manager) tick() {
 	now := time.Now()

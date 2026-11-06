@@ -13,6 +13,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
 	"mymule/internal/peer"
+	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -203,6 +204,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		} else {
 			m.udp = u
 			u.OnSources = m.onUDPSources
+			u.Log = m.cfg.Log
 			go u.Run()
 			go func() { <-ctx.Done(); u.Close() }()
 			m.wg.Add(1)
@@ -746,8 +748,22 @@ func (m *Manager) retryFinish() {
 	}
 }
 
+// testSessionHook, when set by a test, runs at the start of every peer
+// session (to check that a panic there is contained).
+var testSessionHook func()
+
+// locks lists the locks a recovered panic must not leave held.
+func (m *Manager) locks() []safe.TryLocker {
+	l := []safe.TryLocker{&m.mu}
+	if m.cfg.Upload != nil {
+		l = append(l, m.cfg.Upload)
+	}
+	return l
+}
+
 // finish moves a completed file to the incoming directory (once).
 func (m *Manager) finish(f *File) {
+	defer safe.Recover(m.cfg.Log, "finishing "+f.pf.Name, m.locks()...)
 	m.mu.Lock()
 	if f.finishing || f.finished {
 		m.mu.Unlock()

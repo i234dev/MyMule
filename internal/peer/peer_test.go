@@ -52,3 +52,19 @@ func TestDataPart(t *testing.T) {
 		t.Fatalf("%+v %v", d, err)
 	}
 }
+
+// A hello whose tag count is 0xFFFFFFFF used to crash the whole daemon on
+// 32-bit builds (int(0xFFFFFFFF) is -1 there and make() panics). It must be
+// an ordinary decode error on every architecture.
+func TestDecodeHelloHugeTagCount(t *testing.T) {
+	var w proto.Writer
+	w.U8(16)
+	w.Bytes(make([]byte, 16)) // user hash
+	w.U32(0)                  // client ID
+	w.U16(0)                  // port
+	w.U32(0xFFFFFFFF)         // tag count
+	w.Bytes(make([]byte, 8))
+	if _, err := DecodeHello(w.B, false); err == nil {
+		t.Fatal("DecodeHello with tag count 0xFFFFFFFF: want error, got nil")
+	}
+}

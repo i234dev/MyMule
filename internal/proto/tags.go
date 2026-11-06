@@ -142,9 +142,22 @@ func (r *Reader) ReadTag() (Tag, error) {
 	return t, r.Err()
 }
 
-// ReadTags reads n tags.
+// MaxTags is the most tags one list may claim. Real clients and servers
+// send a few dozen at most.
+const MaxTags = 1024
+
+// minTagSize is the smallest encoded tag: compact type, ID and a 1-byte value.
+const minTagSize = 3
+
+// ReadTags reads n tags. n comes from the network, so it is checked before
+// use: callers pass int(u32), which is negative on 32-bit builds when the
+// value is above 0x7FFFFFFF, and a count larger than the remaining bytes
+// could hold is a lie.
 func (r *Reader) ReadTags(n int) ([]Tag, error) {
-	tags := make([]Tag, 0, min(n, 64))
+	if n < 0 || n > MaxTags || n > r.Len()/minTagSize {
+		return nil, fmt.Errorf("proto: implausible tag count %d", n)
+	}
+	tags := make([]Tag, 0, n)
 	for i := 0; i < n; i++ {
 		t, err := r.ReadTag()
 		if err != nil {

@@ -69,3 +69,25 @@ func TestCompactTags(t *testing.T) {
 		t.Fatalf("tags %v", tags)
 	}
 }
+
+// A tag count comes straight from the network. It must be rejected, not
+// trusted, when it is negative (a u32 above 0x7FFFFFFF on 32-bit builds),
+// absurdly large, or larger than the bytes left could possibly hold.
+func TestReadTagsRejectsBadCount(t *testing.T) {
+	var w Writer
+	w.WriteTag(IntTag(0x01, 7))
+	payload := w.B
+
+	for _, n := range []int{-1, -0x80000000, MaxTags + 1, 1 << 30, 2} {
+		r := NewReader(payload)
+		if _, err := r.ReadTags(n); err == nil {
+			t.Errorf("ReadTags(%d) on a one-tag payload: want error, got nil", n)
+		}
+	}
+
+	r := NewReader(payload)
+	tags, err := r.ReadTags(1)
+	if err != nil || len(tags) != 1 || tags[0].Int != 7 {
+		t.Fatalf("ReadTags(1) = %v, %v; want one tag with value 7", tags, err)
+	}
+}

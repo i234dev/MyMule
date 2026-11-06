@@ -141,6 +141,14 @@ func (l Link) String() string {
 	return fmt.Sprintf("ed2k://|file|%s|%d|%s|/", url.PathEscape(l.Name), l.Size, l.Hash)
 }
 
+// MaxFileSize is the largest file eD2K supports (eMule's limit, 256 GiB).
+// Sizes come from links, servers and peers; anything outside 1..MaxFileSize
+// is rejected before it is used, since a download allocates per part.
+const MaxFileSize int64 = 256 << 30
+
+// ValidSize reports whether n is a usable eD2K file size.
+func ValidSize(n int64) bool { return n > 0 && n <= MaxFileSize }
+
 // ParseLink parses an ed2k file link. Extra fields (sources, AICH, etc.) are ignored.
 func ParseLink(s string) (Link, error) {
 	var l Link
@@ -157,7 +165,7 @@ func ParseLink(s string) (Link, error) {
 		name = parts[0]
 	}
 	size, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil || size <= 0 {
+	if err != nil || !ValidSize(size) {
 		return l, fmt.Errorf("invalid size in ed2k link")
 	}
 	h, err := ParseHash(parts[2])

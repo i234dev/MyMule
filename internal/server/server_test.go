@@ -105,3 +105,30 @@ func TestDialAndSearch(t *testing.T) {
 		t.Fatalf("results %+v", res)
 	}
 }
+
+// Search results with an impossible size are dropped: downloading one
+// used to allocate per part and kill the daemon (and again on restart).
+func TestSearchResultsDropBadSizes(t *testing.T) {
+	result := func(w *proto.Writer, id byte, lo, hi uint32) {
+		w.Bytes([]byte{id, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		w.U32(0)
+		w.U16(0)
+		w.U32(3)
+		w.WriteTag(proto.StrTag(proto.FTFileName, "file.bin"))
+		w.WriteTag(proto.IntTag(proto.FTFileSize, lo))
+		w.WriteTag(proto.IntTag(proto.FTFileSizeHi, hi))
+	}
+	var w proto.Writer
+	w.U32(4)
+	result(&w, 1, 1000, 0)  // fine
+	result(&w, 2, 0, 0)     // empty
+	result(&w, 3, 0, 1<<28) // 2^60 bytes
+	result(&w, 4, 1, 64)    // just over 256 GiB
+	res, _, err := parseSearchResults(w.B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].Hash[0] != 1 {
+		t.Fatalf("got %d results, want only the 1000-byte one: %+v", len(res), res)
+	}
+}

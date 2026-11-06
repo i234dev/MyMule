@@ -250,9 +250,12 @@ func cmdDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	pfs, err := download.LoadAll(tmp)
+	pfs, bad, err := download.LoadAll(tmp)
 	if err != nil {
 		return err
+	}
+	for _, e := range bad {
+		logf("skipping a download that cannot be resumed: %v", e)
 	}
 	m, err := ef.manager(tmp, true)
 	if err != nil {

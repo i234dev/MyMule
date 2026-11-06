@@ -281,3 +281,48 @@ func TestFinishRechecksEveryPart(t *testing.T) {
 		t.Fatal("final file differs from the original")
 	}
 }
+
+func TestCreateRejectsBadSizes(t *testing.T) {
+	dir := t.TempDir()
+	for _, size := range []int64{0, -1, ed2k.MaxFileSize + 1, 1 << 60} {
+		if _, err := Create(dir, ed2k.Link{Name: "x", Size: size, Hash: ed2k.Hash{1}}); err == nil {
+			t.Errorf("Create accepted size %d", size)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Fatalf("rejected downloads left files behind: %v", left)
+	}
+}
+
+// A state file with an impossible size, or one that is not valid at all,
+// is skipped: the other downloads load and the daemon can start. An
+// oversized one used to crash it on every start.
+func TestLoadAllSkipsBadStateFiles(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "good.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pf.Close()
+	huge := `{"hash":"31D6CFE0D16AE931B73C59D7E0C089C0","name":"huge.bin","size":1152921504606846976}`
+	os.WriteFile(filepath.Join(dir, "31D6CFE0D16AE931B73C59D7E0C089C0.part.json"), []byte(huge), 0o600)
+	os.WriteFile(filepath.Join(dir, "0123456789ABCDEF0123456789ABCDEF.part.json"), []byte("{not json"), 0o600)
+
+	pfs, bad, err := LoadAll(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, p := range pfs {
+			p.Close()
+		}
+	}()
+	if len(pfs) != 1 || pfs[0].Hash != link.Hash {
+		t.Fatalf("loaded %d downloads, want only the good one", len(pfs))
+	}
+	if len(bad) != 2 {
+		t.Fatalf("reported %d bad state files, want 2: %v", len(bad), bad)
+	}
+}

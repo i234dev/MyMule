@@ -66,8 +66,8 @@ func (pf *PartFile) partRange(p int) Range {
 
 // Create starts a new download in dir.
 func Create(dir string, link ed2k.Link) (*PartFile, error) {
-	if link.Size <= 0 {
-		return nil, errors.New("invalid file size")
+	if !ed2k.ValidSize(link.Size) {
+		return nil, fmt.Errorf("invalid file size %d", link.Size)
 	}
 	base := filepath.Join(dir, link.Hash.String())
 	if _, err := os.Stat(base + ".part.json"); err == nil {
@@ -107,7 +107,10 @@ func Open(metaPath string) (*PartFile, error) {
 	}
 	h, err := ed2k.ParseHash(m.Hash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", metaPath, err)
+	}
+	if !ed2k.ValidSize(m.Size) {
+		return nil, fmt.Errorf("%s: invalid file size %d", metaPath, m.Size)
 	}
 	pf := &PartFile{
 		Hash:     h,
@@ -148,22 +151,26 @@ func Open(metaPath string) (*PartFile, error) {
 	return pf, nil
 }
 
-// LoadAll opens every download state file in dir.
-func LoadAll(dir string) ([]*PartFile, error) {
+// LoadAll opens every download state file in dir. A state file that
+// cannot be opened is skipped and reported in bad, so one broken or
+// malicious download cannot stop all the others (or the daemon) from
+// starting. err is only set when dir itself cannot be read.
+func LoadAll(dir string) (pfs []*PartFile, bad []error, err error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.part.json"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []*PartFile
 	for _, m := range matches {
 		pf, err := Open(m)
 		if err != nil {
-			return out, err
+			bad = append(bad, err)
+			continue
 		}
 		out = append(out, pf)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Added.Before(out[j].Added) })
-	return out, nil
+	return out, bad, nil
 }
 
 // Save writes the state file if anything changed.

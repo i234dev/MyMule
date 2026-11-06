@@ -75,3 +75,16 @@ func TestLinkRoundTrip(t *testing.T) {
 		t.Fatalf("round trip: %s", l.String())
 	}
 }
+
+func TestParseLinkRejectsBadSizes(t *testing.T) {
+	const h = "31D6CFE0D16AE931B73C59D7E0C089C0"
+	for _, size := range []string{"0", "-5", "274877906945", "1152921504606846976", "99999999999999999999"} {
+		if _, err := ParseLink("ed2k://|file|x.bin|" + size + "|" + h + "|/"); err == nil {
+			t.Errorf("size %s accepted", size)
+		}
+	}
+	l, err := ParseLink("ed2k://|file|x.bin|274877906944|" + h + "|/") // exactly 256 GiB
+	if err != nil || l.Size != MaxFileSize {
+		t.Fatalf("256 GiB link: %v, %d", err, l.Size)
+	}
+}

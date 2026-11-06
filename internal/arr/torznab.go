@@ -303,7 +303,7 @@ func linkFromDownloadURL(u *url.URL) (ed2k.Link, error) {
 	}
 	size, err := strconv.ParseInt(u.Query().Get("size"), 10, 64)
 	name := u.Query().Get("name")
-	if err != nil || size <= 0 || name == "" {
+	if err != nil || !ed2k.ValidSize(size) || name == "" {
 		return ed2k.Link{}, fmt.Errorf("download URL needs name and size")
 	}
 	return ed2k.Link{Name: name, Size: size, Hash: h}, nil

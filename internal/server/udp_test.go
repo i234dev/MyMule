@@ -51,8 +51,9 @@ func fakeUDPServer(t *testing.T) (*net.UDPConn, Info) {
 					w.Bytes([]byte{byte(i), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 					w.U32(0)
 					w.U16(0)
-					w.U32(2)
+					w.U32(3)
 					w.WriteTag(proto.StrTag(proto.FTFileName, "result.iso"))
+					w.WriteTag(proto.IntTag(proto.FTFileSize, 734003200))
 					w.WriteTag(proto.IntTag(proto.FTSources, 5))
 				}
 			}
@@ -153,5 +154,28 @@ func TestUDPIgnoresUnsolicitedReplies(t *testing.T) {
 	u.dispatch(&net.UDPAddr{IP: from.IP, Port: 4672}, w.B)
 	if calls != 1 {
 		t.Fatalf("reply from a server we just asked: %d calls, want 1", calls)
+	}
+}
+
+func TestUDPSearchDropsBadSizes(t *testing.T) {
+	u := &UDP{searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}
+	var got []Result
+	u.searches[0] = func(_ *net.UDPAddr, r Result) { got = append(got, r) }
+	var w proto.Writer
+	for i, hi := range []uint32{0, 1 << 28} {
+		w.U8(proto.ProtoEDonkey)
+		w.U8(OpGlobSearchRes)
+		w.Bytes([]byte{byte(i), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		w.U32(0)
+		w.U16(0)
+		w.U32(2)
+		w.WriteTag(proto.IntTag(proto.FTFileSize, 1000))
+		w.WriteTag(proto.IntTag(proto.FTFileSizeHi, hi))
+	}
+	from := &net.UDPAddr{IP: net.IPv4(203, 0, 113, 7), Port: 4665}
+	u.noteAsked(from.IP, time.Now())
+	u.dispatch(from, w.B)
+	if len(got) != 1 || got[0].Size != 1000 {
+		t.Fatalf("got %+v, want only the 1000-byte result", got)
 	}
 }

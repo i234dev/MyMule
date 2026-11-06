@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"net/url"
 	"testing"
 
 	"mymule/internal/ed2k"
@@ -46,5 +47,16 @@ func TestForeignTorrentRejected(t *testing.T) {
 	}
 	if _, err := LinkFromTorrent([]byte("garbage")); err == nil {
 		t.Fatal("garbage accepted")
+	}
+}
+
+// The Torznab download URL carries the size; an absurd one must be
+// refused before a stand-in torrent (one hash per 16 MiB) is built.
+func TestDownloadURLRejectsBadSize(t *testing.T) {
+	for _, size := range []string{"0", "274877906945", "1152921504606846976"} {
+		u, _ := url.Parse("http://x/torznab/download/31D6CFE0D16AE931B73C59D7E0C089C0?name=a.mkv&size=" + size)
+		if _, err := linkFromDownloadURL(u); err == nil {
+			t.Errorf("size %s accepted", size)
+		}
 	}
 }

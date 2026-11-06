@@ -224,6 +224,9 @@ func (u *UDP) dispatch(from *net.UDPAddr, data []byte) {
 			}
 			res.Tags = tags
 			fillResult(&res)
+			if !validResult(&res) {
+				continue
+			}
 			u.mu.Lock()
 			cbs := make([]func(*net.UDPAddr, Result), 0, len(u.searches))
 			for _, cb := range u.searches {

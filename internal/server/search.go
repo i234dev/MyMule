@@ -145,6 +145,12 @@ func (r Result) Link() ed2k.Link {
 	return ed2k.Link{Name: r.Name, Size: int64(r.Size), Hash: r.Hash}
 }
 
+// validResult reports whether a result can be offered: servers can send
+// any size, and an absurd one would make the download allocate too much.
+func validResult(res *Result) bool {
+	return res.Size <= uint64(ed2k.MaxFileSize) && ed2k.ValidSize(int64(res.Size))
+}
+
 // fillResult sets the convenience fields of a result from its tags.
 func fillResult(res *Result) {
 	res.Name = res.Tags.Str(proto.FTFileName)
@@ -174,7 +180,9 @@ func parseSearchResults(payload []byte) (results []Result, more bool, err error)
 		}
 		res.Tags = tags
 		fillResult(&res)
-		results = append(results, res)
+		if validResult(&res) {
+			results = append(results, res)
+		}
 	}
 	if r.Len() >= 1 {
 		more = r.U8() != 0

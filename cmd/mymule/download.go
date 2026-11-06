@@ -54,9 +54,12 @@ func cmdDownload(args []string) error {
 	if err != nil {
 		return err
 	}
-	pfs, err := download.LoadAll(tmp)
+	pfs, bad, err := download.LoadAll(tmp)
 	if err != nil {
 		return err
+	}
+	for _, e := range bad {
+		logf("skipping a download that cannot be resumed: %v", e)
 	}
 	known := map[ed2k.Hash]bool{}
 	for _, pf := range pfs {
@@ -127,9 +130,12 @@ func cmdDownloads(args []string) error {
 	if err != nil {
 		return err
 	}
-	pfs, err := download.LoadAll(tmp)
+	pfs, bad, err := download.LoadAll(tmp)
 	if err != nil {
 		return err
+	}
+	for _, e := range bad {
+		logf("skipping a download that cannot be resumed: %v", e)
 	}
 	defer func() {
 		for _, pf := range pfs {
@@ -167,9 +173,12 @@ func cmdCancel(args []string) error {
 	if err != nil {
 		return err
 	}
-	pfs, err := download.LoadAll(tmp)
+	pfs, bad, err := download.LoadAll(tmp)
 	if err != nil {
 		return err
+	}
+	for _, e := range bad {
+		logf("skipping a download that cannot be resumed: %v", e)
 	}
 	q := strings.ToLower(args[0])
 	var match []*download.PartFile

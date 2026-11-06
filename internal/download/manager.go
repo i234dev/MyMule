@@ -132,7 +132,8 @@ type Manager struct {
 	ctx          context.Context
 	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
 
-	inbound connLimiter // incoming peer connections
+	inbound   connLimiter  // incoming peer connections
+	callbacks callbackGate // server callback requests we act on
 }
 
 // NewManager creates a manager. Add files, then call Run.
@@ -581,20 +582,6 @@ func (m *Manager) acceptLoop(ctx context.Context, ln net.Listener) {
 			m.runSession(ctx, nc, false, nil)
 		}()
 	}
-}
-
-// onCallback handles a server-relayed request from a LowID peer that
-// wants us to connect to it (it is probably uploading to us).
-func (m *Manager) onCallback(ctx context.Context, ip net.IP, port uint16) {
-	addr := net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return
-	}
-	m.wg.Add(1)
-	defer m.wg.Done()
-	m.runSession(ctx, nc, true, nil)
 }
 
 // claimSource finds the source a just-identified peer corresponds to and

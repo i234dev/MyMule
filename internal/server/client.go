@@ -30,8 +30,10 @@ type Config struct {
 	Nick     string
 	Port     uint16 // our TCP listen port (advertised); 0 means none
 	Log      func(format string, args ...any)
-	// OnCallback is invoked when a LowID peer asks (through the server)
-	// that we connect to it. Only HighID clients receive these.
+	// OnCallback is invoked when another client asks, through the server,
+	// that we connect to it. Servers send this to LowID clients, which
+	// cannot be connected to; the IP and port come from the server and
+	// must be checked before use.
 	OnCallback func(ip net.IP, port uint16)
 }
 

@@ -16,7 +16,7 @@ func TestSettingsCreatedWithDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.Port != 4662 || s.Nick != "MyMule" || s.MaxConns != 40 || s.Server != "" ||
-		!s.Sharing || !s.ShareDownloads || s.UploadSlots != 3 || s.UploadLimit != 100 || s.SharedDirs != nil ||
+		!s.Sharing || !s.ShareDownloads || s.UploadSlots != 20 || s.UploadLimit != 1000 || s.SharedDirs != nil ||
 		s.APIListen != "127.0.0.1:4711" || len(s.APIKey) != 32 {
 		t.Fatalf("defaults: %+v", s)
 	}
@@ -98,12 +98,12 @@ func TestSettingsUpgrade(t *testing.T) {
 	old := "# mine\nport = 12345\n"
 	os.WriteFile(p, []byte(old), 0o644)
 	s, err := LoadSettings()
-	if err != nil || s.Port != 12345 || s.UploadLimit != 100 || len(s.APIKey) != 32 {
+	if err != nil || s.Port != 12345 || s.UploadLimit != 1000 || len(s.APIKey) != 32 {
 		t.Fatalf("%+v %v", s, err)
 	}
 	data, _ := os.ReadFile(p)
 	text := string(data)
-	if !strings.HasPrefix(text, old) || !strings.Contains(text, "upload_limit = 100") ||
+	if !strings.HasPrefix(text, old) || !strings.Contains(text, "upload_limit = 1000") ||
 		!strings.Contains(text, "api_key = "+s.APIKey) || strings.Count(text, "\nport = ") != 1 {
 		t.Fatalf("upgraded file:\n%s", text)
 	}

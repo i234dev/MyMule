@@ -60,8 +60,8 @@ func Defaults() Settings {
 		MaxConns:       40,
 		Sharing:        true,
 		ShareDownloads: true,
-		UploadSlots:    3,
-		UploadLimit:    100,
+		UploadSlots:    20,
+		UploadLimit:    1000,
 		APIListen:      "127.0.0.1:4711",
 	}
 }

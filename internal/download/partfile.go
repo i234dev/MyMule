@@ -87,12 +87,16 @@ func humanBytes(n uint64) string {
 
 // Create starts a new download in dir.
 func Create(dir string, link ed2k.Link) (*PartFile, error) {
+	return create(dir, link, true)
+}
+
+func create(dir string, link ed2k.Link, checkSpace bool) (*PartFile, error) {
 	if !ed2k.ValidSize(link.Size) {
 		return nil, fmt.Errorf("invalid file size %d", link.Size)
 	}
 	// Better to say so now than to fail with a full disk halfway through
 	// (and fill the disk for everything else on the machine).
-	if free, ok := diskFree(dir); ok && free < uint64(link.Size)+freeSpaceMargin {
+	if free, ok := diskFree(dir); checkSpace && ok && free < uint64(link.Size)+freeSpaceMargin {
 		return nil, fmt.Errorf("not enough free space in %s: the file needs %s and %s are free",
 			dir, humanBytes(uint64(link.Size)), humanBytes(free))
 	}

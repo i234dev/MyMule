@@ -47,7 +47,9 @@ func newFixture(t *testing.T) *fixture {
 	tmp := filepath.Join(t.TempDir(), "temp")
 	os.MkdirAll(tmp, 0o755)
 	fx := &fixture{downloads: t.TempDir()}
-	fx.m = download.NewManager(download.Config{TempDir: tmp, IncomingDir: fx.downloads})
+	// The made-up downloads are big (2 GB): don't depend on the test
+	// machine's free space.
+	fx.m = download.NewManager(download.Config{TempDir: tmp, IncomingDir: fx.downloads, SkipFreeSpaceCheck: true})
 	rest := api.NewREST(fx.m, testKey, "test")
 	a := New(Config{Manager: fx.m, REST: rest, Key: testKey, DownloadDir: fx.downloads,
 		StorePath: filepath.Join(t.TempDir(), "arr.json")})

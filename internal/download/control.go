@@ -39,7 +39,7 @@ func (m *Manager) AddLink(link ed2k.Link, sources ...string) error {
 	_, exists := m.files[link.Hash]
 	m.mu.Unlock()
 	if !exists {
-		pf, err := Create(m.cfg.TempDir, link)
+		pf, err := create(m.cfg.TempDir, link, !m.cfg.SkipFreeSpaceCheck)
 		if err != nil {
 			return err
 		}

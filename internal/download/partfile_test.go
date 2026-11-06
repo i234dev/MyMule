@@ -584,3 +584,24 @@ func TestFreeSpaceWorks(t *testing.T) {
 		t.Fatal("0 bytes free reported for the temporary folder")
 	}
 }
+
+// The manager checks free space when adding a download, unless told not
+// to (tests with big made-up downloads).
+func TestManagerFreeSpaceCheck(t *testing.T) {
+	old := diskFree
+	defer func() { diskFree = old }()
+	diskFree = func(string) (uint64, bool) { return 100 << 20, true }
+	big := ed2k.Link{Name: "big.mkv", Size: 2 << 30, Hash: ed2k.Hash{7}}
+	m := NewManager(Config{TempDir: t.TempDir()})
+	if err := m.AddLink(big); err == nil {
+		t.Fatal("2 GB download added with 100 MB free")
+	}
+	m = NewManager(Config{TempDir: t.TempDir(), SkipFreeSpaceCheck: true})
+	if err := m.AddLink(big); err != nil {
+		t.Fatalf("with the check off: %v", err)
+	}
+	_, files := m.Status()
+	for _, f := range files {
+		m.Cancel(f.Hash)
+	}
+}

@@ -60,6 +60,10 @@ type Config struct {
 	// answer; the other servers have been answering them meanwhile.
 	OnSilentServer func(addr string)
 
+	// SkipFreeSpaceCheck adds downloads even if the disk has no room for
+	// them. Only for tests that use large made-up downloads.
+	SkipFreeSpaceCheck bool
+
 	// allowPrivateSources accepts server-provided sources on loopback
 	// and private addresses. Only tests set it.
 	allowPrivateSources bool

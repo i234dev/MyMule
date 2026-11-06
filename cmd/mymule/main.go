@@ -93,8 +93,10 @@ func run() {
 			exitCode = 1
 			return
 		}
-		for _, dir := range []string{settings.TempDir, settings.DownloadDir} {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+		// Partial downloads are private; finished ones may be read by
+		// other programs (a media server), so that folder stays open.
+		for dir, perm := range map[string]os.FileMode{settings.TempDir: 0o700, settings.DownloadDir: 0o755} {
+			if err := os.MkdirAll(dir, perm); err != nil {
 				fmt.Fprintln(os.Stderr, "warning: cannot create", dir+":", err)
 			}
 		}

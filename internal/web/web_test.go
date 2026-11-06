@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mymule/internal/authlimit"
 )
 
 const testKey = "web-test-key-0123456789"
@@ -135,5 +137,22 @@ func TestForgedSession(t *testing.T) {
 		if ui.Session(r) {
 			t.Errorf("forged session %q accepted", v)
 		}
+	}
+}
+
+func TestLoginGuessingBlocked(t *testing.T) {
+	old := authlimit.Default
+	authlimit.Default = authlimit.New(3, time.Minute, time.Minute)
+	defer func() { authlimit.Default = old }()
+	_, srv := newServer(t)
+	c := srv.Client()
+	for i := 0; i < 3; i++ {
+		if resp, _ := do(t, c, "POST", srv.URL+"/web/login", `{"key":"guess"}`, true); resp.StatusCode != 401 {
+			t.Fatalf("wrong key %d: %d", i, resp.StatusCode)
+		}
+	}
+	resp, _ := do(t, c, "POST", srv.URL+"/web/login", `{"key":"`+testKey+`"}`, true)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("right key while blocked: %d, want 429", resp.StatusCode)
 	}
 }

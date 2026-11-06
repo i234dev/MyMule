@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"mymule/internal/authlimit"
 )
 
 //go:embed static
@@ -127,7 +129,14 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	json.NewDecoder(r.Body).Decode(&req)
+	if !authlimit.Default.Allowed(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":"too many wrong keys; try again later"}` + "\n"))
+		return
+	}
 	if u.key == "" || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(req.Key)), []byte(u.key)) != 1 {
+		authlimit.Default.Failed(r)
 		time.Sleep(500 * time.Millisecond) // slow down guessing
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)

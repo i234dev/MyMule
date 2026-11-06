@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"net/url"
+	"strings"
 	"testing"
 
 	"mymule/internal/ed2k"
@@ -57,6 +58,30 @@ func TestDownloadURLRejectsBadSize(t *testing.T) {
 		u, _ := url.Parse("http://x/torznab/download/31D6CFE0D16AE931B73C59D7E0C089C0?name=a.mkv&size=" + size)
 		if _, err := linkFromDownloadURL(u); err == nil {
 			t.Errorf("size %s accepted", size)
+		}
+	}
+}
+
+// Hostile .torrent data must give an error, never crash the process.
+func TestBdecodeHostileInput(t *testing.T) {
+	deep := strings.Repeat("l", 200000) + strings.Repeat("e", 200000)
+	if _, err := bdecode([]byte(deep)); err == nil {
+		t.Error("200000 nested lists accepted")
+	}
+	ok := strings.Repeat("l", maxBencodeDepth) + "i1e" + strings.Repeat("e", maxBencodeDepth)
+	if _, err := bdecode([]byte(ok)); err != nil {
+		t.Errorf("%d nested lists refused: %v", maxBencodeDepth, err)
+	}
+	for _, in := range []string{
+		"9223372036854775807:x", // length that overflows start+n
+		"5:abc",                 // shorter than declared
+		"l1:a",                  // unterminated list
+		"d1:ai1e",               // unterminated dictionary
+		"di1ei2ee",              // integer key
+		"-1:x",
+	} {
+		if _, err := bdecode([]byte(in)); err == nil {
+			t.Errorf("%q accepted", in)
 		}
 	}
 }

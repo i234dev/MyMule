@@ -164,3 +164,52 @@ func TestTreesShareOnlyMedia(t *testing.T) {
 		t.Fatal("a .bat inside a movie folder was shared")
 	}
 }
+
+// MyMule's own files are never shared, even when a shared folder is the
+// data folder itself (download_dir = "."), the temporary folder lies in a
+// shared tree, or a copy of mymule.conf sits in another shared folder.
+// Subfolders of the data folder, like the default downloads/, still are.
+func TestOwnFilesNeverShared(t *testing.T) {
+	data := t.TempDir()
+	temp := filepath.Join(data, "temp")
+	downloads := filepath.Join(data, "downloads")
+	other := t.TempDir()
+	put := func(p, content string) {
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+	put(filepath.Join(data, "mymule.conf"), "api_key = secret")
+	put(filepath.Join(data, "api.json"), `{"token":"secret"}`)
+	put(filepath.Join(data, "notes.mkv"), "a video in the data folder itself")
+	put(filepath.Join(temp, "ABC.part"), "partial")
+	put(filepath.Join(temp, "leftover.mkv"), "temporary copy")
+	put(filepath.Join(downloads, "finished.mkv"), "finished video")
+	put(filepath.Join(other, "MyMule.conf"), "a copy of the settings")
+	put(filepath.Join(other, "doc.txt"), "shared on purpose")
+
+	l := NewLibrary([]string{data, downloads, other}, filepath.Join(data, "known.json"), nil)
+	l.SetTrees([]string{data}) // even as a whole tree
+	l.Protect([]string{data}, []string{temp})
+	l.scan(context.Background())
+
+	var names []string
+	l.mu.Lock()
+	for p := range l.disk {
+		names = append(names, filepath.Base(p))
+	}
+	l.mu.Unlock()
+	want := map[string]bool{"finished.mkv": true, "doc.txt": true}
+	if len(names) != len(want) {
+		t.Fatalf("shared %v, want only %v", names, want)
+	}
+	for _, n := range names {
+		if !want[n] {
+			t.Fatalf("shared %v, want only %v", names, want)
+		}
+	}
+	// Nor when registered directly as a finished download.
+	l.AddComplete(filepath.Join(data, "mymule.conf"), ed2k.Hash{9}, nil)
+	if l.Get(ed2k.Hash{9}) != nil {
+		t.Fatal("mymule.conf was shared as a finished download")
+	}
+}

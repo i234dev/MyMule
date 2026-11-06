@@ -132,3 +132,27 @@ func TestSearchResultsDropBadSizes(t *testing.T) {
 		t.Fatalf("got %d results, want only the 1000-byte one: %+v", len(res), res)
 	}
 }
+
+// Names and server texts come from other people: control and invisible
+// characters must not reach the terminal or the log.
+func TestNetworkTextIsCleaned(t *testing.T) {
+	var w proto.Writer
+	w.U32(1)
+	w.Bytes(make([]byte, 16))
+	w.U32(0)
+	w.U16(0)
+	w.U32(2)
+	w.WriteTag(proto.StrTag(proto.FTFileName, "Film\x1b]52;c;cm0gLXJm\x07\u202evkm.exe"))
+	w.WriteTag(proto.IntTag(proto.FTFileSize, 1000))
+	res, _, err := parseSearchResults(w.B)
+	if err != nil || len(res) != 1 {
+		t.Fatalf("%v %v", res, err)
+	}
+	if res[0].Name != "Film]52;c;cm0gLXJmvkm.exe" {
+		t.Errorf("search result name: %q", res[0].Name)
+	}
+	info := infoFromTags(nil, 4661, proto.TagList{proto.StrTag(proto.STServerName, "Srv\x1b[2J\nfake line")})
+	if info.Name != "Srv[2J fake line" {
+		t.Errorf("server name: %q", info.Name)
+	}
+}

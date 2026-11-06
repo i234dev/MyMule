@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"mymule/internal/authlimit"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 )
@@ -92,7 +93,12 @@ func writeJSON(w http.ResponseWriter, v any) {
 func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	pass := r.Form.Get("password")
+	if !authlimit.Default.Allowed(r) {
+		io.WriteString(w, "Fails.")
+		return
+	}
 	if a.cfg.Key == "" || subtle.ConstantTimeCompare([]byte(pass), []byte(a.cfg.Key)) != 1 {
+		authlimit.Default.Failed(r)
 		io.WriteString(w, "Fails.")
 		return
 	}
@@ -342,12 +348,21 @@ func (a *Adapter) entryLocked(h ed2k.Hash) *storeEntry {
 
 // ---- add / delete / pause ----
 
+// Limits for torrents added through the qBittorrent API.
+const (
+	maxAddBody     = 10 << 20 // a whole add request
+	maxTorrentSize = 1 << 20  // one torrent file
+)
+
 // qAdd accepts stand-in .torrent files (field "torrents") and URLs
 // (field "urls", one per line): ed2k:// links or MyMule's own
 // /torznab/download URLs.
 func (a *Adapter) qAdd(w http.ResponseWriter, r *http.Request) {
+	// Stand-in torrents are a few KB: cap the whole request, so a client
+	// cannot fill the disk with temporary upload files.
+	r.Body = http.MaxBytesReader(w, r.Body, maxAddBody)
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -362,8 +377,12 @@ func (a *Adapter) qAdd(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			data, _ := io.ReadAll(io.LimitReader(f, 8<<20))
+			data, _ := io.ReadAll(io.LimitReader(f, maxTorrentSize+1))
 			f.Close()
+			if len(data) > maxTorrentSize {
+				problems = append(problems, fh.Filename+": too big for a MyMule torrent")
+				continue
+			}
 			l, err := LinkFromTorrent(data)
 			if err != nil {
 				problems = append(problems, fh.Filename+": "+err.Error())

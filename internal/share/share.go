@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"mymule/internal/config"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
 )
@@ -93,6 +94,8 @@ type Library struct {
 
 	mu       sync.Mutex
 	trees    []string             // folders shared with their subfolders
+	private  []string             // folders whose own files are never shared (the data folder)
+	hidden   []string             // folders never shared at all (the temporary folder)
 	disk     map[string]*diskFile // by path
 	partial  map[ed2k.Hash]File
 	byHash   map[ed2k.Hash]File
@@ -149,6 +152,49 @@ func (l *Library) SetTrees(dirs []string) {
 	l.Rescan()
 }
 
+// Protect keeps MyMule's own files off the network whatever the shared
+// folders are: files directly in each of dataDirs (mymule.conf with the
+// api_key, api.json, known.json, the log...) and everything in each of
+// tempDirs. Subfolders of a data folder (such as downloads/) are not
+// affected.
+func (l *Library) Protect(dataDirs, tempDirs []string) {
+	clean := func(in []string) (out []string) {
+		for _, d := range in {
+			if d == "" {
+				continue
+			}
+			if abs, err := filepath.Abs(d); err == nil {
+				out = append(out, filepath.Clean(abs))
+			}
+		}
+		return out
+	}
+	l.mu.Lock()
+	l.private, l.hidden = clean(dataDirs), clean(tempDirs)
+	l.mu.Unlock()
+	l.Rescan()
+}
+
+// protectedLocked reports whether path must never be shared (see Protect).
+func (l *Library) protectedLocked(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return true
+	}
+	dir := filepath.Dir(abs)
+	for _, d := range l.private {
+		if strings.EqualFold(d, dir) {
+			return true
+		}
+	}
+	for _, d := range l.hidden {
+		if rel, err := filepath.Rel(d, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 // maxTreeDepth limits how deep shared trees are walked.
 const maxTreeDepth = 5
 
@@ -165,8 +211,15 @@ func skipName(name string) bool {
 	lower := strings.ToLower(name)
 	if strings.HasPrefix(name, ".") || strings.HasSuffix(lower, ".part") ||
 		strings.HasSuffix(lower, ".part.json") || strings.HasSuffix(lower, ".tmp") ||
+		strings.HasSuffix(lower, ".mymule-tmp") ||
 		lower == "desktop.ini" || lower == "thumbs.db" {
 		return true
+	}
+	// MyMule's own files, wherever they are (a second line behind Protect).
+	for _, f := range config.PrivateFiles {
+		if strings.EqualFold(name, f) {
+			return true
+		}
 	}
 	return false
 }
@@ -192,6 +245,11 @@ func (l *Library) scan(ctx context.Context) {
 	var found []cand
 	l.mu.Lock()
 	trees := append([]string{}, l.trees...)
+	protected := func(path string) bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.protectedLocked(path)
+	}
 	l.mu.Unlock()
 	for _, root := range trees {
 		root = filepath.Clean(root)
@@ -207,7 +265,7 @@ func (l *Library) scan(ctx context.Context) {
 				return nil
 			}
 			// Trees are the movie and series folders: only media there.
-			if !e.Type().IsRegular() || skipName(e.Name()) || !library.IsMedia(e.Name()) {
+			if !e.Type().IsRegular() || skipName(e.Name()) || !library.IsMedia(e.Name()) || protected(path) {
 				return nil
 			}
 			if info, err := e.Info(); err == nil && info.Size() > 0 {
@@ -222,7 +280,7 @@ func (l *Library) scan(ctx context.Context) {
 			continue
 		}
 		for _, e := range entries {
-			if !e.Type().IsRegular() || skipName(e.Name()) {
+			if !e.Type().IsRegular() || skipName(e.Name()) || protected(filepath.Join(dir, e.Name())) {
 				continue
 			}
 			info, err := e.Info()
@@ -333,7 +391,7 @@ func (l *Library) saveCache() {
 		return
 	}
 	tmp := l.cachePath + ".tmp"
-	if os.WriteFile(tmp, data, 0o644) == nil {
+	if os.WriteFile(tmp, data, 0o600) == nil {
 		os.Rename(tmp, l.cachePath)
 	}
 }
@@ -361,6 +419,9 @@ func (l *Library) AddComplete(path string, hash ed2k.Hash, parts []ed2k.Hash) {
 }
 
 func (l *Library) inSharedDirLocked(path string) bool {
+	if skipName(filepath.Base(path)) || l.protectedLocked(path) {
+		return false
+	}
 	dir := filepath.Clean(filepath.Dir(path))
 	for _, d := range l.dirs {
 		if strings.EqualFold(filepath.Clean(d), dir) {

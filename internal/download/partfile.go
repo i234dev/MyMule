@@ -16,9 +16,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"mymule/internal/ed2k"
 	"mymule/internal/md4"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 )
 
@@ -75,7 +77,7 @@ func Create(dir string, link ed2k.Link) (*PartFile, error) {
 	}
 	pf := &PartFile{
 		Hash:     link.Hash,
-		Name:     link.Name,
+		Name:     netutil.CleanText(link.Name, 1024),
 		Size:     link.Size,
 		Added:    time.Now(),
 		verified: make([]bool, NumParts(link.Size)),
@@ -83,7 +85,7 @@ func Create(dir string, link ed2k.Link) (*PartFile, error) {
 		dataPath: base + ".part",
 		metaPath: base + ".part.json",
 	}
-	f, err := os.OpenFile(pf.dataPath, os.O_RDWR|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(pf.dataPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +116,7 @@ func Open(metaPath string) (*PartFile, error) {
 	}
 	pf := &PartFile{
 		Hash:     h,
-		Name:     m.Name,
+		Name:     netutil.CleanText(m.Name, 1024),
 		Size:     m.Size,
 		Added:    m.Added,
 		verified: make([]bool, NumParts(m.Size)),
@@ -133,7 +135,7 @@ func Open(metaPath string) (*PartFile, error) {
 		pf.done.Add(Range{r[0], min(r[1], pf.Size)})
 	}
 	copy(pf.verified, m.Verified)
-	f, err := os.OpenFile(pf.dataPath, os.O_RDWR|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(pf.dataPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +208,7 @@ func (pf *PartFile) saveLocked() error {
 		pf.f.Sync() // data before state, so state never claims unwritten bytes
 	}
 	tmp := pf.metaPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := writeSynced(tmp, data, 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, pf.metaPath); err != nil {
@@ -265,7 +267,7 @@ func (pf *PartFile) IsLarge() bool { return pf.Size > peer.LargeFileLimit }
 func (pf *PartFile) NeedsHashSet() bool {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
-	return len(pf.verified) > 1 && pf.hashSet == nil
+	return !pf.rootIsPartHash() && pf.hashSet == nil
 }
 
 // SetHashSet installs the part hashes received from a peer after checking
@@ -273,7 +275,7 @@ func (pf *PartFile) NeedsHashSet() bool {
 func (pf *PartFile) SetHashSet(set []ed2k.Hash) error {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
-	if pf.hashSet != nil || len(pf.verified) <= 1 {
+	if pf.hashSet != nil || pf.rootIsPartHash() {
 		return nil
 	}
 	// eD2K hash sets have size/PartSize+1 entries (the last may be the
@@ -462,12 +464,18 @@ func (pf *PartFile) verifyLocked(p int) {
 	}
 }
 
+// rootIsPartHash reports whether the file hash is the hash of its only
+// part. That holds only below PartSize: a file of exactly PartSize bytes
+// has a two-entry hash set (its part and an empty one) and its file hash
+// is computed over both, so its part is checked against the hash set.
+func (pf *PartFile) rootIsPartHash() bool { return pf.Size < ed2k.PartSize }
+
 // checkPartLocked hashes part p from disk and compares it with the
 // expected hash. known is false while the hash set is still missing.
 func (pf *PartFile) checkPartLocked(p int) (ok, known bool) {
 	var want ed2k.Hash
 	switch {
-	case len(pf.verified) == 1:
+	case pf.rootIsPartHash():
 		want = pf.Hash
 	case pf.hashSet != nil:
 		want = pf.hashSet[p]
@@ -516,22 +524,57 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 	if err := pf.recheck(); err != nil {
 		return "", err
 	}
-	if err := pf.Close(); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := pf.Close(); err != nil {
 		return "", err
 	}
 	dst := uniquePath(filepath.Join(dir, SanitizeName(pf.Name)))
 	if err := os.Rename(pf.dataPath, dst); err != nil {
 		// Different volume: copy instead.
 		if err := copyFile(pf.dataPath, dst); err != nil {
+			// Leave the download as it was, so finishing can be retried.
+			if rerr := pf.reopen(); rerr != nil {
+				return "", fmt.Errorf("%w (and reopening it: %v)", err, rerr)
+			}
 			return "", err
 		}
 		os.Remove(pf.dataPath)
 	}
 	os.Remove(pf.metaPath)
 	return dst, nil
+}
+
+// writeSynced writes a file and flushes it to disk before returning, so
+// a rename that follows never exposes an empty or partial file after a
+// power cut.
+func writeSynced(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// reopen opens the data file again after a failed Finish.
+func (pf *PartFile) reopen() error {
+	f, err := os.OpenFile(pf.dataPath, os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	pf.mu.Lock()
+	pf.f = f
+	pf.mu.Unlock()
+	return nil
 }
 
 // Delete removes the download's files from disk.
@@ -559,56 +602,107 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	// Copy under a temporary name and rename at the end, so dst never
+	// exists half-written (a crash or a full disk midway leaves only the
+	// temporary file, which is never shared and is replaced next time).
+	tmp := dst + ".mymule-tmp"
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		os.Remove(dst)
+		os.Remove(tmp)
 		return err
 	}
-	return out.Close()
+	if err := out.Sync(); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
-// SanitizeName makes a peer-supplied file name safe to use on any OS.
+// maxNameBytes keeps final file names under the 255-byte limit of most
+// file systems, with room for " (2)" and the like. Longer names made the
+// final move fail and left the download stuck at 100%.
+const maxNameBytes = 200
+
+// SanitizeName makes a peer-supplied file name safe to use on any OS:
+// no path, no characters Windows forbids, no control or invisible format
+// characters (a right-to-left override can disguise "x<U+202E>vkm.exe" as
+// "xexe.mkv"), no Windows device names, a length every file system takes,
+// and no file types Windows Explorer acts on just by showing the folder.
 func SanitizeName(name string) string {
 	name = path.Base(strings.ReplaceAll(name, "\\", "/"))
 	var b strings.Builder
 	for _, r := range name {
-		if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
+		switch {
+		case r < 32 || strings.ContainsRune(`<>:"/\|?*`, r):
 			b.WriteRune('_')
-			continue
+		case (r >= 0x7F && r <= 0x9F) || unicode.Is(unicode.Cf, r):
+			// invisible: dropped
+		default:
+			b.WriteRune(r)
 		}
-		b.WriteRune(r)
 	}
-	s := strings.TrimRight(b.String(), ". ")
+	s := strings.TrimSpace(strings.TrimRight(b.String(), ". "))
 	if s == "" || s == "." || s == ".." {
 		s = "download"
 	}
-	// Windows reserved device names.
-	upper := strings.ToUpper(strings.SplitN(s, ".", 2)[0])
-	switch upper {
-	case "CON", "PRN", "AUX", "NUL",
-		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+	if len(s) > maxNameBytes {
+		ext := filepath.Ext(s)
+		if len(ext) > 16 {
+			ext = ""
+		}
+		s = strings.TrimRight(netutil.Truncate(strings.TrimSuffix(s, ext), maxNameBytes-len(ext)), ". ") + ext
+	}
+	// Windows reserved device names (with any extension).
+	switch strings.ToUpper(strings.TrimRight(strings.SplitN(s, ".", 2)[0], " ")) {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+		"COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+		"LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³":
+		s = "_" + s
+	}
+	// Files Explorer reads when it merely lists a folder: they can make
+	// Windows connect to another machine and send the user's credentials.
+	lower := strings.ToLower(s)
+	switch filepath.Ext(lower) {
+	case ".url", ".scf", ".lnk", ".library-ms", ".searchconnector-ms":
+		s += "_"
+	}
+	if lower == "desktop.ini" {
 		s = "_" + s
 	}
 	return s
 }
 
+// uniquePath returns p, or p with " (1)", " (2)"... added if it exists.
+// Only an existing file moves it on to the next name: any other error
+// (a name too long, a missing permission) returns the name as is, so the
+// move that follows reports the real problem. This used to loop forever
+// on such errors, leaving the download stuck at 100%.
 func uniquePath(p string) string {
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return p
+	if _, err := os.Stat(p); err != nil {
+		return p // free, or an error the move will report
 	}
 	ext := filepath.Ext(p)
 	base := strings.TrimSuffix(p, ext)
-	for i := 1; ; i++ {
+	for i := 1; i < 10000; i++ {
 		cand := fmt.Sprintf("%s (%d)%s", base, i, ext)
-		if _, err := os.Stat(cand); os.IsNotExist(err) {
-			return cand
+		if _, err := os.Stat(cand); err != nil {
+			return cand // free, or an error the move will report
 		}
 	}
+	return p
 }
 
 // VerifiedParts returns which parts have passed hash verification.

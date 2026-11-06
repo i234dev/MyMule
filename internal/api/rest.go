@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"mymule/internal/authlimit"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
@@ -70,7 +71,19 @@ func (r *REST) Authorized(req *http.Request) bool {
 	if got == "" {
 		got = req.URL.Query().Get("apikey")
 	}
-	if r.key != "" && subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1 {
+	if got != "" && r.key != "" {
+		// A key was sent: counts against the guessing limit, and while
+		// the address is blocked even the right key is refused.
+		if !authlimit.Default.Allowed(req) {
+			return false
+		}
+		if subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1 {
+			return true
+		}
+		if r.also == nil || !r.also(req) {
+			authlimit.Default.Failed(req)
+			return false
+		}
 		return true
 	}
 	return r.also != nil && r.also(req)

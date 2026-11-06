@@ -92,6 +92,7 @@ upload_slots = 20      # peers served at the same time; the rest queue
 upload_limit = 1000    # KB/s, 0 = no limit
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
+api_hosts =            # extra names the API/web answer to (NAS name, proxy domain)
 web_ui = false         # true: web interface at http://127.0.0.1:4711/
 tmdb_api_key =         # empty: MyMule's TMDB key; your own key; or off
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see below)

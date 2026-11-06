@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"mymule/internal/authlimit"
 	"mymule/internal/download"
 )
 
@@ -183,5 +185,46 @@ func TestRESTDownloads(t *testing.T) {
 	}
 	if c := call(t, srv, "GET", "/api/v1/nothing", "", "", &e); c != 404 {
 		t.Fatalf("unknown endpoint: %d", c)
+	}
+}
+
+// Guessing the key gets the address blocked, whichever way the key is
+// sent; while blocked even the right key is refused. Requests without
+// any key (an expired page polling) do not count.
+func TestRESTGuessingBlocked(t *testing.T) {
+	old := authlimit.Default
+	authlimit.Default = authlimit.New(5, time.Minute, time.Minute)
+	defer func() { authlimit.Default = old }()
+	srv, _ := newTestREST(t)
+	get := func(path string, hdr map[string]string) int {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for i := 0; i < 20; i++ {
+		get("/api/v1/version", nil) // no key: not an attempt
+	}
+	if c := get("/api/v1/version", map[string]string{"X-Api-Key": restKey}); c != 200 {
+		t.Fatalf("keyless requests blocked the address: %d", c)
+	}
+	for i := 0; i < 5; i++ {
+		switch i % 3 {
+		case 0:
+			get("/api/v1/version", map[string]string{"X-Api-Key": "guess"})
+		case 1:
+			get("/api/v1/version", map[string]string{"Authorization": "Bearer guess"})
+		default:
+			get("/api/v1/version?apikey=guess", nil)
+		}
+	}
+	if c := get("/api/v1/version", map[string]string{"X-Api-Key": restKey}); c != 401 {
+		t.Fatalf("right key accepted while blocked: %d", c)
 	}
 }

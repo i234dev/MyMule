@@ -336,7 +336,7 @@ func (s *Store) saveLocked() {
 		return
 	}
 	tmp := s.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
+	if os.WriteFile(tmp, b, 0o600) == nil {
 		os.Rename(tmp, s.path)
 	}
 }

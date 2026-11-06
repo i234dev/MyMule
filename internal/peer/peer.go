@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/proto"
 )
 
@@ -88,7 +89,8 @@ type Hello struct {
 	ServerPort uint16
 }
 
-func (h Hello) Name() string { return h.Tags.Str(CTName) }
+// Name is the peer's nick, made safe to print (it comes from the peer).
+func (h Hello) Name() string { return netutil.CleanText(h.Tags.Str(CTName), 64) }
 
 // NewHello builds the hello we send to peers.
 func NewHello(userHash ed2k.Hash, nick string, clientID uint32, port uint16, srvIP net.IP, srvPort uint16) Hello {

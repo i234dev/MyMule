@@ -5,7 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"mymule/internal/ed2k"
 )
@@ -324,5 +327,194 @@ func TestLoadAllSkipsBadStateFiles(t *testing.T) {
 	}
 	if len(bad) != 2 {
 		t.Fatalf("reported %d bad state files, want 2: %v", len(bad), bad)
+	}
+}
+
+func TestSanitizeNameHardening(t *testing.T) {
+	cases := map[string]string{
+		"Movie\u202evkm.exe":    "Movievkm.exe",
+		"a\u200bb\u0085c.mkv":   "abc.mkv",
+		"COM0.txt":              "_COM0.txt",
+		"conin$":                "_conin$",
+		"LPT¹.log":              "_LPT¹.log",
+		"desktop.ini":           "_desktop.ini",
+		"Free Movie.url":        "Free Movie.url_",
+		"x.SCF":                 "x.SCF_",
+		"x.lnk":                 "x.lnk_",
+		"  spaced name.mkv  ":   "spaced name.mkv",
+		"dir/../../etc/passwd":  "passwd",
+		`..\..\Startup\run.bat`: "run.bat",
+	}
+	for in, want := range cases {
+		if got := SanitizeName(in); got != want {
+			t.Errorf("SanitizeName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	long := strings.Repeat("Película larga ", 30) + ".mkv" // ~480 bytes
+	got := SanitizeName(long)
+	if len(got) > maxNameBytes || !strings.HasSuffix(got, ".mkv") || !utf8.ValidString(got) {
+		t.Fatalf("long name: %d bytes, %q", len(got), got)
+	}
+}
+
+// A download with a very long name used to fail its final move and stay
+// at 100% forever; it now finishes under a shortened name.
+func TestFinishLongName(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(3000)
+	link, _ := linkFor(t, strings.Repeat("Nombre muy largo ", 25)+".mkv", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) || len(filepath.Base(out)) > maxNameBytes {
+		t.Fatalf("finished as %q (%d bytes)", filepath.Base(out), len(filepath.Base(out)))
+	}
+}
+
+// A file of exactly one part (9,728,000 bytes) has a two-entry hash set
+// (the part and an empty one) and its file hash is computed over both, so
+// the part must be checked against the hash set, not the file hash. It
+// used to fail verification forever and never complete.
+func TestExactlyOnePart(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(ed2k.PartSize)
+	link, fh := linkFor(t, "exact.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pf.NeedsHashSet() {
+		t.Fatal("a file of exactly one part needs the hash set")
+	}
+	if err := pf.SetHashSet(fh.Parts); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range pf.Reserve("peer", nil, 100) {
+		pf.Write("peer", b.Start, data[b.Start:b.End])
+	}
+	if !pf.Complete() || pf.Corrupt() != 0 {
+		t.Fatalf("complete=%v corrupt=%d", pf.Complete(), pf.Corrupt())
+	}
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("final file differs")
+	}
+}
+
+// When the final step fails, the download stays as it was (open,
+// complete, its state kept) so it can be finished later.
+func TestFinishFailureCanBeRetried(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "retry.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	blocked := filepath.Join(dir, "not-a-folder")
+	os.WriteFile(blocked, []byte("x"), 0o644)
+	if _, err := pf.Finish(filepath.Join(blocked, "incoming")); err == nil {
+		t.Fatal("Finish into a path under a file succeeded")
+	}
+	if !pf.Complete() {
+		t.Fatal("download no longer complete after a failed Finish")
+	}
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("final file differs")
+	}
+}
+
+// Copies between disks go through a temporary name: the final name never
+// holds a half-written file, and nothing is left behind on failure.
+func TestCopyFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	os.WriteFile(src, testData(70000), 0o644)
+	dst := filepath.Join(dir, "out", "dst.bin")
+	if err := copyFile(src, dst); err == nil {
+		t.Fatal("copy into a missing folder succeeded")
+	}
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err := copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := filepath.Glob(filepath.Join(dir, "out", "*.mymule-tmp"))
+	if len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+	if a, _ := os.ReadFile(src); !bytes.Equal(a, mustRead(t, dst)) {
+		t.Fatal("copy differs")
+	}
+}
+
+func mustRead(t *testing.T, p string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// After the data file was closed for a move that then failed, reopen
+// leaves the download usable for another attempt.
+func TestReopenAfterFailedMove(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "reopen.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	pf.Close() // as Finish does just before moving
+	if _, err := pf.Finish(filepath.Join(dir, "incoming")); err == nil {
+		t.Fatal("Finish of a closed file succeeded")
+	}
+	if err := pf.reopen(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatalf("Finish after reopen: %v", err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("final file differs")
+	}
+}
+
+// uniquePath must not loop when a name cannot even be checked (here, a
+// name longer than file systems allow): it used to try " (1)", " (2)"...
+// forever, which hung the final step of the download.
+func TestUniquePathDoesNotHang(t *testing.T) {
+	dir := t.TempDir()
+	done := make(chan string, 1)
+	go func() { done <- uniquePath(filepath.Join(dir, strings.Repeat("a", 400)+".mkv")) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("uniquePath hung on a name that cannot be checked")
+	}
+	p := filepath.Join(dir, "x.mkv")
+	if uniquePath(p) != p {
+		t.Fatal("free name changed")
+	}
+	os.WriteFile(p, nil, 0o644)
+	if got := uniquePath(p); got != filepath.Join(dir, "x (1).mkv") {
+		t.Fatalf("taken name: %s", got)
 	}
 }

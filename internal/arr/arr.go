@@ -106,7 +106,7 @@ func (a *Adapter) saveLocked() {
 		return
 	}
 	tmp := a.cfg.StorePath + ".tmp"
-	if os.WriteFile(tmp, data, 0o644) == nil {
+	if os.WriteFile(tmp, data, 0o600) == nil {
 		os.Rename(tmp, a.cfg.StorePath)
 	}
 }

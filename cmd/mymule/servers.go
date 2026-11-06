@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,12 +13,54 @@ import (
 	"time"
 
 	"mymule/internal/config"
+	"mymule/internal/netutil"
 	"mymule/internal/server"
 )
 
 // Default server.met sources. The user can pass any other URL.
+//
+// HTTPS, and never a fallback to plain HTTP: on an open Wi-Fi or a
+// tampered connection the list could otherwise be swapped for servers
+// run by an attacker, who would see every search and the user's IP.
 var defaultServerMetURLs = []string{
-	"http://upd.emule-security.org/server.met",
+	"https://upd.emule-security.org/server.met",
+}
+
+// maxFetchedServers caps how many servers one downloaded list may add.
+const maxFetchedServers = 1000
+
+// serverListClient fetches server lists. It does not follow a redirect
+// from HTTPS to plain HTTP, which would undo the point of using HTTPS.
+var serverListClient = &http.Client{
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return errors.New("refusing a redirect from HTTPS to " + req.URL.Scheme)
+		}
+		return nil
+	},
+}
+
+// usableServers drops entries a downloaded list should never contain:
+// addresses that are not public IPv4 ones (they would point MyMule at the
+// user's own machine or network), port 0 and repeats; and it keeps at most
+// maxFetchedServers.
+func usableServers(in []server.Info) []server.Info {
+	seen := map[string]bool{}
+	var out []server.Info
+	for _, s := range in {
+		if s.Port == 0 || !netutil.IsPublicIPv4(s.IP) || seen[s.Addr()] {
+			continue
+		}
+		seen[s.Addr()] = true
+		out = append(out, s)
+		if len(out) == maxFetchedServers {
+			break
+		}
+	}
+	return out
 }
 
 func serverMetPath() (string, error) { return config.Path("server.met") }
@@ -149,8 +192,12 @@ func fetchServerMet(url string) ([]server.Info, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "mymule/"+version)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := serverListClient.Do(req)
 	if err != nil {
+		var cert *tls.CertificateVerificationError
+		if errors.As(err, &cert) {
+			return nil, fmt.Errorf("%w (if this system has no CA certificates, install them, e.g. the ca-certificates package)", err)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -161,7 +208,11 @@ func fetchServerMet(url string) ([]server.Info, error) {
 	if err != nil {
 		return nil, err
 	}
-	return server.ParseServerMet(data)
+	list, err := server.ParseServerMet(data)
+	if err != nil {
+		return nil, err
+	}
+	return usableServers(list), nil
 }
 
 func parseServerAddr(s string) (server.Info, error) {

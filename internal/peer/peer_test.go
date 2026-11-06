@@ -68,3 +68,10 @@ func TestDecodeHelloHugeTagCount(t *testing.T) {
 		t.Fatal("DecodeHello with tag count 0xFFFFFFFF: want error, got nil")
 	}
 }
+
+func TestHelloNameIsCleaned(t *testing.T) {
+	h := Hello{Tags: proto.TagList{proto.StrTag(CTName, "nick\x1b[31m\u202eevil\nline")}}
+	if got := h.Name(); got != "nick[31mevil line" {
+		t.Fatalf("Name() = %q", got)
+	}
+}

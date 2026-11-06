@@ -19,6 +19,7 @@ import (
 
 	"mymule/internal/api"
 	"mymule/internal/arr"
+	"mymule/internal/authlimit"
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
@@ -195,6 +196,7 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 			return nil, err
 		}
 		lib = share.NewLibrary(dirs, known, logf)
+		lib.Protect([]string{filepath.Dir(known)}, []string{tmp})
 		up = upload.New(upload.Config{
 			Slots:     settings.UploadSlots,
 			LimitKBps: settings.UploadLimit,
@@ -283,6 +285,11 @@ func cmdDaemon(args []string) error {
 	logf("daemon started (pid %d), %d downloads; port %d, temp %s, downloads %s",
 		os.Getpid(), len(pfs), *ef.port, tmp, *ef.out)
 	logf("sharing: %s; upload: %d slots, limit %s", sharedDescription(*ef.out), settings.UploadSlots, limitDescription())
+	if dir, err := config.Dir(); err == nil {
+		if w := config.LocationWarning(dir); w != "" {
+			logf("WARNING: %s", w)
+		}
+	}
 	if stopAPI := startPublicAPI(m, *ef.out); stopAPI != nil {
 		defer stopAPI()
 	}
@@ -317,7 +324,7 @@ func cmdStart(args []string) error {
 	if err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -588,7 +595,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 			StorePath: store, Log: logf, Languages: settings.SearchLanguages,
 			UserAgent: userAgent()}).Routes(mux)
 	}
-	return mux
+	return authlimit.HostCheck(settings.APIHosts, mux)
 }
 
 // startPublicAPI serves the HTTP API on api_listen, if configured. It
@@ -610,6 +617,9 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 	go hs.Serve(ln)
 	// The key is never logged: logs get pasted into bug reports.
 	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
+	if len(settings.APIKey) < 20 {
+		logf("WARNING: api_key is short (%d characters); a long random one (like the generated 32) is much harder to guess", len(settings.APIKey))
+	}
 	if settings.WebUI {
 		logf("web interface on %s (log in with api_key)", webURL(ln.Addr()))
 	}

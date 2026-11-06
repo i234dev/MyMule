@@ -33,6 +33,9 @@ type Settings struct {
 
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
+	// APIHosts are extra host names the API answers to (besides IP
+	// addresses, localhost and this computer's name).
+	APIHosts []string
 
 	// WebUI serves the web interface on api_listen. Off by default.
 	WebUI bool
@@ -104,6 +107,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
 		func(s Settings) string { return s.APIKey }},
+	{"api_hosts", "The API and web interface answer to IP addresses, localhost and this\ncomputer's name. If you reach them by another name (a NAS name, or a domain\nbehind a reverse proxy), list it here, separated by commas. Other names\nare refused, which stops web pages from reaching the API through DNS tricks.",
+		func(s Settings) string { return strings.Join(s.APIHosts, ", ") }},
 	{"web_ui", "Web interface in your browser, on the api_listen address\n(e.g. http://127.0.0.1:4711/). Log in with api_key. true or false.",
 		func(s Settings) string { return strconv.FormatBool(s.WebUI) }},
 	{"tmdb_api_key", "Movie and series data and posters for the web interface come from TMDB\n(themoviedb.org). Empty = use MyMule's own key. Put your own key here,\nor off to use only Wikidata (no posters).",
@@ -142,6 +147,7 @@ func LoadSettings() (Settings, error) {
 	if err != nil {
 		return s, err
 	}
+	TightenPermissions(base)
 	p := filepath.Join(base, SettingsFile)
 	data, err := os.ReadFile(p)
 	switch {
@@ -152,7 +158,7 @@ func LoadSettings() (Settings, error) {
 		for _, st := range settingsDoc {
 			b.WriteString("\n" + renderSetting(st, s))
 		}
-		if werr := os.WriteFile(p, []byte(b.String()), 0o644); werr != nil {
+		if werr := os.WriteFile(p, []byte(b.String()), 0o600); werr != nil {
 			return s, fmt.Errorf("cannot create %s (is the folder writable? set MYMULE_HOME to use another one): %w", p, werr)
 		}
 	case err != nil:
@@ -186,7 +192,7 @@ func LoadSettings() (Settings, error) {
 			changed = true
 		}
 		if changed {
-			os.WriteFile(p, []byte(text), 0o644) // best effort
+			os.WriteFile(p, []byte(text), 0o600) // best effort
 		}
 	}
 	s.TempDir = absUnder(base, s.TempDir)
@@ -272,6 +278,13 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: share_downloads must be true or false", line)
 			}
 			s.ShareDownloads = b
+		case "api_hosts":
+			s.APIHosts = nil
+			for _, h := range strings.Split(val, ",") {
+				if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+					s.APIHosts = append(s.APIHosts, h)
+				}
+			}
 		case "shared_dirs":
 			s.SharedDirs = nil
 			for _, d := range strings.Split(val, ";") {

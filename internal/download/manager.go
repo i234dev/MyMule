@@ -115,6 +115,7 @@ type File struct {
 	bytes      atomic.Int64
 	finishing  bool
 	finished   bool
+	finishTry  time.Time // last attempt to finish (move the file)
 	paused     bool
 	path       string
 
@@ -223,6 +224,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			m.saveAll()
 			m.refreshShared()
 		case <-tick.C:
+			m.retryFinish()
 			if m.allFinished() {
 				cancel()
 				m.shutdown()
@@ -720,14 +722,39 @@ func (m *Manager) ourHello() peer.Hello {
 	return peer.NewHello(m.cfg.UserHash, m.cfg.Nick, id, m.port, sip, sport)
 }
 
+// finishRetry is how often finishing a complete download is tried again
+// after it failed (disk full, folder missing...).
+const finishRetry = time.Minute
+
+// retryFinish finishes downloads that are complete but were never moved:
+// the final step failed, or MyMule stopped before or during it. On the
+// first tick after start this also picks up downloads that completed in
+// a previous run.
+func (m *Manager) retryFinish() {
+	var due []*File
+	m.mu.Lock()
+	for _, f := range m.files {
+		if !f.finished && !f.finishing && !f.paused && time.Since(f.finishTry) >= finishRetry {
+			due = append(due, f)
+		}
+	}
+	m.mu.Unlock()
+	for _, f := range due {
+		if f.pf.Complete() {
+			go m.finish(f)
+		}
+	}
+}
+
 // finish moves a completed file to the incoming directory (once).
 func (m *Manager) finish(f *File) {
 	m.mu.Lock()
-	if f.finishing {
+	if f.finishing || f.finished {
 		m.mu.Unlock()
 		return
 	}
 	f.finishing = true
+	f.finishTry = time.Now()
 	m.mu.Unlock()
 
 	path, err := f.pf.Finish(m.cfg.IncomingDir)

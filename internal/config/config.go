@@ -25,7 +25,9 @@ func Dir() (string, error) {
 		}
 		dir = filepath.Dir(exe)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Only a folder we create gets 0700: an existing one may be shared
+	// with other programs (it is wherever the executable is).
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil

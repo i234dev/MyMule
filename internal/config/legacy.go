@@ -46,7 +46,7 @@ func ImportLegacy(tempDir string) []string {
 	os.Rename(oldHash, oldHash+".imported")
 	parts, _ := filepath.Glob(filepath.Join(old, "temp", "*.part*"))
 	if len(parts) > 0 {
-		os.MkdirAll(tempDir, 0o755)
+		os.MkdirAll(tempDir, 0o700)
 		moved := 0
 		for _, p := range parts {
 			dst := filepath.Join(tempDir, filepath.Base(p))
@@ -84,7 +84,7 @@ func copyIfMissing(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}

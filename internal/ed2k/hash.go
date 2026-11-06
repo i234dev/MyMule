@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"mymule/internal/md4"
+	"mymule/internal/netutil"
 )
 
 // PartSize is the size of an eD2K chunk ("part"): 9.28 MB.
@@ -164,6 +165,7 @@ func ParseLink(s string) (Link, error) {
 	if err != nil {
 		name = parts[0]
 	}
+	name = netutil.CleanText(name, 1024)
 	size, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil || !ValidSize(size) {
 		return l, fmt.Errorf("invalid size in ed2k link")

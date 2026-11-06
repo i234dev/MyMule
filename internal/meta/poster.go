@@ -94,11 +94,11 @@ func (p *Posters) fetch(r *http.Request, size, file string) ([]byte, error) {
 func (p *Posters) save(path string, data []byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if os.MkdirAll(p.dir, 0o755) != nil {
+	if os.MkdirAll(p.dir, 0o700) != nil {
 		return
 	}
 	tmp := path + ".tmp"
-	if os.WriteFile(tmp, data, 0o644) != nil || os.Rename(tmp, path) != nil {
+	if os.WriteFile(tmp, data, 0o600) != nil || os.Rename(tmp, path) != nil {
 		os.Remove(tmp)
 		return
 	}

@@ -14,8 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"mymule/internal/api"
+	"mymule/internal/authlimit"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/server"
@@ -274,5 +276,58 @@ func TestEpisodeAndCategory(t *testing.T) {
 		if got := category(name, ""); got != want {
 			t.Errorf("category(%q) = %d, want %d", name, got, want)
 		}
+	}
+}
+
+// The qBittorrent login and the Torznab apikey share the guessing limit.
+func TestArrGuessingBlocked(t *testing.T) {
+	old := authlimit.Default
+	authlimit.Default = authlimit.New(4, time.Minute, time.Minute)
+	defer func() { authlimit.Default = old }()
+	fx := newFixture(t)
+	c := &http.Client{}
+	login := fx.srv.URL + "/api/v2/auth/login"
+	post(t, c, login, url.Values{"password": {"guess1"}})
+	post(t, c, login, url.Values{"password": {"guess2"}})
+	get(t, c, fx.srv.URL+"/torznab/api?t=caps&apikey=guess3")
+	get(t, c, fx.srv.URL+"/torznab/api?t=caps&apikey=guess4")
+	if _, body := post(t, c, login, url.Values{"password": {testKey}}); body != "Fails." {
+		t.Fatalf("right password accepted while blocked: %q", body)
+	}
+	if code, _ := get(t, c, fx.srv.URL+"/torznab/api?t=caps&apikey="+testKey); code == 200 {
+		t.Fatal("right apikey accepted while blocked")
+	}
+}
+
+// Uploads through the qBittorrent API are bounded: a huge request is
+// refused, and a torrent far bigger than MyMule's stand-ins is skipped.
+func TestQBittorrentAddLimits(t *testing.T) {
+	fx := newFixture(t)
+	add := func(name string, content []byte) (int, string) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		fw, _ := mw.CreateFormFile("torrents", name)
+		fw.Write(content)
+		mw.Close()
+		req, _ := http.NewRequest("POST", fx.srv.URL+"/api/v2/torrents/add?apikey="+testKey, &body)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := add("huge.torrent", bytes.Repeat([]byte("x"), maxAddBody+1)); code == 200 && body == "Ok." {
+		t.Fatal("request over the size limit accepted")
+	}
+	// A valid torrent, just far bigger than any MyMule makes (a huge name).
+	big := Torrent(ed2k.Link{Name: strings.Repeat("a", maxTorrentSize) + ".mkv", Size: 1000, Hash: ed2k.Hash{4}})
+	if _, body := add("big.torrent", big); body != "Fails." {
+		t.Fatalf("oversized torrent: %q", body)
+	}
+	if _, body := add("ok.torrent", Torrent(ed2k.Link{Name: "a.mkv", Size: 1000, Hash: ed2k.Hash{5}})); body != "Ok." {
+		t.Fatalf("normal torrent: %q", body)
 	}
 }

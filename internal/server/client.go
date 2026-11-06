@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/proto"
 )
 
@@ -195,7 +196,7 @@ func (c *Conn) handle(p *proto.Packet) {
 	r := proto.NewReader(p.Payload)
 	switch p.Opcode {
 	case proto.OpServerMessage:
-		msg := r.Str16()
+		msg := netutil.CleanText(r.Str16(), 1024)
 		c.mu.Lock()
 		c.lastMsg = strings.TrimSpace(msg)
 		c.mu.Unlock()
@@ -234,10 +235,12 @@ func (c *Conn) handle(p *proto.Packet) {
 		tags, _ := r.ReadTags(int(r.U32()))
 		l := proto.TagList(tags)
 		c.mu.Lock()
-		c.status.ServerName = l.Str(proto.STServerName)
-		c.status.ServerDesc = l.Str(proto.STDescription)
+		name := netutil.CleanText(l.Str(proto.STServerName), 128)
+		desc := netutil.CleanText(l.Str(proto.STDescription), 256)
+		c.status.ServerName = name
+		c.status.ServerDesc = desc
 		c.mu.Unlock()
-		c.cfg.Log("server ident: %s (%s)", l.Str(proto.STServerName), l.Str(proto.STDescription))
+		c.cfg.Log("server ident: %s (%s)", name, desc)
 	case proto.OpReject:
 		c.cfg.Log("server rejected our last command")
 		c.deliver(p)

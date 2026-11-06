@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/proto"
 )
 
@@ -153,9 +154,10 @@ func validResult(res *Result) bool {
 
 // fillResult sets the convenience fields of a result from its tags.
 func fillResult(res *Result) {
-	res.Name = res.Tags.Str(proto.FTFileName)
+	// Names and types come from other users via the server: printable only.
+	res.Name = netutil.CleanText(res.Tags.Str(proto.FTFileName), 1024)
 	res.Size = res.Tags.Int(proto.FTFileSize) | res.Tags.Int(proto.FTFileSizeHi)<<32
-	res.Type = res.Tags.Str(proto.FTFileType)
+	res.Type = netutil.CleanText(res.Tags.Str(proto.FTFileType), 32)
 	res.Sources = uint32(res.Tags.Int(proto.FTSources))
 	res.CompleteSources = uint32(res.Tags.Int(proto.FTCompleteSrcs))
 }

@@ -204,29 +204,23 @@ func (m *Manager) Search(ctx context.Context, q server.Query, morePages int) ([]
 	return results, nil
 }
 
+// Limits for merging global search results. Results come from servers
+// (and before, from anyone who knew our UDP port); without them a single
+// server could repeat a fake result to inflate its source count, or claim
+// billions of sources, and rank it first - for the user and for the *arr
+// apps that pick automatically.
+const (
+	maxReportedSources = 50000 // what one server may claim for one file
+	maxGlobalResults   = 2000  // distinct files kept from one search
+)
+
 // SearchGlobal runs a search on the connected server (TCP) and on every
 // known server over UDP, merging results by hash. Source counts from
-// different servers are added up, as eMule does for global searches.
+// different servers are added up, as eMule does for global searches; each
+// server counts once per file, whatever it repeats.
 func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Duration) ([]server.Result, int, error) {
-	var (
-		mu      sync.Mutex
-		byHash  = map[ed2k.Hash]*server.Result{}
-		order   []ed2k.Hash
-		servers = map[string]bool{}
-	)
-	add := func(from string, r server.Result) {
-		mu.Lock()
-		defer mu.Unlock()
-		servers[from] = true
-		if have, ok := byHash[r.Hash]; ok {
-			have.Sources += r.Sources
-			have.CompleteSources += r.CompleteSources
-			return
-		}
-		cp := r
-		byHash[r.Hash] = &cp
-		order = append(order, r.Hash)
-	}
+	var mg resultMerger
+	add := mg.add
 
 	m.mu.Lock()
 	c := m.srv
@@ -234,7 +228,7 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 	if c != nil {
 		if res, err := m.Search(ctx, q, 0); err == nil {
 			for _, r := range res {
-				add(c.Info().Addr(), r)
+				add(c.Info().IP.String(), r)
 			}
 		}
 	}
@@ -246,19 +240,74 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 			}
 		}
 		m.udp.Search(ctx, others, q, wait, func(from *net.UDPAddr, r server.Result) {
-			add(server.ServerKey(from), r)
+			// By IP: some servers answer from more than one port.
+			add(from.IP.String(), r)
 		})
 	}
 	if c == nil && m.udp == nil {
 		return nil, 0, ErrNoServer
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	out := make([]server.Result, 0, len(order))
-	for _, h := range order {
-		out = append(out, *byHash[h])
+	out, nServers := mg.results()
+	return out, nServers, nil
+}
+
+// resultMerger merges search results from several servers (see the
+// limits above). It is safe for concurrent use.
+type resultMerger struct {
+	mu      sync.Mutex
+	byHash  map[ed2k.Hash]*server.Result
+	order   []ed2k.Hash
+	servers map[string]bool
+	counted map[string]bool // server IP + hash already added
+}
+
+// add merges result r reported by the server at fromIP.
+func (mg *resultMerger) add(fromIP string, r server.Result) {
+	mg.mu.Lock()
+	defer mg.mu.Unlock()
+	if mg.byHash == nil {
+		mg.byHash, mg.servers, mg.counted = map[ed2k.Hash]*server.Result{}, map[string]bool{}, map[string]bool{}
 	}
-	return out, len(servers), nil
+	mg.servers[fromIP] = true
+	key := fromIP + "|" + r.Hash.String()
+	if mg.counted[key] {
+		return
+	}
+	r.Sources = min(r.Sources, maxReportedSources)
+	r.CompleteSources = min(r.CompleteSources, r.Sources)
+	if have, ok := mg.byHash[r.Hash]; ok {
+		mg.counted[key] = true
+		have.Sources = satAdd(have.Sources, r.Sources)
+		have.CompleteSources = satAdd(have.CompleteSources, r.CompleteSources)
+		return
+	}
+	if len(mg.order) >= maxGlobalResults {
+		return
+	}
+	mg.counted[key] = true
+	cp := r
+	mg.byHash[r.Hash] = &cp
+	mg.order = append(mg.order, r.Hash)
+}
+
+// results returns the merged results in arrival order and how many
+// servers answered.
+func (mg *resultMerger) results() ([]server.Result, int) {
+	mg.mu.Lock()
+	defer mg.mu.Unlock()
+	out := make([]server.Result, 0, len(mg.order))
+	for _, h := range mg.order {
+		out = append(out, *mg.byHash[h])
+	}
+	return out, len(mg.servers)
+}
+
+// satAdd adds without wrapping around.
+func satAdd(a, b uint32) uint32 {
+	if a > ^uint32(0)-b {
+		return ^uint32(0)
+	}
+	return a + b
 }
 
 // SharingStatus returns the upload and shared-library state, if sharing

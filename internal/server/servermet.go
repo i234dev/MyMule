@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 
+	"mymule/internal/netutil"
 	"mymule/internal/proto"
 )
 
@@ -104,9 +105,9 @@ func infoFromTags(ip net.IP, port uint16, tags proto.TagList) Info {
 		}
 		switch t.ID {
 		case proto.STServerName:
-			s.Name = t.Str
+			s.Name = netutil.CleanText(t.Str, 128)
 		case proto.STDescription:
-			s.Description = t.Str
+			s.Description = netutil.CleanText(t.Str, 256)
 		case proto.STFail:
 			s.Fails = uint32(t.Int)
 		case proto.STPreference:

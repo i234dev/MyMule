@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
 )
@@ -328,7 +329,9 @@ func (s *session) handle(p *proto.Packet) error {
 		}
 
 	case peer.OpMessage:
-		s.m.cfg.Log("message from %s: %s", s.src.key, r.Str16())
+		// Anyone can send these: printable, short and quoted, so a message
+		// cannot pose as other log lines.
+		s.m.cfg.Log("message from %s: %q", s.src.key, netutil.CleanText(r.Str16(), 200))
 	}
 	return nil
 }

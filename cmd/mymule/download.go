@@ -16,7 +16,7 @@ import (
 
 func tempDir() (string, error) {
 	p := settings.TempDir
-	return p, os.MkdirAll(p, 0o755)
+	return p, os.MkdirAll(p, 0o700)
 }
 
 func logf(format string, args ...any) {

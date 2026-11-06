@@ -80,7 +80,17 @@ func bdecode(b []byte) (any, error) {
 	return v, nil
 }
 
-func bdecodeAt(b []byte, i int) (any, int, error) {
+// maxBencodeDepth bounds nesting. Decoding is recursive, and a file of
+// nothing but "llll..." used to exhaust the stack, which kills the whole
+// process; real torrents nest a handful of levels.
+const maxBencodeDepth = 32
+
+func bdecodeAt(b []byte, i int) (any, int, error) { return bdecodeDepth(b, i, 0) }
+
+func bdecodeDepth(b []byte, i, depth int) (any, int, error) {
+	if depth > maxBencodeDepth {
+		return nil, i, errors.New("bencode: nested too deeply")
+	}
 	if i >= len(b) {
 		return nil, i, errors.New("bencode: unexpected end")
 	}
@@ -96,19 +106,22 @@ func bdecodeAt(b []byte, i int) (any, int, error) {
 		var list []any
 		i++
 		for i < len(b) && b[i] != 'e' {
-			v, next, err := bdecodeAt(b, i)
+			v, next, err := bdecodeDepth(b, i, depth+1)
 			if err != nil {
 				return nil, i, err
 			}
 			list = append(list, v)
 			i = next
 		}
+		if i >= len(b) {
+			return nil, i, errors.New("bencode: unterminated list")
+		}
 		return list, i + 1, nil
 	case c == 'd':
 		m := map[string]any{}
 		i++
 		for i < len(b) && b[i] != 'e' {
-			k, next, err := bdecodeAt(b, i)
+			k, next, err := bdecodeDepth(b, i, depth+1)
 			if err != nil {
 				return nil, i, err
 			}
@@ -116,12 +129,15 @@ func bdecodeAt(b []byte, i int) (any, int, error) {
 			if !ok {
 				return nil, i, errors.New("bencode: non-string key")
 			}
-			v, next2, err := bdecodeAt(b, next)
+			v, next2, err := bdecodeDepth(b, next, depth+1)
 			if err != nil {
 				return nil, i, err
 			}
 			m[string(key)] = v
 			i = next2
+		}
+		if i >= len(b) {
+			return nil, i, errors.New("bencode: unterminated dictionary")
 		}
 		return m, i + 1, nil
 	case c >= '0' && c <= '9':
@@ -131,7 +147,7 @@ func bdecodeAt(b []byte, i int) (any, int, error) {
 		}
 		n, err := strconv.Atoi(string(b[i : i+j]))
 		start := i + j + 1
-		if err != nil || n < 0 || start+n > len(b) {
+		if err != nil || n < 0 || n > len(b)-start { // (start+n could overflow)
 			return nil, i, errors.New("bencode: bad string length")
 		}
 		return b[start : start+n], start + n, nil

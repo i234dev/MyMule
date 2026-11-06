@@ -106,7 +106,7 @@ func TestPartialSharesOnlyVerifiedParts(t *testing.T) {
 	pf.SetHashSet(fh.Parts)
 	// Download only the second (small) part.
 	for _, b := range pf.Reserve("x", []bool{false, true}, 10) {
-		pf.Write(b.Start, data[b.Start:b.End])
+		pf.Write("x", b.Start, data[b.Start:b.End])
 	}
 	sp := sharedPart{pf}
 	if av := sp.Avail(); av[0] || !av[1] {

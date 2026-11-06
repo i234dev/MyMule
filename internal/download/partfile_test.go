@@ -2,6 +2,7 @@ package download
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +53,7 @@ func download(t *testing.T, pf *PartFile, data []byte) {
 			return
 		}
 		for _, b := range blocks {
-			if _, err := pf.Write(b.Start, data[b.Start:b.End]); err != nil {
+			if _, err := pf.Write("peer", b.Start, data[b.Start:b.End]); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -73,7 +74,7 @@ func TestPartFileMultiPartWithResume(t *testing.T) {
 	}
 	// Download one part before we have the hashset, then "crash".
 	for _, b := range pf.Reserve("p", []bool{true, false, false}, 100) {
-		pf.Write(b.Start, data[b.Start:b.End])
+		pf.Write("p", b.Start, data[b.Start:b.End])
 	}
 	pf.Close()
 
@@ -132,7 +133,7 @@ func TestPartFileCorruption(t *testing.T) {
 	// One pass only: a corrupt part is discarded and requested again, so
 	// looping with bad data would never end.
 	for _, b := range pf.Reserve("peer", nil, 100) {
-		pf.Write(b.Start, bad[b.Start:b.End])
+		pf.Write("peer", b.Start, bad[b.Start:b.End])
 	}
 	if pf.Complete() || pf.Corrupt() != 1 {
 		t.Fatalf("corrupt data accepted (corrupt=%d)", pf.Corrupt())
@@ -175,5 +176,108 @@ func TestSanitizeName(t *testing.T) {
 		if got := SanitizeName(in); got != want {
 			t.Errorf("SanitizeName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A peer whose garbage made a part fail must not be able to send that
+// block again once the part has been downloaded from others and verified:
+// that would overwrite verified data with bytes of its choice.
+func TestLateBlockCannotOverwriteVerifiedPart(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(ed2k.PartSize*2 + 5000)
+	link, fh := linkFor(t, "late.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pf.SetHashSet(fh.Parts); err != nil {
+		t.Fatal(err)
+	}
+	onlyFirst := []bool{true, false, false}
+
+	// The attacker gets one block of part 0 and sends garbage for it.
+	blk := pf.Reserve("attacker", onlyFirst, 1)[0]
+	evil := bytes.Repeat([]byte{0xEE}, int(blk.Len()))
+	if _, err := pf.Write("attacker", blk.Start, evil); err != nil {
+		t.Fatal(err)
+	}
+	// An honest peer fills the rest; the part fails, is discarded, and is
+	// then downloaded again in full from the honest peer and verified.
+	for {
+		bs := pf.Reserve("honest", onlyFirst, 3)
+		if len(bs) == 0 {
+			break
+		}
+		for _, b := range bs {
+			if _, err := pf.Write("honest", b.Start, data[b.Start:b.End]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if pf.Corrupt() != 1 || !pf.VerifiedParts()[0] {
+		t.Fatalf("setup: corrupt=%d verified=%v", pf.Corrupt(), pf.VerifiedParts())
+	}
+
+	// The attacker still thinks it holds the block and sends it again.
+	if _, err := pf.Write("attacker", blk.Start, evil); !errors.Is(err, ErrNotReserved) {
+		t.Fatalf("late write to a verified part: err = %v, want ErrNotReserved", err)
+	}
+	// Nor may anyone write a block reserved for someone else, or data
+	// that runs past the end of its block.
+	// Part 1 (the middle one), so the block is never the file's last.
+	other := pf.Reserve("honest", []bool{false, true, false}, 1)[0]
+	if _, err := pf.Write("attacker", other.Start, data[other.Start:other.End]); !errors.Is(err, ErrNotReserved) {
+		t.Fatalf("write to another peer's block: err = %v, want ErrNotReserved", err)
+	}
+	if _, err := pf.Write("honest", other.Start, data[other.Start:other.End+1]); !errors.Is(err, ErrNotReserved) {
+		t.Fatalf("write past the block end: err = %v, want ErrNotReserved", err)
+	}
+	pf.Release("honest", other)
+
+	download(t, pf, data)
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(out)
+	if !bytes.Equal(got, data) {
+		t.Fatal("final file differs from the original")
+	}
+}
+
+// Finish hashes the whole file again: a verified part changed on disk
+// afterwards is caught, marked for download again, and fixed.
+func TestFinishRechecksEveryPart(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(ed2k.PartSize + 5000)
+	link, fh := linkFor(t, "recheck.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pf.SetHashSet(fh.Parts); err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	if !pf.Complete() {
+		t.Fatal("not complete")
+	}
+	// Tamper with part 0 behind the part file's back.
+	if _, err := pf.f.WriteAt([]byte("tampered"), 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pf.Finish(filepath.Join(dir, "incoming")); err == nil {
+		t.Fatal("Finish accepted a file whose part changed after verification")
+	}
+	if pf.Complete() || pf.VerifiedParts()[0] || !pf.VerifiedParts()[1] {
+		t.Fatalf("after failed check: verified=%v", pf.VerifiedParts())
+	}
+	download(t, pf, data)
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("final file differs from the original")
 	}
 }

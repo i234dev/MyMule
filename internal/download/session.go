@@ -338,6 +338,7 @@ func (s *session) onQueued(rank int) {
 
 // requestMore tops up the pipeline to pipelineBlocks outstanding blocks.
 func (s *session) requestMore() error {
+	s.dropLost()
 	need := pipelineBlocks - len(s.pending)
 	if need <= 0 {
 		return nil
@@ -412,7 +413,14 @@ func (s *session) onData(p *proto.Packet) error {
 }
 
 func (s *session) store(off int64, data []byte) error {
-	complete, err := s.pf.Write(off, data)
+	complete, err := s.pf.Write(s.owner, off, data)
+	if errors.Is(err, ErrNotReserved) {
+		// The block was taken from this peer (its part failed or was
+		// finished by others). Forget it and ask for something else.
+		s.m.cfg.Debug("%s [%s]: dropped data for a block it no longer holds", s.pf.Name, s.owner)
+		s.dropLost()
+		return s.requestMore()
+	}
 	if err != nil {
 		return err
 	}
@@ -439,6 +447,18 @@ func (s *session) store(off int64, data []byte) error {
 		return errDone
 	}
 	return s.requestMore()
+}
+
+// dropLost removes from the pipeline the blocks that are no longer
+// reserved for this peer, so it neither waits for them nor writes them.
+func (s *session) dropLost() {
+	kept := s.pending[:0]
+	for _, b := range s.pending {
+		if s.pf.Owns(s.owner, b) {
+			kept = append(kept, b)
+		}
+	}
+	s.pending = kept
 }
 
 func (s *session) releaseAll() {

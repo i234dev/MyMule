@@ -374,17 +374,47 @@ func (pf *PartFile) Has(r Range) bool {
 	return pf.done.Contains(r)
 }
 
-// Write stores data at off. It returns true if the write completed the
-// whole file.
-func (pf *PartFile) Write(off int64, data []byte) (bool, error) {
+// ErrNotReserved is returned by Write for data the sender has no right to
+// write: a block that is not reserved for it (any more), or one in a part
+// that is already verified. Such data is dropped; it is not a disk error.
+var ErrNotReserved = errors.New("block not reserved by this peer")
+
+// blockAt returns the download block that contains off. Blocks start at
+// each part's start and are peer.BlockSize long (the last one shorter).
+func (pf *PartFile) blockAt(off int64) Range {
+	pr := pf.partRange(int(off / ed2k.PartSize))
+	start := pr.Start + (off-pr.Start)/peer.BlockSize*peer.BlockSize
+	return Range{start, min(start+peer.BlockSize, pr.End)}
+}
+
+// Owns reports whether block r is still reserved for owner. A reservation
+// is dropped when its part is verified or fails verification.
+func (pf *PartFile) Owns(owner string, r Range) bool {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	return pf.reserved[r.Start] == owner
+}
+
+// Write stores data that owner sent for off. It returns true if the write
+// completed the whole file.
+//
+// The data must lie inside one block that is reserved for owner right now.
+// Without this check a peer could keep sending a block after its part had
+// failed verification and been downloaded again from others, overwriting
+// a verified part with bytes of its choice.
+func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	if pf.f == nil {
 		return false, errors.New("file closed")
 	}
 	end := off + int64(len(data))
-	if off < 0 || end > pf.Size {
+	if off < 0 || end > pf.Size || end < off {
 		return false, fmt.Errorf("write out of bounds: %d-%d", off, end)
+	}
+	if blk := pf.blockAt(off); end > blk.End || pf.reserved[blk.Start] != owner ||
+		pf.verified[off/ed2k.PartSize] {
+		return false, ErrNotReserved
 	}
 	if _, err := pf.f.WriteAt(data, off); err != nil {
 		return false, err
@@ -406,19 +436,12 @@ func (pf *PartFile) Write(off int64, data []byte) (bool, error) {
 // verifyLocked checks part p against its hash. On mismatch the part's
 // data is discarded so it gets downloaded again.
 func (pf *PartFile) verifyLocked(p int) {
-	var want ed2k.Hash
-	switch {
-	case len(pf.verified) == 1:
-		want = pf.Hash
-	case pf.hashSet != nil:
-		want = pf.hashSet[p]
-	default:
+	ok, known := pf.checkPartLocked(p)
+	if !known {
 		return // can't verify yet; SetHashSet will do it
 	}
 	pr := pf.partRange(p)
-	h := md4.New()
-	if _, err := io.Copy(h, io.NewSectionReader(pf.f, pr.Start, pr.Len())); err == nil &&
-		bytes.Equal(h.Sum(nil), want[:]) {
+	if ok {
 		pf.verified[p] = true
 	} else {
 		pf.done.Remove(pr)
@@ -432,11 +455,59 @@ func (pf *PartFile) verifyLocked(p int) {
 	}
 }
 
+// checkPartLocked hashes part p from disk and compares it with the
+// expected hash. known is false while the hash set is still missing.
+func (pf *PartFile) checkPartLocked(p int) (ok, known bool) {
+	var want ed2k.Hash
+	switch {
+	case len(pf.verified) == 1:
+		want = pf.Hash
+	case pf.hashSet != nil:
+		want = pf.hashSet[p]
+	default:
+		return false, false
+	}
+	pr := pf.partRange(p)
+	h := md4.New()
+	if _, err := io.Copy(h, io.NewSectionReader(pf.f, pr.Start, pr.Len())); err != nil {
+		return false, true
+	}
+	return bytes.Equal(h.Sum(nil), want[:]), true
+}
+
+// recheck hashes every part again before the file is handed over, so
+// nothing written after a part was verified can slip through. Parts that
+// no longer match are marked for download again.
+func (pf *PartFile) recheck() error {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	if pf.f == nil {
+		return errors.New("file closed")
+	}
+	if !pf.completeLocked() {
+		return errors.New("file not complete")
+	}
+	bad := 0
+	for p := range pf.verified {
+		if ok, _ := pf.checkPartLocked(p); !ok {
+			pf.verified[p] = false
+			pf.done.Remove(pf.partRange(p))
+			pf.corrupt++
+			pf.dirty = true
+			bad++
+		}
+	}
+	if bad > 0 {
+		return fmt.Errorf("final check: %d part(s) changed after verification; downloading them again", bad)
+	}
+	return nil
+}
+
 // Finish moves a completed file into dir and removes the state file.
 // It returns the final path.
 func (pf *PartFile) Finish(dir string) (string, error) {
-	if !pf.Complete() {
-		return "", errors.New("file not complete")
+	if err := pf.recheck(); err != nil {
+		return "", err
 	}
 	if err := pf.Close(); err != nil {
 		return "", err

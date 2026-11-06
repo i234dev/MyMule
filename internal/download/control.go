@@ -214,25 +214,49 @@ const (
 	maxGlobalResults   = 2000  // distinct files kept from one search
 )
 
+// connectedGrace is how long a global search still waits for the
+// connected server once the other servers have had their time.
+const connectedGrace = 3 * time.Second
+
 // SearchGlobal runs a search on the connected server (TCP) and on every
 // known server over UDP, merging results by hash. Source counts from
 // different servers are added up, as eMule does for global searches; each
 // server counts once per file, whatever it repeats.
+//
+// Both run at the same time. The connected server used to be asked first
+// and alone: when it stopped answering searches (servers do, under load
+// or to limit busy clients) the whole time went on waiting for it and the
+// other servers were never asked, so the search came back empty. Now,
+// once the other servers have had their time, the connected one gets
+// connectedGrace more at most.
 func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Duration) ([]server.Result, int, error) {
 	var mg resultMerger
-	add := mg.add
 
 	m.mu.Lock()
 	c := m.srv
 	m.mu.Unlock()
-	if c != nil {
-		if res, err := m.Search(ctx, q, 0); err == nil {
-			for _, r := range res {
-				add(c.Info().IP.String(), r)
-			}
-		}
+	useUDP := m.udp != nil && m.cfg.Servers != nil
+	if c == nil && !useUDP {
+		return nil, 0, ErrNoServer
 	}
-	if m.udp != nil && m.cfg.Servers != nil {
+
+	tcpDone := make(chan struct{})
+	tctx, cancelTCP := context.WithCancel(ctx)
+	defer cancelTCP()
+	if c != nil {
+		go func() {
+			defer close(tcpDone)
+			if res, err := m.Search(tctx, q, 0); err == nil {
+				for _, r := range res {
+					mg.add(c.Info().IP.String(), r)
+				}
+			}
+		}()
+	} else {
+		close(tcpDone)
+	}
+
+	if useUDP {
 		var others []server.Info
 		for _, s := range m.cfg.Servers() {
 			if c == nil || s.Addr() != c.Info().Addr() {
@@ -241,12 +265,17 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 		}
 		m.udp.Search(ctx, others, q, wait, func(from *net.UDPAddr, r server.Result) {
 			// By IP: some servers answer from more than one port.
-			add(from.IP.String(), r)
+			mg.add(from.IP.String(), r)
 		})
+		select {
+		case <-tcpDone:
+		case <-time.After(connectedGrace):
+		case <-ctx.Done():
+		}
+		cancelTCP()
 	}
-	if c == nil && m.udp == nil {
-		return nil, 0, ErrNoServer
-	}
+	<-tcpDone // returns at once after cancelTCP; without UDP, waits as before
+
 	out, nServers := mg.results()
 	return out, nServers, nil
 }

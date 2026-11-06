@@ -38,6 +38,18 @@ Send the key in one of these ways (the first one is preferred):
 Requests without the right key get `401`. All responses are JSON. Errors
 look like `{"error": "description"}` with a 4xx or 5xx status.
 
+Two protections to keep in mind when you call the API from a script:
+
+- **Wrong keys block the address.** After 10 wrong keys within 10 minutes
+  from one address (any of the ways above, the web login, the
+  qBittorrent login), every key from that address is refused for 15
+  minutes, even the right one. Requests without any key don't count.
+- **Host names.** The API answers to IP addresses, `localhost` and the
+  computer's own name. If you call it by another name (a NAS name, a
+  domain behind a reverse proxy), add that name to `api_hosts` in
+  `mymule.conf`, or requests get `421`. This stops web pages from
+  reaching the API through DNS tricks.
+
 ## Endpoints
 
 Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).

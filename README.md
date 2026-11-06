@@ -33,7 +33,8 @@ Python, cron, home automation).
 ## Features
 
 - Search on the connected server, or on every known server at once
-  (`search -global`, over UDP)
+  (`search -global`, over UDP); a server that stops answering doesn't
+  leave the search empty
 - Downloads from eD2K peers, with MD4 verification of every 9.28 MB part:
   corrupt parts are thrown away and downloaded again
 - Sources from every server in the list (UDP), not only the connected one
@@ -53,6 +54,8 @@ Python, cron, home automation).
   support (Torznab indexer + qBittorrent-compatible client)
 - Light: about 15 MB of RAM
 - Portable: settings and data live next to the executable
+- Built to face hostile peers and servers: everything they send is
+  checked and bounded (see [Security](#security))
 
 Not implemented yet: Kad, protocol obfuscation, credits.
 
@@ -160,7 +163,12 @@ in English or Spanish depending on the browser's language.
 To use it from another device (a phone, another computer), set
 `api_listen = 0.0.0.0:4711` and open `http://<computer-ip>:4711/`. Only do
 this on a network you trust, and never forward port 4711 in your router.
-The session lasts 30 days; changing `api_key` logs everybody out.
+If you open it by a name instead of an address (a NAS name, a domain
+behind a reverse proxy), add that name to `api_hosts`.
+
+The session lasts 30 days. **Log out** ends it for good, also for any copy
+of the session cookie; changing `api_key` logs everybody out. After 10
+wrong keys from one address, that address is blocked for 15 minutes.
 
 When `web_ui = false` the pages don't exist and nothing extra runs; the
 interface only uses resources while a browser has it open.
@@ -240,7 +248,7 @@ it on. With it off, none of these endpoints exist.
 | **qBittorrent-compatible download client** (`/api/v2`) | Login, add (stand-in `.torrent` or plain `ed2k://` links), categories, pause/resume, remove (with or without files), progress and save path until the app imports the file. |
 | **Search in your language** | With `search_languages` (e.g. `es`, `it`, `fr`), searches also use the title in those languages, looked up on Wikidata from the IMDb/TMDB/TVDB id. Off by default. |
 | **Cleaner results** | Results nobody shares are left out; server prefixes such as `[kad example.org]` are removed; short language tags (`Spa`, `ESP-ING`, `[ita, eng]`...) get the full name added so the apps detect the language. Files keep their real name. |
-| **Safe by default** | Same address and `api_key` as the HTTP API, only on this computer unless you change `api_listen`. Removing with files only deletes inside `download_dir`. |
+| **Safe by default** | Same address and `api_key` as the HTTP API, only on this computer unless you change `api_listen`. Download links in the results are signed for their own file and don't contain the `api_key`. Changes (add, remove, pause) need POST. Removing with files only deletes inside `download_dir`. |
 
 ### Quick setup
 
@@ -276,21 +284,111 @@ Step-by-step guide, including Docker and Remote Path Mappings:
 ## Running on a server or NAS
 
 `mymule daemon` runs the engine in the foreground, which suits systemd,
-Docker or a NAS task scheduler. Example systemd unit:
+OpenRC, Docker or a NAS task scheduler. Run it as its own user, never as
+root, and start and stop it through the service manager (not with
+`mymule start` as root, which would leave a second copy running as root).
+
+Example systemd unit, with the program and its data in `/opt/mymule`
+(owned by the `mymule` user) and downloads in `/data`:
 
 ```ini
 [Unit]
 Description=MyMule eD2K client
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 ExecStart=/opt/mymule/mymule daemon
 User=mymule
+Group=mymule
 Restart=on-failure
+# Private files by default, and no way to gain privileges.
+UMask=0077
+NoNewPrivileges=yes
+# Read-only system, private /tmp, no access to other users' homes;
+# only the data and download folders are writable.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/mymule /data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+If a media server (Plex, Jellyfin) has to read the finished files, use
+`UMask=0022` instead, or give it a group with access to `/data`.
+
+**Logs.** Under a service manager the log belongs to it (journald, or the
+file set in OpenRC's `output_log`); rotate that file with `logrotate`, for
+example `/etc/logrotate.d/mymule`:
+
+```
+/opt/mymule/mymule.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    copytruncate
+}
+```
+
+`mymule start` manages its own log instead and keeps one previous copy
+(`mymule.log.1`) when it passes 20 MB. Either way, chat messages from other
+users are logged at most 20 per minute, so nobody can fill the disk with
+them.
+
+## Security
+
+MyMule talks to strangers: servers and peers can send anything. Everything
+they send is checked and bounded: packet and message sizes, tag counts,
+decompression, file sizes (256 GiB at most), the number of connections,
+sources and queue places per address, and where MyMule will connect to
+(only public addresses, never your own network). Data written to a part
+that was already verified is refused, and every finished file is checked
+against its hash once more before it is handed over. A bug triggered by
+what a peer sends ends that connection, not the program. Text from the
+network (file names, nicks, messages) is cleaned before it reaches the
+terminal or the log.
+
+What is up to you:
+
+- **Keep the API private.** Leave `api_listen` on `127.0.0.1` unless you
+  need the web interface or the *arr apps from another device, and never
+  forward port 4711 in your router. The `api_key` gives full control of
+  MyMule: treat it like a password and keep the generated random one.
+- **Keep MyMule's folder private.** Its files (`mymule.conf` with the
+  `api_key`, the log, the list of shared files) are created readable only
+  by you, and MyMule never shares them. On Windows, keep the MyMule folder
+  inside your user profile (for example in Documents), not directly under
+  `C:\`, where other users of the computer could read the key or replace
+  `mymule.exe`; MyMule warns you if it is elsewhere.
+- **Movie and series folders** can't be a drive root, your user folder,
+  a system folder or MyMule's own folder, and only video, audio and
+  subtitle files are moved into them or shared from them.
+- **Remember eD2K is public**: other users see your IP address and the
+  files you share. Finished downloads are shared by default, as in eMule
+  (`share_downloads = false` to stop).
+
+**Checking a download.** Every release has a `SHA256SUMS` file and a
+signed build provenance attestation, which ties each file to this
+repository and the exact commit it was built from. With the GitHub CLI:
+
+```sh
+gh attestation verify mymule-v0.9.3-linux-amd64.tar.gz --repo i234dev/MyMule
+```
+
+The Windows and macOS binaries are not signed with a commercial
+certificate, so Windows SmartScreen or macOS Gatekeeper may warn the
+first time you run them; the attestation above is how to check them.
+
+To report a security problem, please open a GitHub issue asking for a
+private contact rather than describing it publicly.
 
 ## Building
 
@@ -303,9 +401,14 @@ go build -o mymule ./cmd/mymule
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build ./cmd/mymule
 ```
 
-Every push builds and tests on Windows, Linux and macOS, and the binaries
-are attached to the workflow run. Pushing a tag `vX.Y.Z` publishes a
-Release with archives for every platform and a `SHA256SUMS` file.
+Every push builds and tests on Windows, Linux and macOS, checks the code
+and its dependencies for known vulnerabilities (`govulncheck`), and
+attaches the binaries to the workflow run. Pushing a tag `vX.Y.Z`
+publishes a Release with archives for every platform, a `SHA256SUMS` file
+and a signed build provenance attestation (see [Security](#security)).
+
+To build with your own TMDB key instead of the project's:
+`go build -ldflags "-X mymule/internal/meta.ProjectTMDBKey=YOUR_KEY" ./cmd/mymule`.
 
 ## Terms of use and disclaimer
 

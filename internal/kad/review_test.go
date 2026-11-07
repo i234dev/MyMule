@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"compress/zlib"
 	"crypto/md5"
-	"crypto/rand"
 	"crypto/rc4"
 	"encoding/binary"
+	mrand "math/rand/v2"
 	"net/netip"
 	"strings"
 	"testing"
@@ -118,8 +118,10 @@ func TestCryptMisleadingMarker(t *testing.T) {
 
 // A compressed payload may expand to exactly the limit, not one byte more.
 func TestPacketUnpackBoundary(t *testing.T) {
+	// Fixed bytes that do not compress: random ones made some runs miss
+	// the exact boundary within the sizes tried.
 	prefix := make([]byte, 300)
-	rand.Read(prefix)
+	mrand.NewChaCha8([32]byte{7}).Read(prefix)
 	exact, over := false, false
 	for z := 2000; z < 6000 && !(exact && over); z++ {
 		payload := append(append([]byte(nil), prefix...), make([]byte, z)...)

@@ -1,0 +1,581 @@
+package kad
+
+import (
+	"bytes"
+	"net/netip"
+	"sort"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"mymule/internal/proto"
+)
+
+// What other nodes publish to us, as the node closest to a keyword or a
+// file (eMule's CIndexed): keyword entries (files whose names have the
+// keyword), sources of files, and notes (comments and ratings).
+
+// Lifetimes and limits (eMule's, plus totals of our own so that nobody can
+// fill our memory: eMule only limits each key, and counts entries, not
+// bytes).
+const (
+	keywordLifetime = 24 * time.Hour
+	sourceLifetime  = 5 * time.Hour
+	notesLifetime   = 24 * time.Hour
+
+	maxKeywordEntries  = 60000 // keyword entries in all
+	maxFilesPerKeyword = 50000
+	maxSourcesPerFile  = 1000
+	maxNotesPerFile    = 150
+	maxSourceEntries   = 60000 // ours
+	maxNotesEntries    = 10000 // ours
+	maxKeys            = 20000 // keys of each kind, ours
+	maxSizesPerFile    = 4     // entries of one file under one keyword, ours
+
+	maxNamesPerEntry      = 100
+	maxPublishersPerEntry = 100
+	maxTagsPerEntry       = 32
+	maxNameBytes          = 255  // a file name, as eMule's limit
+	maxEntryTagBytes      = 1024 // the tags of one entry, ours
+	maxIndexBytes         = 64 << 20
+
+	trustRefresh = 10 * time.Minute // eMule recomputes the trust this often
+)
+
+// entry is one published item.
+type entry struct {
+	key, source ID // keyword or file; file or client
+	ip          netip.Addr
+	udpPort     uint16
+	tcpPort     uint16
+	size        uint64
+	tags        []proto.Tag // the tags kept and sent back
+	expires     time.Time
+
+	// Keyword entries: the names it was published under and who
+	// published it.
+	names      []fileName
+	publishers []publisher
+
+	// weak: published without our key (its address only answered a ping,
+	// which any node does): stored, but it votes for nothing.
+	weak bool
+
+	lname   string    // the name, lowercase (for searches)
+	trustV  float64   // cached trust
+	trustAt time.Time // when it was computed
+	cost    int       // bytes counted for it
+}
+
+type fileName struct {
+	name       string
+	popularity int
+}
+
+type publisher struct {
+	ip   netip.Addr
+	last time.Time
+	weak bool // not counted for trust (see entry.weak)
+}
+
+// name is the name most publishers used.
+func (e *entry) name() string {
+	best := -1
+	out := ""
+	for _, n := range e.names {
+		if n.popularity > best {
+			best, out = n.popularity, n.name
+		}
+	}
+	return out
+}
+
+// settle recomputes what derives from the names and tags.
+func (e *entry) settle() {
+	e.lname = strings.ToLower(e.name())
+	c := 160 + 24*len(e.publishers)
+	for _, n := range e.names {
+		c += 32 + len(n.name)
+	}
+	for _, t := range e.tags {
+		c += 48 + len(t.Name) + len(t.Str) + len(t.Bytes)
+	}
+	e.cost = c
+}
+
+// cutName shortens a name to maxNameBytes, at a character boundary.
+func cutName(s string) string {
+	if len(s) <= maxNameBytes {
+		return s
+	}
+	i := maxNameBytes
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i]
+}
+
+// index holds what was published to us.
+type index struct {
+	keywords map[ID]map[ID][]*entry // keyword -> file -> entries (one per size)
+	sources  map[ID][]*entry        // file -> sources, newest first
+	notes    map[ID][]*entry        // file -> notes, newest first
+
+	nKeyword, nSource, nNotes int
+	bytes                     int // what all entries cost
+
+	// Publishers of keyword entries per /24, for the trust value.
+	pubSubnets map[[3]byte]int
+
+	// Our keywords whose nodes said they are overloaded: not published
+	// again before the time given.
+	load map[ID]time.Time
+
+	nextClean time.Time
+}
+
+func newIndex() *index {
+	return &index{
+		keywords: map[ID]map[ID][]*entry{}, sources: map[ID][]*entry{}, notes: map[ID][]*entry{},
+		pubSubnets: map[[3]byte]int{}, load: map[ID]time.Time{},
+	}
+}
+
+// keepTags normalises tags for storing: integers as their smallest type;
+// at most maxTagsPerEntry tags of maxEntryTagBytes in all (the others are
+// dropped), strings at most maxNameBytes.
+func keepTags(tags []proto.Tag) []proto.Tag {
+	out := make([]proto.Tag, 0, min(len(tags), maxTagsPerEntry))
+	budget := maxEntryTagBytes
+	for _, t := range tags {
+		if len(out) == maxTagsPerEntry {
+			break
+		}
+		if t.Type == proto.TagUint32 || t.Type == proto.TagUint64 {
+			n := IntTag(t.ID, t.Int)
+			n.Name = t.Name
+			t = n
+		}
+		if t.Type == proto.TagString {
+			t.Str = cutName(t.Str)
+		}
+		cost := 8 + len(t.Name) + len(t.Str) + len(t.Bytes)
+		if cost > budget || len(t.Name) > 64 {
+			continue
+		}
+		budget -= cost
+		out = append(out, t)
+	}
+	return out
+}
+
+// room reports whether c more bytes fit.
+func (x *index) room(c int) bool { return x.bytes+c <= maxIndexBytes }
+
+// addKeyword stores a keyword entry; it returns whether it was taken and
+// the load (0-100) to report.
+func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
+	for i := range e.names {
+		e.names[i].name = cutName(e.names[i].name)
+	}
+	if e.size == 0 || len(e.names) == 0 || e.name() == "" {
+		return false, 0
+	}
+	files := x.keywords[e.key]
+	total := len(files)
+	if files == nil {
+		if len(x.keywords) >= maxKeys {
+			return false, 100
+		}
+	}
+	if total >= maxFilesPerKeyword {
+		return false, 100
+	}
+	list, known := files[e.source]
+	if known && total > maxFilesPerKeyword-5000 {
+		return false, 100
+	}
+	var old *entry
+	for i, o := range list {
+		if o.size == e.size {
+			old = o
+			list = append(list[:i:i], list[i+1:]...)
+			break
+		}
+	}
+	if old != nil && e.weak {
+		for _, p := range old.publishers {
+			if p.ip == e.ip && !p.weak {
+				// A weak publish from the address of a proven publisher
+				// may be forged: it keeps nothing alive.
+				return true, 1
+			}
+		}
+	}
+	if old == nil && (len(list) >= maxSizesPerFile || x.nKeyword >= maxKeywordEntries) {
+		return false, 100 // full; refreshes of what is there still go in
+	}
+	oldCost := 0
+	if old != nil {
+		oldCost = old.cost
+	}
+	// Merging into old adds at most the new name and one publisher.
+	e.settle()
+	if !x.room(e.cost + 24) {
+		return false, 100
+	}
+	x.merge(e, old, now)
+	e.settle()
+	if files == nil {
+		files = map[ID][]*entry{}
+		x.keywords[e.key] = files
+	}
+	x.bytes += e.cost - oldCost
+	if old == nil {
+		x.nKeyword++
+	}
+	files[e.source] = append([]*entry{e}, list...)
+	if total == 0 {
+		return true, 1
+	}
+	return true, byte(total * 100 / maxFilesPerKeyword)
+}
+
+// merge carries the names and publishers of old (the same file, size and
+// keyword, published before) into e, which has the one new name and its
+// publisher's IP (eMule's MergeIPsAndFilenames). Unlike eMule, a
+// publisher adds its name only the first time: one IP republishing with
+// ever new names does not fill the list.
+func (x *index) merge(e, old *entry, now time.Time) {
+	refresh := false
+	if old != nil {
+		e.publishers = append([]publisher(nil), old.publishers...)
+		fast := false
+		for i, p := range e.publishers {
+			if p.ip == e.ip {
+				refresh = true
+				fast = now.Sub(p.last) < sourceLifetime-time.Hour
+				e.publishers = append(e.publishers[:i:i], e.publishers[i+1:]...)
+				np := publisher{ip: e.ip, last: now, weak: p.weak && e.weak}
+				if p.weak && !np.weak {
+					x.pubSubnets[subnet(e.ip)]++ // now proven
+				}
+				e.publishers = append(e.publishers, np)
+				break
+			}
+		}
+		cur := fileName{}
+		if len(e.names) > 0 {
+			cur = e.names[0]
+		}
+		e.names = nil
+		dup := false
+		for _, n := range old.names {
+			if n.name == "" {
+				continue
+			}
+			if strings.EqualFold(n.name, cur.name) {
+				dup = true
+				if !fast && !e.weak {
+					n.popularity++ // a refresh in time counts; a faster one does not
+				}
+			}
+			e.names = addName(e.names, n)
+		}
+		if !dup && !refresh && !e.weak && cur.name != "" {
+			e.names = addName(e.names, cur)
+		}
+		e.trustV, e.trustAt = old.trustV, old.trustAt
+	}
+	if !refresh {
+		e.publishers = append(e.publishers, publisher{ip: e.ip, last: now, weak: e.weak})
+		if !e.weak {
+			x.pubSubnets[subnet(e.ip)]++
+		}
+		if len(e.publishers) > maxPublishersPerEntry {
+			// The oldest weak one goes first; a weak one never pushes out
+			// a proven one (it is dropped itself instead).
+			drop := -1
+			for i, p := range e.publishers {
+				if p.weak {
+					drop = i
+					break
+				}
+			}
+			if drop < 0 {
+				drop = 0
+			}
+			x.dropPublisher(e.publishers[drop])
+			e.publishers = append(e.publishers[:drop:drop], e.publishers[drop+1:]...)
+		}
+		e.trustAt = time.Time{} // recompute
+	}
+}
+
+func addName(names []fileName, n fileName) []fileName {
+	if len(names) < maxNamesPerEntry {
+		return append(names, n)
+	}
+	weakest := 0
+	for i, o := range names {
+		if o.popularity < names[weakest].popularity {
+			weakest = i
+		}
+	}
+	if n.popularity > names[weakest].popularity {
+		names[weakest] = n
+	}
+	return names
+}
+
+func (x *index) dropPublisher(p publisher) {
+	if p.weak {
+		return
+	}
+	s := subnet(p.ip)
+	if x.pubSubnets[s] <= 1 {
+		delete(x.pubSubnets, s)
+	} else {
+		x.pubSubnets[s]--
+	}
+}
+
+// trust is how much an entry's publishers agree: 10 points per publisher,
+// shared among the publishers of its /24. Under 1, the entry may be spam
+// from a single network. Recomputed every 10 minutes, as eMule.
+func (x *index) trust(e *entry, now time.Time) float64 {
+	if !e.trustAt.IsZero() && now.Sub(e.trustAt) < trustRefresh {
+		return e.trustV
+	}
+	t := 0.0
+	for _, p := range e.publishers {
+		if p.weak {
+			continue
+		}
+		if n := x.pubSubnets[subnet(p.ip)]; n > 0 {
+			t += 10.0 / float64(n)
+		}
+	}
+	e.trustV, e.trustAt = t, now
+	return t
+}
+
+// addSource stores a source. One per IP and file: the same client (or
+// another from its address) replaces its older entry, so that one machine
+// cannot take every place of a file. A weak source never replaces a
+// proven one.
+func (x *index) addSource(e *entry) (bool, byte) {
+	if !e.ip.IsValid() || e.tcpPort == 0 || e.udpPort == 0 || len(e.tags) == 0 {
+		return false, 0
+	}
+	if e.weak {
+		for _, o := range x.sources[e.key] {
+			if o.ip == e.ip && !o.weak {
+				return true, 1
+			}
+		}
+	}
+	e.settle()
+	return x.addTo(x.sources, &x.nSource, maxSourceEntries, maxSourcesPerFile, e,
+		func(o *entry) bool { return o.ip == e.ip })
+}
+
+// addNote stores a note; one per client (IP or ID).
+func (x *index) addNote(e *entry) (bool, byte) {
+	for i := range e.names {
+		e.names[i].name = cutName(e.names[i].name)
+	}
+	if !e.ip.IsValid() || (len(e.tags) == 0 && e.size == 0 && e.name() == "") {
+		return false, 0
+	}
+	e.settle()
+	return x.addTo(x.notes, &x.nNotes, maxNotesEntries, maxNotesPerFile, e,
+		func(o *entry) bool { return o.ip == e.ip || o.source == e.source })
+}
+
+func (x *index) addTo(m map[ID][]*entry, n *int, maxTotal, perKey int, e *entry, same func(*entry) bool) (bool, byte) {
+	list, ok := m[e.key]
+	if !ok {
+		if len(m) >= maxKeys || *n >= maxTotal || !x.room(e.cost) {
+			return false, 100
+		}
+		m[e.key] = []*entry{e}
+		*n++
+		x.bytes += e.cost
+		return true, 1
+	}
+	load := byte(min(100, len(list)*100/perKey))
+	for i, o := range list {
+		if same(o) {
+			if !x.room(e.cost - o.cost) {
+				return false, 100
+			}
+			x.bytes += e.cost - o.cost
+			list = append(list[:i:i], list[i+1:]...)
+			m[e.key] = append([]*entry{e}, list...)
+			return true, load
+		}
+	}
+	if len(list) >= perKey {
+		// Full: the oldest makes room; for a weak entry, only a weak one.
+		drop := len(list) - 1
+		if e.weak {
+			drop = -1
+			for i := len(list) - 1; i >= 0; i-- {
+				if list[i].weak {
+					drop = i
+					break
+				}
+			}
+			if drop < 0 {
+				return false, 100
+			}
+		}
+		gone := list[drop]
+		if !x.room(e.cost - gone.cost) {
+			return false, 100
+		}
+		x.bytes += e.cost - gone.cost
+		rest := append(list[:drop:drop], list[drop+1:]...)
+		m[e.key] = append([]*entry{e}, rest...)
+		return true, 100
+	}
+	if *n >= maxTotal || !x.room(e.cost) {
+		return false, 100
+	}
+	m[e.key] = append([]*entry{e}, list...)
+	*n++
+	x.bytes += e.cost
+	return true, load
+}
+
+// clean drops what expired, every 30 minutes (expired entries are not
+// sent meanwhile).
+func (x *index) clean(now time.Time) {
+	if now.Before(x.nextClean) {
+		return
+	}
+	x.nextClean = now.Add(30 * time.Minute)
+	for key, files := range x.keywords {
+		for file, list := range files {
+			kept := list[:0]
+			for _, e := range list {
+				if e.expires.Before(now) {
+					x.nKeyword--
+					x.bytes -= e.cost
+					for _, p := range e.publishers {
+						x.dropPublisher(p)
+					}
+					continue
+				}
+				// Publishers that stopped republishing.
+				for len(e.publishers) > 0 && now.Sub(e.publishers[0].last) > keywordLifetime {
+					x.dropPublisher(e.publishers[0])
+					e.publishers = e.publishers[1:]
+				}
+				kept = append(kept, e)
+			}
+			if len(kept) == 0 {
+				delete(files, file)
+			} else {
+				files[file] = kept
+			}
+		}
+		if len(files) == 0 {
+			delete(x.keywords, key)
+		}
+	}
+	cleanList := func(m map[ID][]*entry, n *int) {
+		for key, list := range m {
+			kept := list[:0]
+			for _, e := range list {
+				if e.expires.Before(now) {
+					*n--
+					x.bytes -= e.cost
+					continue
+				}
+				kept = append(kept, e)
+			}
+			if len(kept) == 0 {
+				delete(m, key)
+			} else {
+				m[key] = kept
+			}
+		}
+	}
+	cleanList(x.sources, &x.nSource)
+	cleanList(x.notes, &x.nNotes)
+	for k, t := range x.load {
+		if t.Before(now) {
+			delete(x.load, k)
+		}
+	}
+}
+
+// keywordResults returns the entries of a keyword that fit the tree,
+// trusted ones first, skipping start of them, at most max. Entries are
+// taken in a fixed order (by file, then size), so pages do not overlap.
+func (x *index) keywordResults(key ID, tree *term, start, max int, now time.Time) []*entry {
+	files := x.keywords[key]
+	ids := make([]ID, 0, len(files))
+	for id := range files {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return bytes.Compare(ids[i][:], ids[j][:]) < 0 })
+	want := start + max
+	var trusted, other []*entry
+	for _, id := range ids {
+		for _, e := range files[id] {
+			if e.expires.Before(now) {
+				continue
+			}
+			trustedOne := x.trust(e, now) >= 1
+			if !trustedOne && len(other) >= want {
+				continue // enough of those already
+			}
+			if tree != nil && !tree.matches(e) {
+				continue
+			}
+			if trustedOne {
+				trusted = append(trusted, e)
+				if len(trusted) >= want {
+					break
+				}
+			} else {
+				other = append(other, e)
+			}
+		}
+		if len(trusted) >= want {
+			break
+		}
+	}
+	all := append(trusted, other...)
+	if start >= len(all) {
+		return nil
+	}
+	all = all[start:]
+	return all[:min(len(all), max)]
+}
+
+// listResults returns the sources or notes of a file of the given size (0
+// = any), skipping start of them, at most max.
+func listResults(list []*entry, size uint64, start, max int, now time.Time) []*entry {
+	var out []*entry
+	for _, e := range list {
+		if e.expires.Before(now) {
+			continue
+		}
+		if size != 0 && e.size != 0 && e.size != size {
+			continue
+		}
+		if start > 0 {
+			start--
+			continue
+		}
+		if len(out) == max {
+			break
+		}
+		out = append(out, e)
+	}
+	return out
+}

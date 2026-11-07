@@ -242,6 +242,20 @@ func (n *Node) dispatch(in incoming, now time.Time) error {
 		return n.onRes(in, now)
 	case OpSearchRes, OpSearchResV1:
 		return n.onSearchRes(in, now)
+	case OpPublishKeyReq:
+		return n.onPublishKeyReq(in, now)
+	case OpPublishSourceReq:
+		return n.onPublishSourceReq(in, now)
+	case OpPublishNotesReq:
+		return n.onPublishNotesReq(in, now)
+	case OpSearchKeyReq:
+		return n.onSearchKeyReq(in, now)
+	case OpSearchSourceReq:
+		return n.onSearchSourceReq(in, now)
+	case OpSearchNotesReq:
+		return n.onSearchNotesReq(in, now)
+	case OpPublishRes, OpPublishResV1:
+		return n.onPublishRes(in, now)
 	case OpPing:
 		var w proto.Writer
 		w.U16(in.from.Port())
@@ -516,7 +530,14 @@ func (n *Node) onRes(in incoming, now time.Time) error {
 }
 
 func (n *Node) onPong(in incoming, now time.Time) error {
-	if len(in.payload) < 2 || !n.wasAsked(in.from.Addr(), OpPing, now, false) {
+	if len(in.payload) < 2 {
+		return errBad
+	}
+	if p := n.pending[in.from.Addr()]; p != nil && (in.validKey || !p.needKey) {
+		n.proved(in.from.Addr(), now) // publishes waiting for this answer
+		return nil
+	}
+	if !n.wasAsked(in.from.Addr(), OpPing, now, false) {
 		return errBad
 	}
 	if id, ok := n.takeChallenge(ID{}, in.from.Addr(), OpPing, now); ok {

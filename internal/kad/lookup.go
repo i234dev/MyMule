@@ -27,6 +27,8 @@ const (
 	searchNodeComplete                   // our own ID: a full lookup
 	searchFile                           // sources of a file
 	searchKeyword                        // files whose names have a keyword
+	searchStoreFile                      // publish a file's source (us)
+	searchStoreKeyword                   // publish files under a keyword
 )
 
 // maxAnswers is how many answers a value search collects before it stops
@@ -35,6 +37,9 @@ const maxAnswers = 300
 
 // lifetime is how long a search of each type runs.
 func (t searchType) lifetime() time.Duration {
+	if t == searchStoreFile || t == searchStoreKeyword {
+		return storeLifetime
+	}
 	return 45 * time.Second
 }
 
@@ -43,6 +48,8 @@ func (t searchType) requestCount() byte {
 	switch t {
 	case searchNode, searchNodeComplete:
 		return findNode
+	case searchStoreFile, searchStoreKeyword:
+		return store
 	}
 	return findValue
 }
@@ -62,6 +69,10 @@ type search struct {
 	words    []string                   // searchKeyword: every word, which names must have
 	asked    map[netip.AddrPort]Contact // nodes sent the search request
 	seen     map[ID]bool                // answers already reported
+	files    [][16]byte                 // searchStoreKeyword: the files to publish
+	file     SharedFile                 // searchStoreFile
+	loadSum  int                        // searchStoreKeyword: loads the nodes reported
+	loadN    int
 	onSource func(Source)
 	onResult func(KeywordResult)
 	done     chan struct{} // closed when the search ends
@@ -272,7 +283,9 @@ func (n *Node) tickSearches(now time.Time) {
 			n.searchEnded(s)
 		default:
 			if (s.typ == searchFile || s.typ == searchKeyword) &&
-				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) {
+				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) ||
+				(s.typ == searchStoreFile || s.typ == searchStoreKeyword) &&
+					(s.answers > storeAnswers || age > s.typ.lifetime()-20*time.Second) {
 				// Waits for late answers, without asking anyone else.
 				s.prepareToStop(now)
 				continue
@@ -285,4 +298,12 @@ func (n *Node) tickSearches(now time.Time) {
 }
 
 // searchEnded is called when a search is removed.
-func (n *Node) searchEnded(s *search) { close(s.done) }
+func (n *Node) searchEnded(s *search) {
+	close(s.done)
+	switch s.typ {
+	case searchNodeComplete:
+		n.pub.allowed = true // we know the nodes around us: publishing may start
+	case searchStoreKeyword:
+		n.storeEnded(s, n.now())
+	}
+}

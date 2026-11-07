@@ -308,6 +308,10 @@ func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {
 			w.Bytes(s.terms)
 		}
 		n.sendTo(c, OpSearchKeyReq, w.B)
+	case searchStoreFile:
+		n.storeFile(s, c)
+	case searchStoreKeyword:
+		n.storeKeyword(s, c)
 	default:
 		return
 	}

@@ -35,7 +35,14 @@ type Config struct {
 	// tell it we got through (OP_KAD_FWTCPCHECK_ACK): the node is checking
 	// whether it is firewalled. It returns false if it will not try.
 	ConnectBack func(ip netip.Addr, tcpPort uint16, userHash [16]byte) bool
-	Log         func(format string, args ...any)
+	// Shared returns the files we share and a number that changes when
+	// the list does (nil = publish nothing). It is called with the node
+	// locked, every second: it must be quick and must not call the node.
+	Shared func() (version int, files []SharedFile)
+	// FileType returns the eD2K file type of a name ("Video"...); may be
+	// nil.
+	FileType func(name string) string
+	Log      func(format string, args ...any)
 	// Now is the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -50,12 +57,20 @@ type Node struct {
 	mu       sync.Mutex
 	table    *Table
 	searches map[ID]*search
+	index    *index // what others published to us
+	pending  map[netip.Addr]*pendingPub
+	pub      publishState // what we publish
 
 	outTracked []tracked // requests we sent, to accept answers
 	inTracked  map[netip.Addr]*floodEntry
 	inCleanup  time.Time
 	banned     map[netip.Addr]time.Time
 	challenges []challenge
+
+	// saves are the background saves running; saveMu orders them, so an
+	// older snapshot never replaces a newer one.
+	saves  sync.WaitGroup
+	saveMu sync.Mutex
 
 	// deferred are calls to make once n.mu is released (results handed to
 	// other parts of MyMule, which take their own locks).
@@ -70,6 +85,10 @@ type Node struct {
 	extPortIPs       []netip.Addr
 	extPorts         []uint16
 	extPort          uint16
+
+	// Whether other nodes can reach our Kad port unasked (the UDP firewall
+	// test says so): only then do we store what others publish.
+	udpOpen bool
 
 	// TCP firewall check: we ask nodes to connect to our TCP port.
 	recheckIP    int // answers to our firewall requests in this round
@@ -103,6 +122,8 @@ func New(cfg Config) (*Node, error) {
 	n := &Node{
 		cfg: cfg, conn: cfg.Conn, clock: cfg.Now,
 		searches:  map[ID]*search{},
+		index:     newIndex(),
+		pending:   map[netip.Addr]*pendingPub{},
 		inTracked: map[netip.Addr]*floodEntry{},
 		banned:    map[netip.Addr]time.Time{},
 		fwAsked:   map[netip.Addr]*fwRequest{},
@@ -131,6 +152,11 @@ func New(cfg Config) (*Node, error) {
 	n.nextConsolid = now.Add(45 * time.Minute)
 	n.nextSave = now.Add(30 * time.Minute)
 	n.loadNodes(filepath.Join(cfg.Dir, "nodes.dat"))
+	if b, err := os.ReadFile(filepath.Join(cfg.Dir, indexFile)); err == nil {
+		if err := n.index.decode(b, n.keys.KadID, now); err != nil {
+			n.cfg.Log("kad: %s: %v", indexFile, err)
+		}
+	}
 	return n, nil
 }
 
@@ -252,6 +278,14 @@ func (n *Node) SaveNodes() error {
 	return fsutil.WriteFile(filepath.Join(n.cfg.Dir, "nodes.dat"), EncodeNodes(cs), 0o600)
 }
 
+// saveIndex writes kadindex.dat.
+func (n *Node) saveIndex() error {
+	n.mu.Lock()
+	b := n.index.encode(n.keys.KadID, n.now())
+	n.mu.Unlock()
+	return fsutil.WriteFile(filepath.Join(n.cfg.Dir, indexFile), b, 0o600)
+}
+
 // Bootstrap asks the node at addr for contacts.
 func (n *Node) Bootstrap(addr netip.AddrPort) {
 	n.mu.Lock()
@@ -333,8 +367,12 @@ func (n *Node) Run(ctx context.Context) error {
 		}, &n.mu)
 	}
 	<-done
+	n.saves.Wait() // the last saves are the final ones
 	if err := n.SaveNodes(); err != nil {
 		n.cfg.Log("kad: saving nodes.dat: %v", err)
+	}
+	if err := n.saveIndex(); err != nil {
+		n.cfg.Log("kad: saving %s: %v", indexFile, err)
 	}
 	return nil
 }
@@ -373,6 +411,8 @@ func (n *Node) tick(now time.Time) {
 		n.startSearch(searchNode, target, now, nil)
 	}
 	n.tickSearches(now)
+	n.tickPublish(now)
+	n.index.clean(now)
 	if !n.nextConsolid.After(now) {
 		n.table.Consolidate(now)
 		n.nextConsolid = now.Add(45 * time.Minute)
@@ -391,14 +431,25 @@ func (n *Node) tick(now time.Time) {
 	if !n.nextSave.After(now) {
 		n.nextSave = now.Add(30 * time.Minute)
 		cs := n.table.BootstrapContacts(200)
-		if len(cs) >= 25 {
-			dir := n.cfg.Dir
-			go func() {
+		idx := n.index.encode(n.keys.KadID, now)
+		dir := n.cfg.Dir
+		n.saves.Add(1)
+		go func() {
+			defer n.saves.Done()
+			n.saveMu.Lock()
+			defer n.saveMu.Unlock()
+			if len(cs) >= 25 {
 				if err := fsutil.WriteFile(filepath.Join(dir, "nodes.dat"), EncodeNodes(cs), 0o600); err != nil {
 					n.cfg.Log("kad: saving nodes.dat: %v", err)
 				}
-			}()
-		}
+			}
+			if err := fsutil.WriteFile(filepath.Join(dir, indexFile), idx, 0o600); err != nil {
+				n.cfg.Log("kad: saving %s: %v", indexFile, err)
+			}
+		}()
+	}
+	if len(n.pending) > 0 && now.Second() == 0 {
+		n.prunePending(now)
 	}
 	for ip, until := range n.banned {
 		if !until.After(now) {
@@ -420,7 +471,16 @@ func (n *Node) connected(now time.Time) bool {
 // known (not zero), else with the verify key it gave us (receiverKey),
 // else plain.
 func (n *Node) send(addr netip.AddrPort, op byte, payload []byte, target ID, receiverKey uint32) {
-	if isTrackedRequest(op) {
+	n.sendOpt(addr, op, payload, target, receiverKey, true)
+}
+
+// sendUntracked is send without recording a request.
+func (n *Node) sendUntracked(addr netip.AddrPort, op byte, payload []byte, target ID, receiverKey uint32) {
+	n.sendOpt(addr, op, payload, target, receiverKey, false)
+}
+
+func (n *Node) sendOpt(addr netip.AddrPort, op byte, payload []byte, target ID, receiverKey uint32, track bool) {
+	if track && isTrackedRequest(op) {
 		n.outTracked = append(n.outTracked, tracked{ip: addr.Addr(), op: op, at: n.now()})
 		if len(n.outTracked) > 4096 {
 			n.outTracked = n.outTracked[len(n.outTracked)-4096:]

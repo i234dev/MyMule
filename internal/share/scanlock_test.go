@@ -175,3 +175,31 @@ func TestMovedDuringScan(t *testing.T) {
 		t.Fatalf("old name still shared: %v %+v", stale, l.Get(h))
 	}
 }
+
+// A file that grows while it is hashed (still being copied) is not shared
+// with the hash of what was read.
+func TestFileChangedWhileHashedNotShared(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "copying.bin")
+	os.WriteFile(p, []byte("first half"), 0o644)
+	l := NewLibrary([]string{dir}, filepath.Join(t.TempDir(), "known.json"), nil)
+	grown := false
+	testDiskHook = func(path string) {
+		if path == p && !grown { // right after hashing, before sharing
+			grown = true
+			f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+			f.Write([]byte(" and the rest"))
+			f.Close()
+		}
+	}
+	defer func() { testDiskHook = nil }()
+	l.scan(context.Background())
+	if n := l.Status().Files; n != 0 {
+		t.Fatalf("%d files shared while being copied", n)
+	}
+	testDiskHook = nil
+	l.scan(context.Background())
+	if n := l.Status().Files; n != 1 {
+		t.Fatalf("%d files shared once copied", n)
+	}
+}

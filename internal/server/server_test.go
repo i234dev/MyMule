@@ -156,3 +156,21 @@ func TestNetworkTextIsCleaned(t *testing.T) {
 		t.Errorf("server name: %q", info.Name)
 	}
 }
+
+// What a server supports survives a save of server.met.
+func TestServerMetKeepsCapabilities(t *testing.T) {
+	in := []Info{{IP: net.IPv4(192, 0, 2, 1).To4(), Port: 4661, UDPFlags: SrvUDPGetSources2 | 0x10,
+		Version: 0x11, MaxUsers: 500, Preference: 1, ObfuTCPPort: 4663}}
+	var buf bytes.Buffer
+	if err := WriteServerMet(&buf, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ParseServerMet(buf.Bytes())
+	if err != nil || len(out) != 1 {
+		t.Fatal(out, err)
+	}
+	o := out[0]
+	if o.UDPFlags != in[0].UDPFlags || o.Version != 0x11 || o.MaxUsers != 500 || o.Preference != 1 || o.ObfuTCPPort != 4663 {
+		t.Fatalf("got %+v", o)
+	}
+}

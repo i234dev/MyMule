@@ -110,7 +110,7 @@ func (f connFlags) connectTo(ctx context.Context, cfg server.Config, addr string
 		dctx, cancel := context.WithTimeout(ctx, *f.timeout)
 		c, err := server.Dial(dctx, info, cfg)
 		cancel()
-		updateServerStats(list, info, err == nil)
+		updateServerStats(info, err == nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  failed: %v\n", err)
 			if ctx.Err() != nil {
@@ -154,7 +154,17 @@ func (f connFlags) connectTo(ctx context.Context, cfg server.Config, addr string
 	return nil, fmt.Errorf("could not connect to any server")
 }
 
-func updateServerStats(list []server.Info, info server.Info, ok bool) {
+// updateServerStats counts a failed (or resets after a good) connection
+// to a server in server.met. The file is read again first: the list the
+// connection was chosen from can be minutes old, and saving it would undo
+// a "servers update" made since.
+func updateServerStats(info server.Info, ok bool) {
+	serversMu.Lock()
+	defer serversMu.Unlock()
+	list, err := loadServers()
+	if err != nil {
+		return
+	}
 	for i := range list {
 		if list[i].Addr() == info.Addr() {
 			if ok {
@@ -162,10 +172,42 @@ func updateServerStats(list []server.Info, info server.Info, ok bool) {
 			} else {
 				list[i].Fails++
 			}
-			saveServers(list)
+			saveServers(pruneServers(list))
 			return
 		}
 	}
+}
+
+// maxServerFails is how many failed connections in a row make a server
+// leave the list (see pruneServers).
+const maxServerFails = 20
+
+// pruneServers drops servers that failed maxServerFails times in a row,
+// as eMule does with dead servers, so the list does not fill with them.
+// Only while another server answers, and only when the dead ones are few:
+// without a network every server fails, and right after the network comes
+// back one server answers while all the others still carry the failures
+// of the outage; none of them is dead.
+func pruneServers(list []server.Info) []server.Info {
+	alive, dead := false, 0
+	for _, s := range list {
+		if s.Fails == 0 {
+			alive = true
+		}
+		if s.Fails >= maxServerFails {
+			dead++
+		}
+	}
+	if !alive || dead*2 >= len(list) {
+		return list
+	}
+	out := list[:0]
+	for _, s := range list {
+		if s.Fails < maxServerFails {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func parseSize(s string) (uint64, error) {

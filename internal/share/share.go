@@ -425,6 +425,13 @@ func (l *Library) scan(ctx context.Context) {
 			}
 		}
 		id := fileID(c.path, c.size, c.mtime)
+		if id == nil {
+			// It changed while it was read (still being copied or
+			// downloaded by another program): the hash is of something
+			// that is not the file. The next scan tries again.
+			l.log("%s changed while being hashed; not shared yet", filepath.Base(c.path))
+			continue
+		}
 		l.mu.Lock()
 		l.cache[c.path] = ce
 		l.addDiskLocked(c.path, ce, id)

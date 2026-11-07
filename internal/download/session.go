@@ -304,8 +304,25 @@ func (s *session) avail() []bool {
 	return s.src.Avail
 }
 
+// identities are the names a ban of this peer also covers (see
+// PartFile.BanIdentities): its address and its user hash.
+func (s *session) identities() []string {
+	ids := []string{s.owner}
+	if ip := s.c.RemoteIP(); ip != nil {
+		ids = append(ids, "ip:"+ip.String())
+	}
+	if !s.hello.UserHash.IsZero() {
+		ids = append(ids, "user:"+s.hello.UserHash.String())
+	}
+	return ids
+}
+
 func (s *session) run(ctx context.Context) error {
 	h := s.pf.Hash
+	if s.pf.BannedAny(s.identities()...) {
+		s.setState(StateNoFile)
+		return errBanned
+	}
 	s.setState(StateAsking)
 	if err := s.c.SendHash(proto.ProtoEDonkey, peer.OpRequestFileName, h); err != nil {
 		return err
@@ -509,6 +526,7 @@ func (s *session) store(off int64, data []byte) error {
 	complete, err := s.pf.Write(s.owner, off, data)
 	if s.pf.Banned(s.owner) {
 		// It sent a part that failed verification all by itself.
+		s.pf.BanIdentities(s.identities()...)
 		s.m.cfg.Log("%s [%s %q]: sent corrupt data; not downloading this file from it again", s.pf.Name, s.owner, s.src.Name)
 		s.m.mu.Lock()
 		s.src.State = StateNoFile

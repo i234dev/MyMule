@@ -2,7 +2,6 @@ package meta
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -67,7 +66,7 @@ func (t *TMDB) get(ctx context.Context, path string, params url.Values, out any)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("tmdb: %s", resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return decodeLimited(resp.Body, out)
 }
 
 func (t *TMDB) cached(key string) (any, bool) {

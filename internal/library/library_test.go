@@ -3,7 +3,9 @@ package library
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 var movie = Item{Kind: "movie", Title: "La Película", OriginalTitle: "The Movie", Year: 1982, Quality: "1080p"}
@@ -142,5 +144,28 @@ func TestDestinationOnlyMedia(t *testing.T) {
 		if Destination(st, it, filepath.Join("in", name)) == "" {
 			t.Errorf("%s would not be moved", name)
 		}
+	}
+}
+
+// Names made from long titles stay under the file systems' 255-byte limit,
+// without cutting a character in two.
+func TestLongTitlesFit(t *testing.T) {
+	long := Item{Kind: "series", Title: "Serie", Season: 1, Episode: 2,
+		EpisodeTitle: strings.Repeat("Capítulo muy largo ", 30)}
+	st := Settings{Organize: true, SeriesDir: t.TempDir(), SeriesTemplate: SeriesPresets[2]}
+	_, rel, ok := Plan(st, long, filepath.Join(t.TempDir(), "x.mkv"))
+	if !ok {
+		t.Fatal("not planned")
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if len(part) > 240 || !utf8.ValidString(part) || strings.HasSuffix(strings.TrimSuffix(part, ".mkv"), " ") {
+			t.Fatalf("name %q (%d bytes)", part, len(part))
+		}
+	}
+	// A whole season in one file keeps its (long) download name.
+	season := Item{Kind: "series", Title: "Serie", Season: 1}
+	src := filepath.Join(t.TempDir(), strings.Repeat("ñ", 200)+".mkv")
+	if _, rel, ok := Plan(st, season, src); !ok || len(filepath.Base(rel)) > 240 || !utf8.ValidString(rel) {
+		t.Fatalf("season file: %q %v", rel, ok)
 	}
 }

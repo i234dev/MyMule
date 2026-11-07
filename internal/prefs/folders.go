@@ -108,6 +108,21 @@ func checkFolder(abs string, noContain, noInside, netHosts []string) error {
 			if within(p, filepath.Clean(d)) {
 				return errors.New("system folders cannot be used")
 			}
+			// Nor a folder holding one (/var holds /var/lib, /private
+			// holds /private/etc): it would be shared with it.
+			if within(filepath.Clean(d), p) {
+				return errors.New("it would contain system folders; choose a folder inside it")
+			}
+		}
+		// Every user's folder is in these: sharing one would share the
+		// other users' files (and, run as root, the user's own home is
+		// /root, so the check above does not see them).
+		if runtime.GOOS != "windows" {
+			for _, d := range []string{"/home", "/Users"} {
+				if within(d, p) {
+					return errors.New("it would contain the users' folders; choose a folder inside yours")
+				}
+			}
 		}
 	}
 	return nil

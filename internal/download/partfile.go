@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -286,7 +287,13 @@ func (pf *PartFile) saveLocked() error {
 		return err
 	}
 	if pf.f != nil {
-		pf.f.Sync() // data before state, so state never claims unwritten bytes
+		// Data before state, so the state never claims bytes that are not
+		// on the disk: if they cannot be flushed, the old state stays.
+		// (Some network and FUSE file systems cannot flush at all; there
+		// the state is saved as before rather than never.)
+		if err := pf.f.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, errors.ErrUnsupported) && !errors.Is(err, syscall.ENOTSUP) {
+			return err
+		}
 	}
 	if err := fsutil.WriteFile(pf.metaPath, data, 0o600); err != nil {
 		return err
@@ -301,7 +308,9 @@ func (pf *PartFile) Close() error {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	if pf.f != nil {
-		pf.f.Close()
+		if cerr := pf.f.Close(); err == nil {
+			err = cerr
+		}
 		pf.f = nil
 	}
 	return err
@@ -704,6 +713,31 @@ func (pf *PartFile) Banned(owner string) bool {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	return pf.banned[owner]
+}
+
+// BanIdentities bans, besides the owner key, other ways of naming the
+// same peer (its IP address, its user hash): otherwise it could come
+// back from another port, or with another LowID, and send bad data again.
+func (pf *PartFile) BanIdentities(ids ...string) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	for _, id := range ids {
+		if id != "" {
+			pf.banned[id] = true
+		}
+	}
+}
+
+// BannedAny reports whether any of ids is banned from this download.
+func (pf *PartFile) BannedAny(ids ...string) bool {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	for _, id := range ids {
+		if id != "" && pf.banned[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // rootIsPartHash reports whether the file hash is the hash of its only

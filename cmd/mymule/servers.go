@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"mymule/internal/config"
@@ -76,6 +77,10 @@ func loadServers() ([]server.Info, error) {
 	}
 	return list, err
 }
+
+// serversMu serialises the changes to server.met made by this process
+// (connection results, updates, additions), each read-modify-write.
+var serversMu sync.Mutex
 
 func saveServers(list []server.Info) error {
 	p, err := serverMetPath()
@@ -147,6 +152,8 @@ func cmdServers(args []string) error {
 		if err != nil {
 			return err
 		}
+		serversMu.Lock()
+		defer serversMu.Unlock()
 		list, err := loadServers()
 		if err != nil {
 			return err
@@ -161,10 +168,7 @@ func cmdServers(args []string) error {
 // updateServerList downloads server.met files and merges them into the
 // known list. It returns the number of servers and how many are new.
 func updateServerList(urls []string, report func(format string, a ...any)) (total, added int, err error) {
-	list, err := loadServers()
-	if err != nil {
-		return 0, 0, err
-	}
+	var fetchedAll [][]server.Info
 	var lastErr error
 	for _, u := range urls {
 		fetched, err := fetchServerMet(u)
@@ -173,10 +177,21 @@ func updateServerList(urls []string, report func(format string, a ...any)) (tota
 			lastErr = err
 			continue
 		}
+		fetchedAll = append(fetchedAll, fetched)
+		report("%s: %d servers", u, len(fetched))
+	}
+	// Read, merge and save at once, after the downloads: the list must
+	// not change in between (see updateServerStats).
+	serversMu.Lock()
+	defer serversMu.Unlock()
+	list, err := loadServers()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, fetched := range fetchedAll {
 		var n int
 		list, n = mergeServers(list, fetched)
 		added += n
-		report("%s: %d servers (%d new)", u, len(fetched), n)
 	}
 	if len(list) == 0 {
 		return 0, 0, fmt.Errorf("no servers fetched: %v", lastErr)

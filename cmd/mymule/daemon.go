@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -78,6 +79,12 @@ type engine struct {
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
+
+	// organizing counts files being moved into the library, which the
+	// daemon waits for when it stops: a move cut short would leave a
+	// partial copy, and the file not organized.
+	organizing sync.WaitGroup
+	moving     atomic.Int32 // moves running now, for the log
 }
 
 // serverTarget is the server to connect to now: one just chosen in the
@@ -256,7 +263,13 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		OnSilentServer: func(addr string) { eng.silentServer(addr, *e.conn.server) },
 		OnComplete: func(h ed2k.Hash, name, path string) {
 			logf("COMPLETED %s -> %s", name, path)
-			go eng.organize(h, name, path) // moving to another disk can take a while
+			eng.organizing.Add(1)
+			eng.moving.Add(1)
+			go func() { // moving to another disk can take a while
+				defer eng.organizing.Done()
+				defer eng.moving.Add(-1)
+				eng.organize(h, name, path)
+			}()
 		},
 		Library: lib,
 		Upload:  up,
@@ -332,6 +345,10 @@ func cmdDaemon(args []string) error {
 	}
 
 	err = m.Run(ctx)
+	if n := m.moving.Load(); n > 0 {
+		logf("waiting for %d file(s) being moved into the library", n)
+	}
+	m.organizing.Wait()
 	logf("daemon stopped; progress saved")
 	if errors.Is(err, context.Canceled) {
 		return nil

@@ -315,6 +315,7 @@ func (m *Manager) onStartUpload(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.
 	m.byConn[c] = cl
 	cl.file = hash
 	cl.lastAsk = time.Now()
+	cl.dialMiss = 0 // it came by itself: missed dials long ago no longer count
 
 	accept := cl.uploading
 	if !accept && m.freeSlotsLocked() > 0 && m.firstWaitingLocked() == cl {
@@ -384,18 +385,30 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 	}
 	big := f.FileSize() > peer.LargeFileLimit
 
-	buf := make([]byte, chunkSize)
 	for i := range starts {
 		if !validRange(starts[i], ends[i], f.FileSize()) {
 			continue
 		}
 		s, e := int64(starts[i]), int64(ends[i])
+		// The whole range (at most maxRange) is read at once: each read
+		// opens and checks the file, which per 10 KB packet cost more than
+		// sending it. If that fails (a range across a part that is not
+		// verified yet), it is read packet by packet, as far as possible.
+		whole := make([]byte, e-s)
+		if share.ReadFull(f, whole, s) != nil {
+			whole = nil
+		}
 		for off := s; off < e; off += chunkSize {
 			n := min(int64(chunkSize), e-off)
-			data := buf[:n]
-			if err := share.ReadFull(f, data, off); err != nil {
-				m.cfg.Debug("upload: cannot read %s at %d: %v", f.FileName(), off, err)
-				break
+			var data []byte
+			if whole != nil {
+				data = whole[off-s : off-s+n]
+			} else {
+				data = make([]byte, n)
+				if err := share.ReadFull(f, data, off); err != nil {
+					m.cfg.Debug("upload: cannot read %s at %d: %v", f.FileName(), off, err)
+					break
+				}
 			}
 			m.limiter.Wait(int(n))
 			var w proto.Writer
@@ -426,7 +439,7 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 
 	// Rotate: after its quota, the peer goes back to the end of the queue.
 	m.mu.Lock()
-	rotate := cl.uploading && (cl.sent >= slotQuota || time.Since(cl.slotStart) > slotMaxTime) && len(m.queue) > 0
+	rotate := cl.uploading && (cl.sent >= slotQuota || time.Since(cl.slotStart) > slotMaxTime) && m.othersWaitingLocked(cl)
 	if rotate {
 		cl.uploading = false
 		m.enqueueLocked(cl)
@@ -469,6 +482,19 @@ func (m *Manager) queuedFromLocked(ip net.IP) int {
 		}
 	}
 	return n
+}
+
+// othersWaitingLocked reports whether a peer other than cl waits in the
+// queue and could get a slot now (it is connected, or we can dial it).
+// Ending cl's turn for peers that cannot take it (LowID peers that are
+// not connected) only gave the slot straight back to cl, over and over.
+func (m *Manager) othersWaitingLocked(cl *client) bool {
+	for _, q := range m.queue {
+		if q != cl && !q.uploading && q.awaiting.IsZero() && (q.conn != nil || (!q.lowID && m.cfg.Dial != nil)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) firstWaitingLocked() *client {
@@ -569,17 +595,19 @@ func (m *Manager) tick() {
 	}
 	var dials []dial
 
+	ended := map[*client]bool{}
 	m.mu.Lock()
 	for _, cl := range m.clients {
 		switch {
 		case cl.uploading && (now.Sub(cl.lastReq) > slotIdle ||
-			(now.Sub(cl.slotStart) > slotMaxTime+slotIdle && len(m.queue) > 0)):
+			(now.Sub(cl.slotStart) > slotMaxTime+slotIdle && m.othersWaitingLocked(cl))):
 			// Idle, or a turn that never ends (tiny requests that never
 			// reach the quota) while others wait.
 			cl.uploading = false
 			if cl.conn != nil {
 				outOfParts = append(outOfParts, cl.conn)
 			}
+			ended[cl] = true
 			m.enqueueLocked(cl)
 		case !cl.awaiting.IsZero() && now.After(cl.awaiting):
 			// Dialed for its slot and it didn't come: to the end of the
@@ -599,7 +627,10 @@ func (m *Manager) tick() {
 	for m.freeSlotsLocked() > 0 {
 		var next *client
 		for _, cl := range m.queue {
-			if cl.uploading || !cl.awaiting.IsZero() {
+			// Not a turn just ended: its "out of parts" and a new accept
+			// go out from separate goroutines and could arrive swapped,
+			// leaving the peer queued while we count it as uploading.
+			if cl.uploading || !cl.awaiting.IsZero() || ended[cl] {
 				continue
 			}
 			if cl.conn != nil || (!cl.lowID && m.cfg.Dial != nil) {
@@ -620,11 +651,13 @@ func (m *Manager) tick() {
 	}
 	m.mu.Unlock()
 
+	// Sent from their own goroutines: a peer that does not read could
+	// hold a send for a minute, and with it every other slot and dial.
 	for _, c := range outOfParts {
-		c.Send(proto.ProtoEDonkey, peer.OpOutOfPartReqs, nil)
+		go safe.Catch(m.cfg.Log, "upload: end of turn", func() { c.Send(proto.ProtoEDonkey, peer.OpOutOfPartReqs, nil) }, m)
 	}
 	for _, c := range accepts {
-		m.accept(c)
+		go safe.Catch(m.cfg.Log, "upload: accept", func() { m.accept(c) }, m)
 	}
 	for _, d := range dials {
 		go m.cfg.Dial(d.ip, d.port)

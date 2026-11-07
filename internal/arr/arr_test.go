@@ -381,3 +381,66 @@ func TestQBittorrentChangesNeedPOST(t *testing.T) {
 		t.Fatalf("download deleted by a GET (%s)", h)
 	}
 }
+
+// The qBittorrent session cookie is not accepted from a web page of
+// another site or another port (a browser sends it along), and logging
+// out ends the session.
+func TestQBittorrentSessionCookie(t *testing.T) {
+	fx := newFixture(t)
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+	api2 := fx.srv.URL + "/api/v2"
+	if _, body := post(t, c, api2+"/auth/login", url.Values{"password": {testKey}}); body != "Ok." {
+		t.Fatalf("login: %s", body)
+	}
+	try := func(header, value string) int {
+		req, _ := http.NewRequest("GET", api2+"/torrents/info", nil)
+		if header != "" {
+			req.Header.Set(header, value)
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := try("", ""); code != 200 {
+		t.Fatalf("the *arr app: %d", code)
+	}
+	if code := try("Sec-Fetch-Site", "same-origin"); code != 200 {
+		t.Fatalf("same origin: %d", code)
+	}
+	for _, h := range [][2]string{{"Sec-Fetch-Site", "cross-site"}, {"Sec-Fetch-Site", "same-site"}, {"Origin", "http://example.test"}} {
+		if code := try(h[0], h[1]); code != 403 {
+			t.Fatalf("%s: %s accepted (%d)", h[0], h[1], code)
+		}
+	}
+	sid := ""
+	for _, ck := range jar.Cookies(mustURL(t, api2)) {
+		if ck.Name == "SID" {
+			sid = ck.Value
+		}
+	}
+	if code, _ := post(t, c, api2+"/auth/logout", nil); code != 200 {
+		t.Fatalf("logout: %d", code)
+	}
+	req, _ := http.NewRequest("GET", api2+"/torrents/info", nil)
+	req.AddCookie(&http.Cookie{Name: "SID", Value: sid})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if sid == "" || resp.StatusCode != 403 {
+		t.Fatalf("session after logout: %q %d", sid, resp.StatusCode)
+	}
+}
+
+func mustURL(t *testing.T, s string) *url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
+}

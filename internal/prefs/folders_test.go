@@ -46,6 +46,8 @@ func TestLibraryFolderRules(t *testing.T) {
 	} else {
 		bad["/etc"] = "/etc"
 		bad["inside /usr"] = "/usr/local/share/movies"
+		bad["holding /var/lib"] = "/var"
+		bad["holding every user's folder"] = "/home"
 	}
 	for what, dir := range bad {
 		p := s.Get()

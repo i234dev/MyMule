@@ -32,7 +32,7 @@ const (
 func (a *Adapter) qbit() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v2/auth/login", a.qLogin)
-	mux.HandleFunc("/api/v2/auth/logout", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "Ok.") })
+	mux.HandleFunc("POST /api/v2/auth/logout", a.qLogout)
 	mux.HandleFunc("/api/v2/app/version", text(qbitVersion))
 	mux.HandleFunc("/api/v2/app/webapiVersion", text(qbitAPIVersion))
 	mux.HandleFunc("/api/v2/app/buildInfo", func(w http.ResponseWriter, r *http.Request) {
@@ -121,10 +121,25 @@ func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Ok.")
 }
 
-// qAuthorized accepts a session cookie from /auth/login, or the API key
-// itself (handy for scripts).
-func (a *Adapter) qAuthorized(r *http.Request) bool {
+// qLogout ends the session of the request's cookie.
+func (a *Adapter) qLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("SID"); err == nil {
+		a.mu.Lock()
+		delete(a.sessions, c.Value)
+		a.mu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{Name: "SID", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	io.WriteString(w, "Ok.")
+}
+
+// qAuthorized accepts a session cookie from /auth/login, or the API key
+// itself (handy for scripts). The cookie only counts when the request
+// does not come from a web page of another site, or of another port on
+// the same machine (a browser sends the cookie along with those too, as
+// the cookie does not depend on the port): the *arr apps send no such
+// page's address at all.
+func (a *Adapter) qAuthorized(r *http.Request) bool {
+	if c, err := r.Cookie("SID"); err == nil && !authlimit.CrossSite(r) && r.Header.Get("Sec-Fetch-Site") != "same-site" {
 		a.mu.Lock()
 		exp, ok := a.sessions[c.Value]
 		a.mu.Unlock()

@@ -155,6 +155,18 @@ func WriteServerMet(w io.Writer, list []Info) error {
 			proto.Tag{Name: "files", Type: proto.TagUint32, Int: uint64(s.Files)},
 			proto.IntTag(proto.STFail, s.Fails),
 		)
+		// What the server supports (UDP flags: GETSOURCES2, large files...)
+		// must survive a save, or every server is later treated as the
+		// newest kind.
+		for _, t := range []struct {
+			id  byte
+			val uint32
+		}{{proto.STMaxUsers, s.MaxUsers}, {proto.STPreference, s.Preference}, {proto.STVersion, s.Version},
+			{proto.STUDPFlags, s.UDPFlags}, {proto.STTCPPortObfu, uint32(s.ObfuTCPPort)}} {
+			if t.val != 0 {
+				tags = append(tags, proto.IntTag(t.id, t.val))
+			}
+		}
 		b.U32(uint32(len(tags)))
 		for _, t := range tags {
 			b.WriteTag(t)

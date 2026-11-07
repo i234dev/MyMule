@@ -15,6 +15,9 @@ func resolveExisting(p string) string {
 	rest := ""
 	for dir := p; ; {
 		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			if fp, err := finalPath(real); err == nil {
+				real = fp // junctions too (Windows)
+			}
 			return filepath.Clean(filepath.Join(real, rest))
 		}
 		parent := filepath.Dir(dir)

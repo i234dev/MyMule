@@ -6,7 +6,9 @@ package meta
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -186,7 +188,7 @@ func (w *Wikidata) get(ctx context.Context, endpoint string, params url.Values, 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("wikidata: %s", resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return decodeLimited(resp.Body, out)
 }
 
 // searchItems runs a text search restricted to statements, returning
@@ -480,4 +482,22 @@ func (w *Wikidata) TitlesByID(ctx context.Context, ids IDs, tv bool, langs []str
 		}
 	}
 	return out, nil
+}
+
+// maxJSONBytes bounds an answer from TMDB or Wikidata: real ones are a few
+// hundred KB at most, and a broken or hostile answer (a proxy, a captive
+// portal) must not fill the memory.
+const maxJSONBytes = 8 << 20
+
+// decodeLimited decodes JSON from r into out, refusing answers larger than
+// maxJSONBytes.
+func decodeLimited(r io.Reader, out any) error {
+	lr := &io.LimitedReader{R: r, N: maxJSONBytes + 1}
+	if err := json.NewDecoder(lr).Decode(out); err != nil {
+		if lr.N <= 0 {
+			return errors.New("answer too large")
+		}
+		return err
+	}
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"mymule/internal/fsutil"
 )
@@ -154,7 +155,7 @@ func Render(t string, it Item, originalTitles bool) string {
 				return r
 			}, value(m[1], pad))
 		})
-		if s := tidy(sanitize(filled)); s != "" {
+		if s := tidy(fitName(tidy(sanitize(filled)))); s != "" {
 			segs = append(segs, s)
 		}
 	}
@@ -183,6 +184,25 @@ func sanitize(s string) string {
 		return ""
 	}
 	return s
+}
+
+// maxNameBytes is the longest file or folder name made from a template,
+// leaving room under the usual 255-byte limit of file systems for the
+// extension and a " (2)" added when the name is taken. Long titles
+// (episode titles, some original titles) would otherwise make the move
+// fail.
+const maxNameBytes = 200
+
+// fitName shortens s to maxNameBytes at most, without cutting a character.
+func fitName(s string) string {
+	if len(s) <= maxNameBytes {
+		return s
+	}
+	cut := maxNameBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.TrimRight(strings.TrimSpace(s[:cut]), ". ")
 }
 
 var (
@@ -235,6 +255,10 @@ func Plan(st Settings, it Item, src string) (base, rel string, ok bool) {
 	}
 	if rel == "" || rel == "." || rel == string(filepath.Separator) {
 		return "", "", false
+	}
+	// A season's file keeps its download name, which may be long too.
+	if last := filepath.Base(rel); len(last) > maxNameBytes {
+		rel = filepath.Join(filepath.Dir(rel), tidy(fitName(last)))
 	}
 	rel += ext
 	// Never outside the chosen folder.

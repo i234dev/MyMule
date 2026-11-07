@@ -126,3 +126,16 @@ func TestLive(t *testing.T) {
 		t.Logf("%s %-6s %d %q orig=%q aliases=%q imdb=%s pop=%d", wk.ID, wk.Kind, wk.Year, wk.Title, wk.OriginalTitle, wk.Aliases, wk.IDs.IMDb, wk.Popularity)
 	}
 }
+
+// An answer far larger than any real one is refused instead of read
+// into memory.
+func TestDecodeLimited(t *testing.T) {
+	var v map[string]any
+	big := strings.NewReader(`{"a":"` + strings.Repeat("x", maxJSONBytes) + `"}`)
+	if err := decodeLimited(big, &v); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("huge answer: %v", err)
+	}
+	if err := decodeLimited(strings.NewReader(`{"a":1}`), &v); err != nil || v["a"] != 1.0 {
+		t.Fatalf("small answer: %v %v", v, err)
+	}
+}

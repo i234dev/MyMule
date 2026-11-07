@@ -144,9 +144,10 @@ type File struct {
 type Manager struct {
 	cfg Config
 
-	mu    sync.Mutex
-	files map[ed2k.Hash]*File
-	srv   *server.Conn
+	mu      sync.Mutex
+	closing bool // shutdown has started
+	files   map[ed2k.Hash]*File
+	srv     *server.Conn
 	// reconnect asks the server loop to connect again right away (another
 	// server was chosen), without the usual pause.
 	reconnect bool
@@ -277,6 +278,7 @@ func (m *Manager) allFinished() bool {
 
 func (m *Manager) shutdown() {
 	m.mu.Lock()
+	m.closing = true // connections accepted from now on are closed at once
 	for c := range m.conns {
 		c.Close()
 	}
@@ -289,7 +291,9 @@ func (m *Manager) shutdown() {
 	defer m.mu.Unlock()
 	for _, f := range m.files {
 		if !f.finished {
-			f.pf.Close()
+			if err := f.pf.Close(); err != nil {
+				m.cfg.Log("saving %s: %v", f.pf.Name, err)
+			}
 		}
 	}
 }
@@ -347,6 +351,10 @@ func (m *Manager) serverLoop(ctx context.Context) {
 		keep := time.NewTicker(10 * time.Minute)
 		srcTick := time.NewTicker(2 * time.Second)
 		offerTick := time.NewTicker(30 * time.Second)
+		// Source requests run beside the loop, one at a time: a server
+		// that does not answer one would otherwise hold up for its time
+		// limit the keep-alives, file offers and a reconnection asked for.
+		var srcBusy atomic.Bool
 	loop:
 		for {
 			select {
@@ -362,7 +370,14 @@ func (m *Manager) serverLoop(ctx context.Context) {
 					m.offerFiles(c) // a full offer also keeps the connection alive
 				}
 			case <-srcTick.C:
-				m.requestSources(ctx, c)
+				if srcBusy.CompareAndSwap(false, true) {
+					m.wg.Add(1)
+					go func() {
+						defer m.wg.Done()
+						defer srcBusy.Store(false)
+						safe.Catch(m.cfg.Log, "source request", func() { m.requestSources(ctx, c) }, m.locks()...)
+					}()
+				}
 			case <-offerTick.C:
 				offer()
 			}
@@ -790,6 +805,11 @@ func (m *Manager) trackConn(c *peer.Conn, add bool) {
 	defer m.mu.Unlock()
 	if add {
 		m.conns[c] = nil
+		if m.closing {
+			// Accepted while shutting down, after shutdown closed the
+			// others: it would keep shutdown waiting for its time limits.
+			c.Close()
+		}
 	} else {
 		delete(m.conns, c)
 	}

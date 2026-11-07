@@ -28,6 +28,8 @@ var errDone = errors.New("session finished")
 
 // errCompressed ends a session whose peer sends compressed blocks, which
 // we do not support and never ask for.
+var errBanned = errors.New("peer sent corrupt data")
+
 var errCompressed = errors.New("peer sent a compressed block, which we do not accept")
 
 // runSession performs the hello handshake on a fresh connection, works out
@@ -408,6 +410,14 @@ func (s *session) onData(p *proto.Packet) error {
 
 func (s *session) store(off int64, data []byte) error {
 	complete, err := s.pf.Write(s.owner, off, data)
+	if s.pf.Banned(s.owner) {
+		// It sent a part that failed verification all by itself.
+		s.m.cfg.Log("%s [%s %q]: sent corrupt data; not downloading this file from it again", s.pf.Name, s.owner, s.src.Name)
+		s.m.mu.Lock()
+		s.src.State = StateNoFile
+		s.m.mu.Unlock()
+		return errBanned
+	}
 	if errors.Is(err, ErrNotReserved) {
 		// The block was taken from this peer (its part failed or was
 		// finished by others). Forget it and ask for something else.

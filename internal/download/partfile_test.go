@@ -145,6 +145,9 @@ func TestPartFileCorruption(t *testing.T) {
 	if done, _ := pf.Progress(); done != 0 {
 		t.Fatalf("corrupt part not discarded: %d bytes", done)
 	}
+	if pf.Banned("peer") {
+		t.Fatal("a peer was banned for a single bad part")
+	}
 	download(t, pf, data)
 	if !pf.Complete() {
 		t.Fatal("not complete after re-download")

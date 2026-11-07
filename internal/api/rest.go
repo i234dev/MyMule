@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -71,22 +70,16 @@ func (r *REST) Authorized(req *http.Request) bool {
 	if got == "" {
 		got = req.URL.Query().Get("apikey")
 	}
-	if got != "" && r.key != "" {
-		// A key was sent: counts against the guessing limit, and while
-		// the address is blocked even the right key is refused.
-		if !authlimit.Default.Allowed(req) {
-			return false
-		}
-		if subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1 {
-			return true
-		}
-		if r.also == nil || !r.also(req) {
-			authlimit.Default.Failed(req)
-			return false
-		}
+	// The web interface's session first: it is already proven, and a
+	// key sent alongside it must not count as a wrong one.
+	if r.also != nil && r.also(req) {
 		return true
 	}
-	return r.also != nil && r.also(req)
+	if got == "" || r.key == "" || authlimit.CrossSite(req) {
+		return false
+	}
+	// A key was sent: a wrong one counts against the guessing limit.
+	return authlimit.Default.Check(req, got, r.key)
 }
 
 func (r *REST) ServeHTTP(w http.ResponseWriter, req *http.Request) {

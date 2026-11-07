@@ -36,7 +36,8 @@ Python, cron, home automation).
   (`search -global`, over UDP); a server that stops answering doesn't
   leave the search empty
 - Downloads from eD2K peers, with MD4 verification of every 9.28 MB part:
-  corrupt parts are thrown away and downloaded again
+  corrupt parts are thrown away and downloaded again, and a peer that
+  keeps sending bad data is not used for that file any more
 - Sources from every server in the list (UDP), not only the connected one
 - Sharing and uploads: shared folders, completed downloads and the verified
   parts of partial downloads; upload queue, slots taken in turns, speed limit
@@ -168,7 +169,10 @@ behind a reverse proxy), add that name to `api_hosts`.
 
 The session lasts 30 days. **Log out** ends it for good, also for any copy
 of the session cookie; changing `api_key` logs everybody out. After 10
-wrong keys from one address, that address is blocked for 15 minutes.
+wrong keys from one address, that address is blocked for 15 minutes; a
+long random key like the generated one keeps working even then, so
+nobody can lock you out, and requests that other web sites make your
+browser send are ignored.
 
 When `web_ui = false` the pages don't exist and nothing extra runs; the
 interface only uses resources while a browser has it open.

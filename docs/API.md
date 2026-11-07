@@ -42,8 +42,14 @@ Two protections to keep in mind when you call the API from a script:
 
 - **Wrong keys block the address.** After 10 wrong keys within 10 minutes
   from one address (any of the ways above, the web login, the
-  qBittorrent login), every key from that address is refused for 15
-  minutes, even the right one. Requests without any key don't count.
+  qBittorrent login), keys from that address are refused for 15 minutes,
+  even the right one if it is shorter than 24 characters. A longer key,
+  like the generated one, cannot be guessed and keeps working, so nobody
+  can lock you out. Requests without any key don't count.
+- **Browsers on other sites.** A key sent by a browser on behalf of
+  another web site (an image or form on a page you visit, detected by
+  the `Sec-Fetch-Site`, `Origin` or `Referer` headers) is refused and
+  doesn't count. Scripts and programs don't send these headers.
 - **Host names.** The API answers to IP addresses, `localhost` and the
   computer's own name. If you call it by another name (a NAS name, a
   domain behind a reverse proxy), add that name to `api_hosts` in

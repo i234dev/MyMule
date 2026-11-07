@@ -189,15 +189,68 @@ func TestRESTDownloads(t *testing.T) {
 }
 
 // Guessing the key gets the address blocked, whichever way the key is
-// sent; while blocked even the right key is refused. Requests without
-// any key (an expired page polling) do not count.
+// sent. While blocked, a short (guessable) key is refused even when right;
+// a long random one, like the generated key, still works, so nobody can
+// lock the user out. Requests without any key (an expired page polling)
+// do not count.
 func TestRESTGuessingBlocked(t *testing.T) {
 	old := authlimit.Default
-	authlimit.Default = authlimit.New(5, time.Minute, time.Minute)
 	defer func() { authlimit.Default = old }()
-	srv, _ := newTestREST(t)
-	get := func(path string, hdr map[string]string) int {
-		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	const weakKey = "short-key-12"
+	for _, key := range []string{weakKey, restKey} {
+		authlimit.Default = authlimit.New(5, time.Minute, time.Minute)
+		srv := httptest.NewServer(NewREST(download.NewManager(download.Config{}), key, "x"))
+		get := func(path string, hdr map[string]string) int {
+			req, _ := http.NewRequest("GET", srv.URL+path, nil)
+			for k, v := range hdr {
+				req.Header.Set(k, v)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			return resp.StatusCode
+		}
+		for i := 0; i < 20; i++ {
+			get("/api/v1/version", nil) // no key: not an attempt
+		}
+		if c := get("/api/v1/version", map[string]string{"X-Api-Key": key}); c != 200 {
+			t.Fatalf("keyless requests blocked the address: %d", c)
+		}
+		for i := 0; i < 5; i++ {
+			switch i % 3 {
+			case 0:
+				get("/api/v1/version", map[string]string{"X-Api-Key": "guess"})
+			case 1:
+				get("/api/v1/version", map[string]string{"Authorization": "Bearer guess"})
+			default:
+				get("/api/v1/version?apikey=guess", nil)
+			}
+		}
+		c := get("/api/v1/version", map[string]string{"X-Api-Key": key})
+		if key == weakKey && c != 401 {
+			t.Fatalf("right short key accepted while blocked: %d", c)
+		}
+		if key == restKey && c != 200 {
+			t.Fatalf("right long key refused while blocked: %d", c)
+		}
+		srv.Close()
+	}
+}
+
+// A web page the user opens can make the browser send requests with a
+// made-up key (<img src=...?apikey=x>, a hidden form). They are refused
+// and do not count, so the page cannot block the user's own address.
+func TestRESTCrossSiteAttemptsDoNotBlock(t *testing.T) {
+	old := authlimit.Default
+	authlimit.Default = authlimit.New(3, time.Minute, time.Minute)
+	defer func() { authlimit.Default = old }()
+	const weakKey = "short-key-12"
+	srv := httptest.NewServer(NewREST(download.NewManager(download.Config{}), weakKey, "x"))
+	defer srv.Close()
+	get := func(key string, hdr map[string]string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/version?apikey="+key, nil)
 		for k, v := range hdr {
 			req.Header.Set(k, v)
 		}
@@ -208,23 +261,22 @@ func TestRESTGuessingBlocked(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	for i := 0; i < 20; i++ {
-		get("/api/v1/version", nil) // no key: not an attempt
+	foreign := []map[string]string{
+		{"Sec-Fetch-Site": "cross-site"},
+		{"Origin": "https://attacker.example"},
+		{"Referer": "https://attacker.example/page.html"},
+		{"Origin": "null"},
 	}
-	if c := get("/api/v1/version", map[string]string{"X-Api-Key": restKey}); c != 200 {
-		t.Fatalf("keyless requests blocked the address: %d", c)
+	for i := 0; i < 10; i++ {
+		get("x", foreign[i%len(foreign)])
 	}
-	for i := 0; i < 5; i++ {
-		switch i % 3 {
-		case 0:
-			get("/api/v1/version", map[string]string{"X-Api-Key": "guess"})
-		case 1:
-			get("/api/v1/version", map[string]string{"Authorization": "Bearer guess"})
-		default:
-			get("/api/v1/version?apikey=guess", nil)
-		}
+	if c := get(weakKey, nil); c != 200 {
+		t.Fatalf("cross-site attempts blocked the address: %d", c)
 	}
-	if c := get("/api/v1/version", map[string]string{"X-Api-Key": restKey}); c != 401 {
-		t.Fatalf("right key accepted while blocked: %d", c)
+	if c := get(weakKey, foreign[0]); c != 401 {
+		t.Fatalf("the right key from another site was accepted: %d", c)
+	}
+	if c := get(weakKey, map[string]string{"Sec-Fetch-Site": "same-origin"}); c != 200 {
+		t.Fatalf("same-origin request refused: %d", c)
 	}
 }

@@ -113,8 +113,9 @@ type Source struct {
 	Fails   int
 	Bytes   int64
 
-	busy bool
-	file *File
+	busy       bool
+	callbackAt time.Time // when we last asked the server for a callback (LowID)
+	file       *File
 }
 
 // File is a download managed by the Manager.
@@ -592,6 +593,7 @@ func (m *Manager) schedule(ctx context.Context) {
 				// and share its server: ask the server to relay a callback.
 				if high && src.server == srv.Info().Addr() {
 					callbacks = append(callbacks, src.LowID)
+					src.callbackAt = now
 				}
 				src.NextAsk = now.Add(ReaskInterval)
 				continue
@@ -662,9 +664,18 @@ func (m *Manager) acceptLoop(ctx context.Context, ln net.Listener) {
 // claimSource finds the source a just-identified peer corresponds to and
 // marks it busy. Prefers sources where we are queued (the peer is likely
 // calling us back to start an upload).
+//
+// What a peer says about itself in its hello (user hash, client ID, port)
+// is not proof of anything: anyone can copy another client's values. So
+// a HighID source only matches a connection from its own IP address, and
+// a LowID source (whose address we do not know) only while we are waiting
+// for the callback we asked its server for, and only once per request.
+// Otherwise a stranger could take over our sources, learn which files we
+// download, and keep our connection slots busy.
 func (m *Manager) claimSource(h peer.Hello, ip net.IP) *Source {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
 	var best *Source
 	for _, f := range m.files {
 		if f.finished || f.paused {
@@ -674,10 +685,7 @@ func (m *Manager) claimSource(h peer.Hello, ip net.IP) *Source {
 			if src.busy {
 				continue
 			}
-			match := (src.LowID == 0 && src.IP.Equal(ip) && src.Port == h.Port) ||
-				(!src.UserHash.IsZero() && src.UserHash == h.UserHash) ||
-				(src.LowID != 0 && src.LowID == h.ClientID)
-			if !match {
+			if !incomingMatches(src, h, ip, now) {
 				continue
 			}
 			if best == nil || (src.State == StateQueued && best.State != StateQueued) {
@@ -687,9 +695,29 @@ func (m *Manager) claimSource(h peer.Hello, ip net.IP) *Source {
 	}
 	if best != nil {
 		best.busy = true
+		best.callbackAt = time.Time{}
 		m.active++
 	}
 	return best
+}
+
+// callbackWait is how long after asking a server to relay a callback we
+// accept the LowID peer's connection as that source.
+const callbackWait = 2 * time.Minute
+
+// incomingMatches reports whether a connection from ip, whose peer sent
+// hello h, may be the source src.
+func incomingMatches(src *Source, h peer.Hello, ip net.IP, now time.Time) bool {
+	if src.LowID == 0 {
+		if ip == nil || !src.IP.Equal(ip) {
+			return false
+		}
+		return src.Port == h.Port || (!src.UserHash.IsZero() && src.UserHash == h.UserHash)
+	}
+	if src.callbackAt.IsZero() || now.Sub(src.callbackAt) > callbackWait || src.LowID != h.ClientID {
+		return false
+	}
+	return src.UserHash.IsZero() || src.UserHash == h.UserHash
 }
 
 func (m *Manager) releaseSource(src *Source) {

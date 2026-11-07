@@ -2,7 +2,6 @@ package arr
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -95,12 +94,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	pass := r.Form.Get("password")
-	if !authlimit.Default.Allowed(r) {
-		io.WriteString(w, "Fails.")
-		return
-	}
-	if a.cfg.Key == "" || subtle.ConstantTimeCompare([]byte(pass), []byte(a.cfg.Key)) != 1 {
-		authlimit.Default.Failed(r)
+	// A form on another web site cannot log in, nor count as a failure.
+	if authlimit.CrossSite(r) || !authlimit.Default.Check(r, pass, a.cfg.Key) {
 		io.WriteString(w, "Fails.")
 		return
 	}

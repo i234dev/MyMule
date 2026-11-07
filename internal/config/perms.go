@@ -58,3 +58,18 @@ func locationWarning(goos, dir, profile string) string {
 		"computer may be able to read mymule.conf (with the api_key) or replace mymule.exe. " +
 		"Moving the MyMule folder inside your profile (for example to Documents) avoids that."
 }
+
+// TightenDir makes dir private (0700) when other users may write in it.
+// Used for the temporary folder: older versions created it 0755, and a
+// folder others can write in lets them plant fake downloads there. It
+// reports whether it changed anything. Does nothing on Windows.
+func TightenDir(dir string) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	st, err := os.Lstat(dir)
+	if err != nil || !st.IsDir() || st.Mode().Perm()&0o022 == 0 {
+		return false
+	}
+	return os.Chmod(dir, 0o700) == nil
+}

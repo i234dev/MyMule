@@ -47,6 +47,10 @@ func samePath(a, b string) bool {
 
 // within reports whether p is dir or inside it.
 func within(p, dir string) bool {
+	if runtime.GOOS == "darwin" {
+		// filepath.Rel compares case-sensitively there; the disk does not.
+		p, dir = strings.ToLower(p), strings.ToLower(dir)
+	}
 	rel, err := filepath.Rel(dir, p)
 	if err != nil {
 		return false
@@ -67,9 +71,14 @@ func checkFolder(abs string, noContain, noInside []string) error {
 	if !filepath.IsAbs(abs) {
 		return errors.New("it must be a full path")
 	}
+	if runtime.GOOS == "windows" {
+		if err := windowsPathProblem(abs); err != nil {
+			return err
+		}
+	}
 	paths := []string{filepath.Clean(abs)}
-	if real, err := filepath.EvalSymlinks(abs); err == nil && !samePath(real, paths[0]) {
-		paths = append(paths, filepath.Clean(real))
+	if real := resolveExisting(paths[0]); real != "" && !samePath(real, paths[0]) {
+		paths = append(paths, real)
 	}
 	home, _ := os.UserHomeDir()
 	for _, p := range paths {

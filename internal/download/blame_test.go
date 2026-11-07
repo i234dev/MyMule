@@ -2,6 +2,7 @@ package download
 
 import (
 	"testing"
+	"time"
 
 	"mymule/internal/ed2k"
 )
@@ -120,5 +121,27 @@ func TestIsolatedPartAbandoned(t *testing.T) {
 	serve(t, pf, "next:1", first, data, 0)
 	if !pf.VerifiedParts()[0] {
 		t.Fatal("abandoned isolated part not taken over")
+	}
+}
+
+// A peer that reserves blocks and never sends them cannot stall the
+// download: after reserveStale another peer takes them over, and the
+// first one's late data is refused.
+func TestStaleReservationTakenOver(t *testing.T) {
+	pf, data, _ := blameSetup(t)
+	held := pf.Reserve("idle:1", nil, 3)
+	all := len(pf.Reserve("busy:1", nil, 1000)) // everything else
+	pf.mu.Lock()
+	for _, b := range held {
+		pf.resAt[b.Start] = pf.resAt[b.Start].Add(-reserveStale - time.Second)
+	}
+	pf.mu.Unlock()
+	got := pf.Reserve("busy:1", nil, 1000)
+	if len(got) != len(held) || all == 0 {
+		t.Fatalf("took over %d of %d stale blocks", len(got), len(held))
+	}
+	b := held[0]
+	if _, err := pf.Write("idle:1", b.Start, data[b.Start:b.End]); err != ErrNotReserved {
+		t.Fatalf("late write by the old holder: %v", err)
 	}
 }

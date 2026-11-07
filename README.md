@@ -40,7 +40,8 @@ Python, cron, home automation).
   keeps sending bad data is not used for that file any more
 - Sources from every server in the list (UDP), not only the connected one
 - Sharing and uploads: shared folders, completed downloads and the verified
-  parts of partial downloads; upload queue, slots taken in turns, speed limit
+  parts of partial downloads; upload queue, slots taken in turns (10 MB
+  or 15 minutes each), speed limit
 - Resume after a stop, a crash or a reboot
 - HighID support (listen port) and server callbacks to reach firewalled peers
 - Runs as a background daemon, controlled with short commands

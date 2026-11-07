@@ -37,11 +37,12 @@ type PartFile struct {
 	Added   time.Time
 	hashSet []ed2k.Hash // nil until known; not needed for single-part files
 
-	done     RangeSet         // bytes written to disk
-	verified []bool           // per part: hash checked OK
-	checked  []bool           // per part: verified in this run, not just per the state file
-	reserved map[int64]string // block start -> owner (peer key)
-	corrupt  int              // parts that failed verification (stats)
+	done     RangeSet            // bytes written to disk
+	verified []bool              // per part: hash checked OK
+	checked  []bool              // per part: verified in this run, not just per the state file
+	reserved map[int64]string    // block start -> owner (peer key)
+	resAt    map[int64]time.Time // block start -> reserved or last written
+	corrupt  int                 // parts that failed verification (stats)
 
 	// Who sent the data of each part being downloaded, to find a peer
 	// that sends bad data (see blameLocked).
@@ -56,6 +57,7 @@ type PartFile struct {
 	dataPath string
 	metaPath string
 	dirty    bool
+	deleted  bool // Delete was called: never write the state again
 }
 
 type partMeta struct {
@@ -122,6 +124,7 @@ func create(dir string, link ed2k.Link, checkSpace bool) (*PartFile, error) {
 		verified: make([]bool, NumParts(link.Size)),
 		checked:  make([]bool, NumParts(link.Size)),
 		reserved: map[int64]string{},
+		resAt:    map[int64]time.Time{},
 		writers:  map[int]map[string]bool{},
 		unknown:  map[int]bool{},
 		isolate:  map[int]bool{},
@@ -173,6 +176,7 @@ func Open(metaPath string) (*PartFile, error) {
 		verified: make([]bool, NumParts(m.Size)),
 		checked:  make([]bool, NumParts(m.Size)),
 		reserved: map[int64]string{},
+		resAt:    map[int64]time.Time{},
 		writers:  map[int]map[string]bool{},
 		unknown:  map[int]bool{},
 		isolate:  map[int]bool{},
@@ -252,6 +256,11 @@ func (pf *PartFile) Save() error {
 }
 
 func (pf *PartFile) saveLocked() error {
+	if pf.deleted {
+		// A save that raced with cancelling (the periodic save, a pause)
+		// would bring the cancelled download back on the next start.
+		return nil
+	}
 	m := partMeta{
 		Hash:     pf.Hash.String(),
 		Name:     pf.Name,
@@ -397,6 +406,7 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 	if pf.banned[owner] {
 		return nil
 	}
+	now := time.Now()
 
 	type cand struct {
 		part int
@@ -442,10 +452,17 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 		pr := pf.partRange(c.part)
 		for start := pr.Start; start < pr.End && len(out) < n; start += peer.BlockSize {
 			blk := Range{start, min(start+peer.BlockSize, pr.End)}
-			if _, taken := pf.reserved[start]; taken || pf.done.Contains(blk) {
+			if pf.done.Contains(blk) {
 				continue
 			}
+			if o, taken := pf.reserved[start]; taken && (o == owner || now.Sub(pf.resAt[start]) < reserveStale) {
+				continue
+			}
+			// Free, or held by a peer that sent nothing for it for too
+			// long: a peer must not be able to stall a download at 99%
+			// by holding its last blocks.
 			pf.reserved[start] = owner
+			pf.resAt[start] = now
 			out = append(out, blk)
 		}
 		if len(out) >= n {
@@ -461,6 +478,7 @@ func (pf *PartFile) Release(owner string, r Range) {
 	defer pf.mu.Unlock()
 	if pf.reserved[r.Start] == owner {
 		delete(pf.reserved, r.Start)
+		delete(pf.resAt, r.Start)
 	}
 }
 
@@ -470,6 +488,13 @@ func (pf *PartFile) Has(r Range) bool {
 	defer pf.mu.Unlock()
 	return pf.done.Contains(r)
 }
+
+// reserveStale is how long a block stays reserved for a peer that sends
+// nothing for it; then another peer may take it over.
+const reserveStale = 3 * time.Minute
+
+// maxPiecesPerBlock is how many separate pieces of a block may be on disk.
+const maxPiecesPerBlock = 16
 
 // ErrNotReserved is returned by Write for data the sender has no right to
 // write: a block that is not reserved for it (any more), or one in a part
@@ -509,8 +534,15 @@ func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
 	if off < 0 || end > pf.Size || end < off {
 		return false, fmt.Errorf("write out of bounds: %d-%d", off, end)
 	}
-	if blk := pf.blockAt(off); end > blk.End || pf.reserved[blk.Start] != owner ||
+	blk := pf.blockAt(off)
+	if end > blk.End || pf.reserved[blk.Start] != owner ||
 		pf.verified[off/ed2k.PartSize] || pf.banned[owner] {
+		return false, ErrNotReserved
+	}
+	// Honest peers send a block in a few large pieces, nearly always in
+	// order. Countless tiny scattered pieces only serve to make our
+	// bookkeeping slow, so a block may be split into a few pieces only.
+	if pieces := pf.done.Pieces(blk) - pf.done.Pieces(Range{off, end}) + 1; pieces > maxPiecesPerBlock {
 		return false, ErrNotReserved
 	}
 	if _, err := pf.f.WriteAt(data, off); err != nil {
@@ -523,6 +555,7 @@ func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
 		pf.writers[part] = map[string]bool{}
 	}
 	pf.writers[part][owner] = true
+	pf.resAt[blk.Start] = time.Now()
 	if pf.isolate[part] {
 		pf.lastWr[part] = time.Now()
 	}
@@ -563,6 +596,7 @@ func (pf *PartFile) verifyLocked(p int) {
 	// no longer needed and corrupt ones must be re-reserved.
 	for start := pr.Start; start < pr.End; start += peer.BlockSize {
 		delete(pf.reserved, start)
+		delete(pf.resAt, start)
 	}
 }
 
@@ -589,6 +623,7 @@ func (pf *PartFile) blameLocked(p int) {
 			for start, o := range pf.reserved {
 				if o == owner {
 					delete(pf.reserved, start)
+					delete(pf.resAt, start)
 				}
 			}
 			// What else it sent is just as suspect: download those parts
@@ -642,38 +677,76 @@ func (pf *PartFile) rootIsPartHash() bool { return pf.Size < ed2k.PartSize }
 // checkPartLocked hashes part p from disk and compares it with the
 // expected hash. known is false while the hash set is still missing.
 func (pf *PartFile) checkPartLocked(p int) (ok, known bool) {
-	var want ed2k.Hash
-	switch {
-	case pf.rootIsPartHash():
-		want = pf.Hash
-	case pf.hashSet != nil:
-		want = pf.hashSet[p]
-	default:
+	want, known := pf.wantLocked(p)
+	if !known {
 		return false, false
 	}
-	pr := pf.partRange(p)
-	h := md4.New()
-	if _, err := io.Copy(h, io.NewSectionReader(pf.f, pr.Start, pr.Len())); err != nil {
-		return false, true
+	return hashMatches(pf.f, pf.partRange(p), want), true
+}
+
+// wantLocked returns the expected hash of part p; false while the hash
+// set is still missing.
+func (pf *PartFile) wantLocked(p int) (ed2k.Hash, bool) {
+	switch {
+	case pf.rootIsPartHash():
+		return pf.Hash, true
+	case pf.hashSet != nil:
+		return pf.hashSet[p], true
 	}
-	return bytes.Equal(h.Sum(nil), want[:]), true
+	return ed2k.Hash{}, false
+}
+
+// hashMatches hashes r of f and compares it with want.
+func hashMatches(f *os.File, r Range, want ed2k.Hash) bool {
+	h := md4.New()
+	if _, err := io.Copy(h, io.NewSectionReader(f, r.Start, r.Len())); err != nil {
+		return false
+	}
+	return bytes.Equal(h.Sum(nil), want[:])
 }
 
 // recheck hashes every part again before the file is handed over, so
 // nothing written after a part was verified can slip through. Parts that
 // no longer match are marked for download again.
+//
+// The hashing (a minute or more for a large file) runs without holding
+// pf.mu, so everything asking this download for its state (the web
+// interface, the scheduler) keeps working meanwhile. Nothing can write
+// into a complete file: every part is verified, and Write refuses those.
 func (pf *PartFile) recheck() error {
 	pf.mu.Lock()
-	defer pf.mu.Unlock()
-	if pf.f == nil {
+	f := pf.f
+	if f == nil {
+		pf.mu.Unlock()
 		return errors.New("file closed")
 	}
 	if !pf.completeLocked() {
+		pf.mu.Unlock()
 		return errors.New("file not complete")
+	}
+	want := make([]ed2k.Hash, len(pf.verified))
+	for p := range want {
+		var known bool
+		if want[p], known = pf.wantLocked(p); !known {
+			pf.mu.Unlock()
+			return errors.New("part hashes not known")
+		}
+	}
+	pf.mu.Unlock()
+
+	good := make([]bool, len(want))
+	for p := range want {
+		good[p] = hashMatches(f, pf.partRange(p), want[p])
+	}
+
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	if pf.f != f {
+		return errors.New("file closed during the final check")
 	}
 	bad := 0
 	for p := range pf.verified {
-		if ok, _ := pf.checkPartLocked(p); !ok {
+		if !good[p] {
 			pf.verified[p] = false
 			pf.checked[p] = false
 			pf.done.Remove(pf.partRange(p))
@@ -752,6 +825,8 @@ func (pf *PartFile) reopen() error {
 // Delete removes the download's files from disk.
 func (pf *PartFile) Delete() error {
 	pf.mu.Lock()
+	pf.deleted = true
+	pf.dirty = false
 	if pf.f != nil {
 		pf.f.Close()
 		pf.f = nil

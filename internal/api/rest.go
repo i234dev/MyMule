@@ -65,7 +65,12 @@ func NewREST(m *download.Manager, key, version string) *REST {
 func (r *REST) Authorized(req *http.Request) bool {
 	got := req.Header.Get("X-Api-Key")
 	if got == "" {
-		got = strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+		// Only a bearer token is a key. Other schemes (Basic, sent by a
+		// password-protected reverse proxy in front of MyMule) are not
+		// meant for us and must not count as wrong keys.
+		if a := req.Header.Get("Authorization"); len(a) > 7 && strings.EqualFold(a[:7], "Bearer ") {
+			got = strings.TrimSpace(a[7:])
+		}
 	}
 	if got == "" {
 		got = req.URL.Query().Get("apikey")

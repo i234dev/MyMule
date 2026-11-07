@@ -75,6 +75,10 @@ type Config struct {
 const (
 	MaxSourcesPerFile = 500 // eMule's default is 400
 	MaxSourcesPerIP   = 3   // a few clients on one public IP (NAT) is normal
+	// At most this many of a file's sources may be LowID: they can only
+	// be reached through their server, and a server could otherwise fill
+	// the whole table with made-up ones in two answers.
+	MaxLowIDPerFile = MaxSourcesPerFile / 2
 )
 
 // SourceState is where we stand with a given peer for a given file.
@@ -441,10 +445,18 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	perIP := map[string]int{}
+	lowIDs := 0
 	for _, src := range f.sources {
 		if src.IP != nil {
 			perIP[src.IP.String()]++
 		}
+		if src.LowID != 0 {
+			lowIDs++
+		}
+	}
+	cur := ""
+	if m.srv != nil {
+		cur = m.srv.Info().Addr()
 	}
 	for _, s := range srcs {
 		// Skip ourselves. Another machine behind the same router (e.g. a
@@ -473,12 +485,18 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 		if src.IP != nil && perIP[src.IP.String()] >= MaxSourcesPerIP {
 			continue
 		}
-		if len(f.sources) >= MaxSourcesPerFile && !evictDeadSource(f) {
+		if src.LowID != 0 && lowIDs >= MaxLowIDPerFile && !evictDeadLowID(f, cur) {
+			continue
+		}
+		if len(f.sources) >= MaxSourcesPerFile && !evictDeadSource(f, cur) {
 			break // full of sources that may still work
 		}
 		f.sources[src.key] = src
 		if src.IP != nil {
 			perIP[src.IP.String()]++
+		}
+		if src.LowID != 0 {
+			lowIDs++
 		}
 		added++
 	}
@@ -486,14 +504,32 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 }
 
 // evictDeadSource forgets one source of f that will not be asked again:
-// one without the file, or unreachable too many times. It reports false
-// if there is none. Callers hold m.mu.
-func evictDeadSource(f *File) bool {
+// one without the file, unreachable too many times, or LowID behind a
+// server other than cur (the one we are connected to), which cannot relay
+// a callback to it. It reports false if there is none. Callers hold m.mu.
+func evictDeadSource(f *File, cur string) bool {
 	for key, src := range f.sources {
 		if src.busy {
 			continue
 		}
-		if src.State == StateNoFile || (src.State == StateUnreachable && src.Fails >= maxSourceFails) {
+		if src.State == StateNoFile || (src.State == StateUnreachable && src.Fails >= maxSourceFails) ||
+			(src.LowID != 0 && src.server != cur) {
+			delete(f.sources, key)
+			return true
+		}
+	}
+	return false
+}
+
+// evictDeadLowID forgets one LowID source of f that cannot be reached
+// (behind another server, or that never called back), to make room for a
+// new LowID source. Callers hold m.mu.
+func evictDeadLowID(f *File, cur string) bool {
+	for key, src := range f.sources {
+		if src.busy || src.LowID == 0 {
+			continue
+		}
+		if src.server != cur || src.Fails > 0 || src.State == StateNoFile {
 			delete(f.sources, key)
 			return true
 		}
@@ -589,6 +625,18 @@ func (m *Manager) schedule(ctx context.Context) {
 				break
 			}
 			if src.LowID != 0 {
+				// A callback we asked for and that never came counts as
+				// a failed connection, so LowID sources that do not
+				// exist (or never answer) are eventually forgotten.
+				if !src.callbackAt.IsZero() && now.Sub(src.callbackAt) > callbackWait {
+					src.callbackAt = time.Time{}
+					src.Fails++
+					src.State = StateUnreachable
+					if src.Fails >= maxSourceFails {
+						delete(f.sources, key)
+						continue
+					}
+				}
 				// A firewalled peer can only reach us if we are HighID
 				// and share its server: ask the server to relay a callback.
 				if high && src.server == srv.Info().Addr() {
@@ -896,7 +944,6 @@ type ServerStatus struct {
 // Status returns a snapshot of every download, updating speed estimates.
 func (m *Manager) Status() (ServerStatus, []FileStatus) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	var ss ServerStatus
 	ss.Port = m.port
 	if m.srv != nil {
@@ -905,14 +952,9 @@ func (m *Manager) Status() (ServerStatus, []FileStatus) {
 	}
 	now := time.Now()
 	var out []FileStatus
+	var pfs []*PartFile
 	for _, f := range m.files {
 		fs := FileStatus{Hash: f.pf.Hash, Name: f.pf.Name, Size: f.pf.Size, Finished: f.finished, Paused: f.paused, Path: f.path}
-		fs.Corrupt = f.pf.Corrupt()
-		if f.finished {
-			fs.Done = fs.Size
-		} else {
-			fs.Done, _ = f.pf.Progress()
-		}
 		if dt := now.Sub(f.speedTime).Seconds(); dt >= 1 {
 			b := f.bytes.Load()
 			inst := float64(b-f.speedBytes) / dt
@@ -936,6 +978,18 @@ func (m *Manager) Status() (ServerStatus, []FileStatus) {
 			}
 		}
 		out = append(out, fs)
+		pfs = append(pfs, f.pf)
+	}
+	m.mu.Unlock()
+	// Each download's own state is read without m.mu: a download busy
+	// hashing must not hold up the whole manager.
+	for i, pf := range pfs {
+		out[i].Corrupt = pf.Corrupt()
+		if out[i].Finished {
+			out[i].Done = out[i].Size
+		} else {
+			out[i].Done, _ = pf.Progress()
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return ss, out
@@ -980,11 +1034,19 @@ func (m *Manager) refreshShared() {
 	}
 	changed := false
 	m.mu.Lock()
+	active := map[ed2k.Hash]*PartFile{}
 	for h, f := range m.files {
-		if f.finished {
-			continue
+		if !f.finished {
+			active[h] = f.pf
 		}
-		n := f.pf.VerifiedCount()
+	}
+	m.mu.Unlock()
+	counts := map[ed2k.Hash]int{}
+	for h, pf := range active { // without m.mu (see Status)
+		counts[h] = pf.VerifiedCount()
+	}
+	m.mu.Lock()
+	for h, n := range counts {
 		if old, ok := m.lastVerified[h]; ok && (old == 0) != (n == 0) {
 			changed = true
 		}

@@ -127,7 +127,7 @@ func TestUDPSourcesAndSearch(t *testing.T) {
 // Only servers we sent something to may answer over UDP: anyone else who
 // knows our port could otherwise inject fake sources or search results.
 func TestUDPIgnoresUnsolicitedReplies(t *testing.T) {
-	u := &UDP{searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}
+	u := &UDP{searches: map[int]*udpSearch{}, asked: map[string]time.Time{}}
 	calls := 0
 	u.OnSources = func(*net.UDPAddr, ed2k.Hash, []Source) { calls++ }
 
@@ -158,9 +158,10 @@ func TestUDPIgnoresUnsolicitedReplies(t *testing.T) {
 }
 
 func TestUDPSearchDropsBadSizes(t *testing.T) {
-	u := &UDP{searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}
+	u := &UDP{searches: map[int]*udpSearch{}, asked: map[string]time.Time{}}
 	var got []Result
-	u.searches[0] = func(_ *net.UDPAddr, r Result) { got = append(got, r) }
+	u.searches[0] = &udpSearch{cb: func(_ *net.UDPAddr, r Result) { got = append(got, r) },
+		sent: map[string]time.Time{"203.0.113.7": time.Now()}}
 	var w proto.Writer
 	for i, hi := range []uint32{0, 1 << 28} {
 		w.U8(proto.ProtoEDonkey)
@@ -177,5 +178,36 @@ func TestUDPSearchDropsBadSizes(t *testing.T) {
 	u.dispatch(from, w.B)
 	if len(got) != 1 || got[0].Size != 1000 {
 		t.Fatalf("got %+v, want only the 1000-byte result", got)
+	}
+}
+
+// Global search answers carry no search id. An answer goes to the search
+// that asked that server most recently, and not to a search that has not
+// asked it yet (that is a late answer to an earlier search).
+func TestUDPSearchAnswersRouted(t *testing.T) {
+	u := &UDP{searches: map[int]*udpSearch{}, asked: map[string]time.Time{}}
+	var old, cur []string
+	u.searches[1] = &udpSearch{cb: func(_ *net.UDPAddr, r Result) { old = append(old, r.Name) },
+		sent: map[string]time.Time{"203.0.113.7": time.Now().Add(-5 * time.Second), "203.0.113.8": time.Now()}}
+	u.searches[2] = &udpSearch{cb: func(_ *net.UDPAddr, r Result) { cur = append(cur, r.Name) },
+		sent: map[string]time.Time{"203.0.113.7": time.Now()}}
+	answer := func(ip net.IP, name string) {
+		var w proto.Writer
+		w.U8(proto.ProtoEDonkey)
+		w.U8(OpGlobSearchRes)
+		w.Bytes(make([]byte, 16))
+		w.U32(0)
+		w.U16(0)
+		w.U32(2)
+		w.WriteTag(proto.StrTag(proto.FTFileName, name))
+		w.WriteTag(proto.IntTag(proto.FTFileSize, 1000))
+		u.noteAsked(ip, time.Now())
+		u.dispatch(&net.UDPAddr{IP: ip, Port: 4665}, w.B)
+	}
+	answer(net.IPv4(203, 0, 113, 7), "a") // asked by both: the newer search
+	answer(net.IPv4(203, 0, 113, 8), "b") // asked only by the older one
+	answer(net.IPv4(203, 0, 113, 9), "c") // asked by neither search
+	if len(cur) != 1 || cur[0] != "a" || len(old) != 1 || old[0] != "b" {
+		t.Fatalf("newer search got %v, older got %v", cur, old)
 	}
 }

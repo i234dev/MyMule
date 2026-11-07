@@ -236,3 +236,30 @@ func TestChangedFileNotServed(t *testing.T) {
 		t.Fatalf("read after change: %v, want ErrNotAvailable", err)
 	}
 }
+
+// A shared file replaced by another one with the same size and date (or
+// by a link to one) is not served: the swap could slip a private file in.
+func TestSwappedFileNotServed(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "video.mkv")
+	data := bytes.Repeat([]byte("v"), 4000)
+	os.WriteFile(p, data, 0o644)
+	fh, _ := ed2k.HashReader(bytes.NewReader(data), nil)
+	l := NewLibrary([]string{dir}, filepath.Join(t.TempDir(), "known.json"), nil)
+	l.AddComplete(p, fh.Root, nil)
+	f := l.Get(fh.Root)
+	buf := make([]byte, 100)
+	if _, err := f.ReadAt(buf, 0); err != nil {
+		t.Fatalf("read before the swap: %v", err)
+	}
+	st, _ := os.Stat(p)
+	secret := filepath.Join(dir, "other")
+	os.WriteFile(secret, bytes.Repeat([]byte("s"), 4000), 0o600)
+	os.Chtimes(secret, st.ModTime(), st.ModTime())
+	if err := os.Rename(secret, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ReadAt(buf, 0); err != ErrNotAvailable {
+		t.Fatalf("read after the swap: %v (%q), want ErrNotAvailable", err, buf[:4])
+	}
+}

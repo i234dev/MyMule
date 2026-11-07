@@ -54,7 +54,7 @@ type UDP struct {
 	OnSources func(from *net.UDPAddr, h ed2k.Hash, srcs []Source)
 
 	mu       sync.Mutex
-	searches map[int]func(from *net.UDPAddr, r Result)
+	searches map[int]*udpSearch
 	nextID   int
 	asked    map[string]time.Time // server IP -> last datagram we sent it
 }
@@ -66,7 +66,16 @@ func ListenUDP(host string) (*UDP, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &UDP{conn: c, searches: map[int]func(*net.UDPAddr, Result){}, asked: map[string]time.Time{}}, nil
+	return &UDP{conn: c, searches: map[int]*udpSearch{}, asked: map[string]time.Time{}}, nil
+}
+
+// udpSearch is a global search in progress. Answers carry no search id,
+// so an answer from a server goes to the search that asked that server
+// most recently, and only once it has asked it: an answer arriving
+// before that is a late one to an earlier search.
+type udpSearch struct {
+	cb   func(from *net.UDPAddr, r Result)
+	sent map[string]time.Time // server IP -> when this search asked it
 }
 
 // UDPAddr is the UDP address of a server.
@@ -131,7 +140,8 @@ func (u *UDP) Search(ctx context.Context, servers []Info, q Query, wait time.Dur
 	u.mu.Lock()
 	id := u.nextID
 	u.nextID++
-	u.searches[id] = onResult
+	srch := &udpSearch{cb: onResult, sent: map[string]time.Time{}}
+	u.searches[id] = srch
 	u.mu.Unlock()
 	defer func() {
 		u.mu.Lock()
@@ -140,7 +150,11 @@ func (u *UDP) Search(ctx context.Context, servers []Info, q Query, wait time.Dur
 	}()
 
 	for _, s := range servers {
-		u.send(s.UDPAddr(), OpGlobSearchReq, payload)
+		addr := s.UDPAddr()
+		u.mu.Lock()
+		srch.sent[addr.IP.String()] = time.Now()
+		u.mu.Unlock()
+		u.send(addr, OpGlobSearchReq, payload)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -234,24 +248,35 @@ func (u *UDP) dispatch(from *net.UDPAddr, data []byte) {
 			if err != nil {
 				return
 			}
-			res.Tags = tags
-			fillResult(&res)
+			fillResult(&res, tags)
 			if !validResult(&res) {
 				continue
 			}
-			u.mu.Lock()
-			cbs := make([]func(*net.UDPAddr, Result), 0, len(u.searches))
-			for _, cb := range u.searches {
-				cbs = append(cbs, cb)
-			}
-			u.mu.Unlock()
-			for _, cb := range cbs {
+			if cb := u.searchFor(from.IP); cb != nil {
 				cb(from, res)
 			}
 		default:
 			return // unknown or unneeded (e.g. server status): stop parsing
 		}
 	}
+}
+
+// searchFor returns the callback of the search that asked ip most
+// recently, or nil.
+func (u *UDP) searchFor(ip net.IP) func(*net.UDPAddr, Result) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	var best *udpSearch
+	var bestAt time.Time
+	for _, s := range u.searches {
+		if t, ok := s.sent[ip.String()]; ok && (best == nil || t.After(bestAt)) {
+			best, bestAt = s, t
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return best.cb
 }
 
 // ServerKey identifies a server by its TCP address, from a UDP reply.

@@ -280,3 +280,35 @@ func TestRESTCrossSiteAttemptsDoNotBlock(t *testing.T) {
 		t.Fatalf("same-origin request refused: %d", c)
 	}
 }
+
+// A reverse proxy with its own password sends "Authorization: Basic ...";
+// that is not an API key and must not count as a wrong one.
+func TestRESTBasicAuthIsNotAKey(t *testing.T) {
+	old := authlimit.Default
+	authlimit.Default = authlimit.New(2, time.Minute, time.Minute)
+	defer func() { authlimit.Default = old }()
+	const weakKey = "short-key-12"
+	srv := httptest.NewServer(NewREST(download.NewManager(download.Config{}), weakKey, "x"))
+	defer srv.Close()
+	get := func(hdr map[string]string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/version", nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for i := 0; i < 5; i++ {
+		get(map[string]string{"Authorization": "Basic dXNlcjpwYXNz"})
+	}
+	if c := get(map[string]string{"X-Api-Key": weakKey}); c != 200 {
+		t.Fatalf("Basic auth headers blocked the address: %d", c)
+	}
+	if c := get(map[string]string{"Authorization": "bearer " + weakKey}); c != 200 {
+		t.Fatalf("lower-case bearer refused: %d", c)
+	}
+}

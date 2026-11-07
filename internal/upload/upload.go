@@ -24,6 +24,8 @@ const (
 	slotIdle    = 90 * time.Second // slot freed if the peer stops asking for data
 	slotQuota   = 10 << 20         // bytes per turn before the slot rotates
 	acceptWait  = 40 * time.Second // waiting for a peer we dialed to give it its slot
+	slotMaxTime = 15 * time.Minute // a turn ends after this even below slotQuota
+	maxDialMiss = 3                // dialed for its slot this often without answer: dropped
 	chunkSize   = 10240            // data packet size, as eMule
 	maxRange    = 3 * peer.BlockSize
 )
@@ -54,7 +56,9 @@ type client struct {
 	queuedAt, lastAsk time.Time
 	uploading         bool
 	awaiting          time.Time // dialed for its slot; give up after this
-	lastReq           time.Time
+	lastReq           time.Time // last request we sent data for
+	slotStart         time.Time
+	dialMiss          int   // times dialed for its slot that it did not come
 	sent              int64 // this turn
 	totalSent         int64
 
@@ -350,12 +354,12 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 		return nil
 	}
 
+	// The slot is kept alive only by requests we actually send data for:
+	// a peer asking for nothing, or for ranges that do not exist, would
+	// otherwise hold it forever.
 	m.mu.Lock()
 	cl := m.byConn[c]
 	ok := cl != nil && cl.uploading
-	if ok {
-		cl.lastReq = time.Now()
-	}
 	m.mu.Unlock()
 	if !ok {
 		return nil // no slot: ignore, as eMule does
@@ -401,13 +405,14 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 			m.mu.Lock()
 			cl.sent += n
 			cl.totalSent += n
+			cl.lastReq = time.Now()
 			m.mu.Unlock()
 		}
 	}
 
 	// Rotate: after its quota, the peer goes back to the end of the queue.
 	m.mu.Lock()
-	rotate := cl.uploading && cl.sent >= slotQuota && len(m.queue) > 0
+	rotate := cl.uploading && (cl.sent >= slotQuota || time.Since(cl.slotStart) > slotMaxTime) && len(m.queue) > 0
 	if rotate {
 		cl.uploading = false
 		m.enqueueLocked(cl)
@@ -474,7 +479,9 @@ func (m *Manager) startSlotLocked(cl *client) {
 	cl.uploading = true
 	cl.awaiting = time.Time{}
 	cl.sent = 0
+	cl.dialMiss = 0
 	cl.lastReq = time.Now()
+	cl.slotStart = cl.lastReq
 	for i, q := range m.queue {
 		if q == cl {
 			m.queue = append(m.queue[:i:i], m.queue[i+1:]...)
@@ -491,6 +498,17 @@ func (m *Manager) enqueueLocked(cl *client) {
 		}
 	}
 	cl.queuedAt = time.Now()
+	m.queue = append(m.queue, cl)
+}
+
+// requeueLocked moves a queued client to the end of the queue.
+func (m *Manager) requeueLocked(cl *client) {
+	for i, q := range m.queue {
+		if q == cl {
+			m.queue = append(m.queue[:i:i], m.queue[i+1:]...)
+			break
+		}
+	}
 	m.queue = append(m.queue, cl)
 }
 
@@ -540,14 +558,26 @@ func (m *Manager) tick() {
 	m.mu.Lock()
 	for _, cl := range m.clients {
 		switch {
-		case cl.uploading && now.Sub(cl.lastReq) > slotIdle:
+		case cl.uploading && (now.Sub(cl.lastReq) > slotIdle ||
+			(now.Sub(cl.slotStart) > slotMaxTime+slotIdle && len(m.queue) > 0)):
+			// Idle, or a turn that never ends (tiny requests that never
+			// reach the quota) while others wait.
 			cl.uploading = false
 			if cl.conn != nil {
 				outOfParts = append(outOfParts, cl.conn)
 			}
 			m.enqueueLocked(cl)
 		case !cl.awaiting.IsZero() && now.After(cl.awaiting):
-			cl.awaiting = time.Time{} // didn't come; keep its place
+			// Dialed for its slot and it didn't come: to the end of the
+			// queue, so it does not block the head; dropped if it keeps
+			// not answering.
+			cl.awaiting = time.Time{}
+			cl.dialMiss++
+			if cl.dialMiss >= maxDialMiss {
+				m.removeLocked(cl)
+			} else {
+				m.requeueLocked(cl)
+			}
 		case !cl.uploading && cl.awaiting.IsZero() && now.Sub(cl.lastAsk) > queueExpiry:
 			m.removeLocked(cl)
 		}
@@ -678,7 +708,10 @@ func (l *limiter) Wait(n int) {
 	for {
 		l.mu.Lock()
 		now := time.Now()
-		l.tokens = min(l.rate, l.tokens+now.Sub(l.last).Seconds()*l.rate)
+		// The bucket holds at least one packet: with a limit below the
+		// packet size (1-9 KB/s) it could otherwise never fill enough,
+		// and every upload hung for good.
+		l.tokens = min(max(l.rate, float64(n)), l.tokens+now.Sub(l.last).Seconds()*l.rate)
 		l.last = now
 		if l.tokens >= float64(n) {
 			l.tokens -= float64(n)

@@ -58,17 +58,52 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	m.trackConn(c, true)
 	defer m.trackConn(c, false)
 	defer c.Close()
-	// Deferred last, so it runs first: a panic caused by what a peer sent
-	// ends this session only (see package safe).
-	defer safe.Recover(m.cfg.Log, "peer session with "+nc.RemoteAddr().String(), m.locks()...)
+
+	// The session runs inside safe.Catch, and everything it must undo is
+	// undone afterwards, here, not in defers inside it: after a panic the
+	// recovery (which checks that no lock was left held) must come first,
+	// and the cleanup must still run, or the source would stay busy and
+	// its blocks reserved for good.
+	var cl sessionCleanup
+	panicked := safe.Catch(m.cfg.Log, "peer session with "+nc.RemoteAddr().String(), func() {
+		m.session(ctx, c, nc, outbound, src, &cl)
+	}, m.locks()...)
+	if cl.s != nil {
+		cl.s.releaseAll()
+	}
+	if cl.serveAfter && !panicked {
+		m.serveUploads(c, cl.hello)
+	}
+	if cl.src != nil {
+		m.releaseSource(cl.src)
+	}
+	if cl.uploadConnected {
+		m.cfg.Upload.Disconnected(c)
+	}
+}
+
+// sessionCleanup records what runSession must undo when a session ends.
+type sessionCleanup struct {
+	hello           peer.Hello
+	uploadConnected bool     // Upload.Connected was called
+	src             *Source  // claimed or dialed source, to release
+	s               *session // download session, whose blocks to release
+	serveAfter      bool     // the peer may still download from us
+}
+
+func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbound bool, src *Source, cl *sessionCleanup) {
+	if src != nil {
+		cl.src = src // dialed: ours to release whatever happens
+	}
 	if testSessionHook != nil {
 		testSessionHook()
 	}
 
 	hello, err := m.handshake(c, outbound)
+	cl.hello = hello
 	if err == nil && m.cfg.Upload != nil {
 		m.cfg.Upload.Connected(c, hello, c.RemoteIP())
-		defer m.cfg.Upload.Disconnected(c)
+		cl.uploadConnected = true
 	}
 	if err != nil {
 		m.cfg.Debug("[%s]: handshake failed: %v", nc.RemoteAddr(), err)
@@ -78,7 +113,6 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 			src.State = StateUnreachable
 			src.NextAsk = time.Now().Add(time.Duration(src.Fails) * 5 * time.Minute)
 			m.mu.Unlock()
-			m.releaseSource(src)
 		}
 		return
 	}
@@ -91,8 +125,8 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 			m.serveUploads(c, hello)
 			return
 		}
+		cl.src = src
 	}
-	defer m.releaseSource(src)
 
 	m.bindConn(c, src.file)
 	m.mu.Lock()
@@ -103,11 +137,12 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	m.mu.Unlock()
 
 	s := &session{m: m, c: c, src: src, f: f, pf: f.pf, owner: src.key, hello: hello}
+	cl.s = s
 	err = s.run(ctx)
 	s.releaseAll()
 	// The peer may still be downloading from us on this connection.
 	if m.cfg.Upload != nil && m.cfg.Upload.Serving(c) && ctx.Err() == nil {
-		defer m.serveUploads(c, hello)
+		cl.serveAfter = true
 	}
 
 	m.mu.Lock()

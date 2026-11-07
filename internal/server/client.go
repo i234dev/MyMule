@@ -63,6 +63,14 @@ type Conn struct {
 	lastMsg string // last server message, used to explain login failures
 	waiters []*waiter
 
+	// Search replies carry no request id. A search given up on (timeout)
+	// may still be answered later; that answer must not be taken for the
+	// next search's. staleSearch counts such pending answers, until
+	// staleUntil; searchMu runs one search at a time.
+	searchMu    sync.Mutex
+	staleSearch int
+	staleUntil  time.Time
+
 	loggedIn chan struct{}
 	closed   chan struct{}
 	err      error
@@ -312,9 +320,21 @@ func (w *waiter) accepts(p *proto.Packet) bool {
 	return false
 }
 
+// staleSearchWait is how long the answer to an abandoned search is
+// waited for, to throw it away.
+const staleSearchWait = time.Minute
+
 // deliver hands p to the oldest waiter that accepts it.
 func (c *Conn) deliver(p *proto.Packet) bool {
 	c.mu.Lock()
+	if p.Opcode == proto.OpSearchResult && c.staleSearch > 0 {
+		if time.Now().Before(c.staleUntil) {
+			c.staleSearch--
+			c.mu.Unlock()
+			return true // the late answer to a search given up on
+		}
+		c.staleSearch = 0
+	}
 	var w *waiter
 	for i, cand := range c.waiters {
 		if cand.accepts(p) {
@@ -362,6 +382,18 @@ func (c *Conn) request(ctx context.Context, opcode byte, payload []byte, match f
 	}
 }
 
+// abandonedSearch notes that a search request was given up on before its
+// answer came (only when the request was sent and our side gave up).
+func (c *Conn) abandonedSearch(ctx context.Context) {
+	if ctx.Err() == nil {
+		return
+	}
+	c.mu.Lock()
+	c.staleSearch++
+	c.staleUntil = time.Now().Add(staleSearchWait)
+	c.mu.Unlock()
+}
+
 // Search runs a keyword search and returns the first page of results.
 // more reports whether QueryMore can fetch additional results.
 func (c *Conn) Search(ctx context.Context, q Query) (results []Result, more bool, err error) {
@@ -369,8 +401,11 @@ func (c *Conn) Search(ctx context.Context, q Query) (results []Result, more bool
 	if err != nil {
 		return nil, false, err
 	}
+	c.searchMu.Lock()
+	defer c.searchMu.Unlock()
 	p, err := c.request(ctx, proto.OpSearchRequest, payload, nil, proto.OpSearchResult, proto.OpReject)
 	if err != nil {
+		c.abandonedSearch(ctx)
 		return nil, false, err
 	}
 	if p.Opcode == proto.OpReject {
@@ -381,8 +416,11 @@ func (c *Conn) Search(ctx context.Context, q Query) (results []Result, more bool
 
 // QueryMore requests the next page of results for the last search.
 func (c *Conn) QueryMore(ctx context.Context) ([]Result, bool, error) {
+	c.searchMu.Lock()
+	defer c.searchMu.Unlock()
 	p, err := c.request(ctx, proto.OpQueryMoreResult, nil, nil, proto.OpSearchResult)
 	if err != nil {
+		c.abandonedSearch(ctx)
 		return nil, false, err
 	}
 	return parseSearchResults(p.Payload)

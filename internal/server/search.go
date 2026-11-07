@@ -138,7 +138,6 @@ type Result struct {
 	Type            string
 	Sources         uint32
 	CompleteSources uint32
-	Tags            proto.TagList
 }
 
 // Link returns the ed2k:// link for the result.
@@ -152,14 +151,17 @@ func validResult(res *Result) bool {
 	return res.Size <= uint64(ed2k.MaxFileSize) && ed2k.ValidSize(int64(res.Size))
 }
 
-// fillResult sets the convenience fields of a result from its tags.
-func fillResult(res *Result) {
+// fillResult sets a result's fields from its tags. The tags themselves
+// are not kept: a server can attach any number of large ones to each
+// result, and keeping them made a few KB of compressed answer hold over
+// a hundred MB of memory for as long as the search was shown.
+func fillResult(res *Result, tags proto.TagList) {
 	// Names and types come from other users via the server: printable only.
-	res.Name = netutil.CleanText(res.Tags.Str(proto.FTFileName), 1024)
-	res.Size = res.Tags.Int(proto.FTFileSize) | res.Tags.Int(proto.FTFileSizeHi)<<32
-	res.Type = netutil.CleanText(res.Tags.Str(proto.FTFileType), 32)
-	res.Sources = uint32(res.Tags.Int(proto.FTSources))
-	res.CompleteSources = uint32(res.Tags.Int(proto.FTCompleteSrcs))
+	res.Name = netutil.CleanText(tags.Str(proto.FTFileName), 1024)
+	res.Size = tags.Int(proto.FTFileSize) | tags.Int(proto.FTFileSizeHi)<<32
+	res.Type = netutil.CleanText(tags.Str(proto.FTFileType), 32)
+	res.Sources = uint32(tags.Int(proto.FTSources))
+	res.CompleteSources = uint32(tags.Int(proto.FTCompleteSrcs))
 }
 
 // parseSearchResults decodes OP_SEARCHRESULT. The trailing byte (if
@@ -180,8 +182,7 @@ func parseSearchResults(payload []byte) (results []Result, more bool, err error)
 		if err != nil {
 			return results, false, err
 		}
-		res.Tags = tags
-		fillResult(&res)
+		fillResult(&res, tags)
 		if validResult(&res) {
 			results = append(results, res)
 		}

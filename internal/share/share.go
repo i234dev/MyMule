@@ -46,7 +46,8 @@ type diskFile struct {
 	path    string
 	name    string
 	size    int64
-	mtime   int64 // when it was hashed (UnixNano)
+	mtime   int64       // when it was hashed (UnixNano)
+	id      os.FileInfo // the file as registered, to recognise it (nil: unknown)
 	hash    ed2k.Hash
 	parts   []ed2k.Hash
 	changed func() // asks for a rescan
@@ -67,15 +68,24 @@ func (d *diskFile) ReadAt(p []byte, off int64) (int, error) {
 	if off < 0 || off > d.size-int64(len(p)) {
 		return 0, ErrNotAvailable
 	}
-	if !d.unchanged(os.Lstat(d.path)) {
+	before, err := os.Lstat(d.path)
+	if !d.unchanged(before, err) {
 		return 0, ErrNotAvailable
 	}
-	f, err := os.Open(d.path)
+	f, err := os.OpenFile(d.path, os.O_RDONLY|noFollow, 0)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
-	if !d.unchanged(f.Stat()) {
+	// The file opened must be the one just checked and the one that was
+	// hashed: someone who can write in a shared folder could otherwise
+	// swap it, between the check and the open, for a link to a private
+	// file with the same size and date, and have us upload that.
+	st, err := f.Stat()
+	if !d.unchanged(st, err) || !os.SameFile(before, st) || (d.id != nil && !os.SameFile(d.id, st)) {
+		if d.changed != nil && err == nil {
+			d.changed()
+		}
 		return 0, ErrNotAvailable
 	}
 	return f.ReadAt(p, off)
@@ -384,6 +394,10 @@ func (l *Library) scan(ctx context.Context) {
 
 func (l *Library) addDiskLocked(path string, ce cacheEntry) {
 	d := &diskFile{path: path, name: filepath.Base(path), size: ce.Size, mtime: ce.MTime, hash: ce.Hash, changed: l.Rescan}
+	if st, err := os.Lstat(path); err == nil && st.Mode().IsRegular() && st.Size() == ce.Size && st.ModTime().UnixNano() == ce.MTime {
+		os.SameFile(st, st) // on Windows the file's id is read now, not on first use
+		d.id = st
+	}
 	for _, s := range ce.Parts {
 		if h, err := ed2k.ParseHash(s); err == nil {
 			d.parts = append(d.parts, h)

@@ -48,6 +48,7 @@ const (
 	OpCompressedPartI64 = 0xA1
 	OpSendingPartI64    = 0xA2
 	OpRequestPartsI64   = 0xA3
+	OpKadFWTCPCheckAck  = 0xA8 // Kad: "I connected to you" (firewall check)
 )
 
 // Hello tag names.
@@ -91,6 +92,28 @@ type Hello struct {
 
 // Name is the peer's nick, made safe to print (it comes from the peer).
 func (h Hello) Name() string { return netutil.CleanText(h.Tags.Str(CTName), 64) }
+
+// KadVersion is the Kad version the peer says it speaks (0 = none).
+func (h Hello) KadVersion() byte { return byte(h.Tags.Int(CTEMuleMiscOpts2) & 0x0F) }
+
+// KadPort is the peer's Kad UDP port (0 = none).
+func (h Hello) KadPort() uint16 { return uint16(h.Tags.Int(CTEMuleUDPPorts) >> 16) }
+
+// WithKad adds our Kad UDP port and Kad version to a hello we send, so
+// peers know we run Kad (and answer Kad firewall checks over TCP).
+func (h Hello) WithKad(port uint16, version byte) Hello {
+	tags := make(proto.TagList, 0, len(h.Tags)+1)
+	for _, t := range h.Tags {
+		if t.Name == "" && t.ID == CTEMuleMiscOpts2 {
+			t.Int = t.Int&^0x0F | uint64(version&0x0F)
+		}
+		tags = append(tags, t)
+	}
+	// High 16 bits: Kad port; low: the eD2K client UDP port, which we
+	// do not have.
+	h.Tags = append(tags, proto.IntTag(CTEMuleUDPPorts, uint32(port)<<16))
+	return h
+}
 
 // NewHello builds the hello we send to peers.
 func NewHello(userHash ed2k.Hash, nick string, clientID uint32, port uint16, srvIP net.IP, srvPort uint16) Hello {

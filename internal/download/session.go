@@ -253,6 +253,9 @@ func (m *Manager) serveUploads(ctx context.Context, c *peer.Conn, hello peer.Hel
 			c.Send(proto.ProtoEMule, peer.OpEMuleInfoAnswer, peer.EMuleInfoAnswer())
 			continue
 		}
+		if m.kadPacket(c, p) {
+			continue
+		}
 		if up != nil {
 			if _, err := up.Handle(c, hello, c.RemoteIP(), p); err != nil {
 				return
@@ -355,6 +358,9 @@ func (s *session) run(ctx context.Context) error {
 func (s *session) handle(p *proto.Packet) error {
 	if peer.IsDataPacket(p) {
 		return s.onData(p)
+	}
+	if s.m.kadPacket(s.c, p) {
+		return nil
 	}
 	// Requests for our files go to the upload side.
 	if up := s.m.cfg.Upload; up != nil {

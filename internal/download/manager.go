@@ -13,6 +13,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
 	"mymule/internal/peer"
+	"mymule/internal/proto"
 	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -59,6 +60,17 @@ type Config struct {
 	// server (address addr) leaves several searches in a row without an
 	// answer; the other servers have been answering them meanwhile.
 	OnSilentServer func(addr string)
+
+	// Kad returns our Kad UDP port and version when Kad runs (0, 0 when
+	// not), to tell peers in our hello. May be nil.
+	Kad func() (port uint16, version byte)
+	// KadFirewallAck is called when a peer connected to us to tell us it
+	// got through (a Kad firewall check we asked for). May be nil.
+	KadFirewallAck func(ip net.IP)
+	// KadLegacyAck tells a node of Kad version 6 or older, over UDP to its
+	// Kad port, that we got through to its TCP port (newer ones are told
+	// over TCP). May be nil.
+	KadLegacyAck func(ip net.IP, kadPort uint16)
 
 	// SkipFreeSpaceCheck adds downloads even if the disk has no room for
 	// them. Only for tests that use large made-up downloads.
@@ -160,6 +172,7 @@ type Manager struct {
 	udpAsked map[string]time.Time // server addr -> last UDP source request
 
 	ctx          context.Context
+	connectBacks atomic.Int32      // Kad firewall checks for other nodes running
 	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
 
 	inbound   connLimiter  // incoming peer connections
@@ -204,7 +217,9 @@ func (m *Manager) Add(pf *PartFile) {
 func (m *Manager) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	m.mu.Lock()
 	m.ctx = ctx
+	m.mu.Unlock()
 
 	if m.cfg.Port != 0 {
 		// IPv4 only: eD2K has no IPv6, and on IPv6 one customer's /64
@@ -213,7 +228,9 @@ func (m *Manager) Run(ctx context.Context) error {
 		if err != nil {
 			m.cfg.Log("cannot listen on port %d (%v); incoming connections disabled", m.cfg.Port, err)
 		} else {
+			m.mu.Lock()
 			m.port = m.cfg.Port
+			m.mu.Unlock()
 			m.wg.Add(1)
 			go m.acceptLoop(ctx, ln)
 			go func() { <-ctx.Done(); ln.Close() }()
@@ -845,7 +862,89 @@ func (m *Manager) ourHello() peer.Hello {
 		id = srv.Status().ClientID
 		sip, sport = srv.Info().IP, srv.Info().Port
 	}
-	return peer.NewHello(m.cfg.UserHash, m.cfg.Nick, id, m.port, sip, sport)
+	h := peer.NewHello(m.cfg.UserHash, m.cfg.Nick, id, m.port, sip, sport)
+	if m.cfg.Kad != nil {
+		if port, version := m.cfg.Kad(); port != 0 {
+			h = h.WithKad(port, version)
+		}
+	}
+	return h
+}
+
+// kadPacket handles the Kad packets a peer sends over TCP; it reports
+// whether p was one.
+func (m *Manager) kadPacket(c *peer.Conn, p *proto.Packet) bool {
+	if p.Proto != proto.ProtoEMule || p.Opcode != peer.OpKadFWTCPCheckAck {
+		return false
+	}
+	if m.cfg.KadFirewallAck != nil {
+		m.cfg.KadFirewallAck(c.RemoteIP())
+	}
+	return true
+}
+
+// maxConnectBacks is how many Kad firewall checks for other nodes run at
+// once.
+const maxConnectBacks = 4
+
+// KadConnectBack connects to a Kad node that asked us to check whether
+// its TCP port is reachable, and tells it we got through. userHash, if not
+// zero, is the user hash the node gave: a peer answering with another one
+// is not that node. It returns false when it will not try (too many checks
+// running, our own address, or shutting down).
+func (m *Manager) KadConnectBack(ip net.IP, port uint16, userHash ed2k.Hash) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if port == 0 || (port == m.port && userHash == m.cfg.UserHash) {
+		return false
+	}
+	ctx := m.ctx
+	if ctx == nil || ctx.Err() != nil || m.closing {
+		return false
+	}
+	if m.connectBacks.Add(1) > maxConnectBacks {
+		m.connectBacks.Add(-1)
+		return false
+	}
+	// Added under m.mu with closing false: shutdown sets closing under
+	// m.mu before it waits, so it waits for this one too.
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer m.connectBacks.Add(-1)
+		safe.Catch(m.cfg.Log, "kad connect back", func() { m.connectBack(ctx, ip, port, userHash) }, m.locks()...)
+	}()
+	return true
+}
+
+func (m *Manager) connectBack(ctx context.Context, ip net.IP, port uint16, userHash ed2k.Hash) {
+	d := net.Dialer{Timeout: ConnectTimeout}
+	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	if err != nil {
+		m.cfg.Debug("kad firewall check for %s:%d: cannot connect: %v", ip, port, err)
+		return
+	}
+	c := peer.NewConn(nc)
+	m.trackConn(c, true)
+	defer m.trackConn(c, false)
+	defer c.Close()
+	h, err := m.handshake(c, true)
+	if err != nil {
+		m.cfg.Debug("kad firewall check for %s:%d: %v", ip, port, err)
+		return
+	}
+	if !userHash.IsZero() && h.UserHash != userHash {
+		m.cfg.Debug("kad firewall check for %s:%d: another client answered", ip, port)
+		return
+	}
+	switch {
+	case h.KadVersion() >= 7:
+		c.Send(proto.ProtoEMule, peer.OpKadFWTCPCheckAck, nil)
+		// Let it arrive before closing.
+		c.Read(5 * time.Second)
+	case h.KadPort() != 0 && m.cfg.KadLegacyAck != nil:
+		m.cfg.KadLegacyAck(ip, h.KadPort())
+	}
 }
 
 // finishRetry is how often finishing a complete download is tried again
@@ -1102,17 +1201,21 @@ func (m *Manager) refreshShared() {
 // DialForUpload connects to a queued peer whose upload turn has come. It
 // is the upload manager's Dial function.
 func (m *Manager) DialForUpload(ip net.IP, port uint16) {
+	m.mu.Lock()
 	ctx := m.ctx
-	if ctx == nil || ctx.Err() != nil {
+	if ctx == nil || ctx.Err() != nil || m.closing {
+		m.mu.Unlock()
 		return
 	}
+	// Added under m.mu before shutdown can start waiting.
+	m.wg.Add(1)
+	m.mu.Unlock()
+	defer m.wg.Done()
 	d := net.Dialer{Timeout: ConnectTimeout}
 	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
 	if err != nil {
 		m.cfg.Debug("upload: cannot reach %s:%d: %v", ip, port, err)
 		return
 	}
-	m.wg.Add(1)
-	defer m.wg.Done()
 	m.runSession(ctx, nc, true, nil)
 }

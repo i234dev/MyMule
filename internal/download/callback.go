@@ -21,10 +21,11 @@ const (
 
 // callbackGate decides which callback requests we act on.
 type callbackGate struct {
-	mu      sync.Mutex
-	active  int
-	started []time.Time          // start times within the last minute
-	last    map[string]time.Time // address -> last time we called it
+	allowPrivate bool // tests only
+	mu           sync.Mutex
+	active       int
+	started      []time.Time          // start times within the last minute
+	last         map[string]time.Time // address -> last time we called it
 }
 
 // admit reports whether to connect to ip:port, and if so counts the
@@ -35,7 +36,7 @@ func (g *callbackGate) admit(ip net.IP, port uint16, highID bool, now time.Time)
 	if highID {
 		return false, "we are HighID"
 	}
-	if port == 0 || !netutil.IsPublicIPv4(ip) {
+	if port == 0 || (!netutil.IsPublicIPv4(ip) && !g.allowPrivate) {
 		return false, "address is not a public one"
 	}
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))

@@ -265,7 +265,7 @@ func storeNode(t *testing.T, target ID) (*fakeNet, *Node, *Node) {
 	near := target
 	near[15] ^= 1
 	setID(a, near)
-	a.udpOpen = true // reachable: it stores
+	a.udp.verified = true // reachable: it stores
 	return fn, a, b
 }
 
@@ -486,7 +486,7 @@ func TestPublishOurFiles(t *testing.T) {
 	setID(kwNode, func() ID { id := KeywordID("orchard"); id[15] ^= 1; return id }())
 	fileNode := fn.node(t, 3, Config{})
 	setID(fileNode, func() ID { id := file; id[15] ^= 1; return id }())
-	kwNode.udpOpen, fileNode.udpOpen = true, true
+	kwNode.udp.verified, fileNode.udp.verified = true, true
 	for _, o := range []*Node{kwNode, fileNode} {
 		p.table.Add(contactOf(o), false, false, t0)
 		p.table.SetAlive(o.ID(), t0)
@@ -671,7 +671,7 @@ func TestIndexFile(t *testing.T) {
 func TestStoreHostile(t *testing.T) {
 	fn := newFakeNet()
 	a := fn.node(t, 1, Config{})
-	a.udpOpen = true
+	a.udp.verified = true
 	me := a.ID()
 	ops := []byte{OpPublishKeyReq, OpPublishSourceReq, OpPublishNotesReq, OpSearchKeyReq, OpSearchSourceReq, OpSearchNotesReq, OpPublishRes, OpPublishResV1}
 	buf := make([]byte, 400)

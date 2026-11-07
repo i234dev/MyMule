@@ -42,7 +42,16 @@ type Config struct {
 	// FileType returns the eD2K file type of a name ("Video"...); may be
 	// nil.
 	FileType func(name string) string
-	Log      func(format string, args ...any)
+	// CheckUDP asks the client at ip:tcpPort, over TCP, to send us the UDP
+	// firewall test packet (OP_FWCHECKUDPREQ with our ports and key). It
+	// returns false if it will not try. May be nil.
+	CheckUDP func(ip netip.Addr, tcpPort, internPort, externPort uint16, key uint32) bool
+	// ConnectBuddy connects to the node that agreed to be our buddy and
+	// keeps the connection (calling BuddyUp and BuddyDown). May be nil.
+	ConnectBuddy func(ip netip.Addr, tcpPort uint16, userHash [16]byte) bool
+	// ConnectTo connects to a downloader that asked for a callback.
+	ConnectTo func(ip netip.Addr, tcpPort uint16)
+	Log       func(format string, args ...any)
 	// Now is the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -86,9 +95,14 @@ type Node struct {
 	extPorts         []uint16
 	extPort          uint16
 
-	// Whether other nodes can reach our Kad port unasked (the UDP firewall
-	// test says so): only then do we store what others publish.
-	udpOpen bool
+	// The UDP firewall test, and the buddies: ours (mine) when we are
+	// firewalled, and the node we serve (served) when we are open.
+	udp           udpTest
+	mine, served  *buddyLink
+	buddyOffers   map[netip.Addr]*buddyLink // firewalled nodes we may serve
+	relays        []time.Time
+	nextFindBuddy time.Time
+	directAsked   map[netip.Addr]time.Time
 
 	// TCP firewall check: we ask nodes to connect to our TCP port.
 	recheckIP    int // answers to our firewall requests in this round
@@ -121,12 +135,14 @@ func New(cfg Config) (*Node, error) {
 	}
 	n := &Node{
 		cfg: cfg, conn: cfg.Conn, clock: cfg.Now,
-		searches:  map[ID]*search{},
-		index:     newIndex(),
-		pending:   map[netip.Addr]*pendingPub{},
-		inTracked: map[netip.Addr]*floodEntry{},
-		banned:    map[netip.Addr]time.Time{},
-		fwAsked:   map[netip.Addr]*fwRequest{},
+		searches:    map[ID]*search{},
+		index:       newIndex(),
+		pending:     map[netip.Addr]*pendingPub{},
+		directAsked: map[netip.Addr]time.Time{},
+		buddyOffers: map[netip.Addr]*buddyLink{},
+		inTracked:   map[netip.Addr]*floodEntry{},
+		banned:      map[netip.Addr]time.Time{},
+		fwAsked:     map[netip.Addr]*fwRequest{},
 	}
 	if n.clock == nil {
 		n.clock = time.Now
@@ -410,6 +426,11 @@ func (n *Node) tick(now time.Time) {
 	for _, target := range timers.Lookup {
 		n.startSearch(searchNode, target, now, nil)
 	}
+	if !n.udp.running && n.udp.start.IsZero() && n.connected(now) {
+		n.startUDPTest(now) // first contact: find out whether UDP reaches us
+	}
+	n.tickUDPTest(now)
+	n.tickBuddy(now)
 	n.tickSearches(now)
 	n.tickPublish(now)
 	n.index.clean(now)
@@ -454,6 +475,11 @@ func (n *Node) tick(now time.Time) {
 	for ip, until := range n.banned {
 		if !until.After(now) {
 			delete(n.banned, ip)
+		}
+	}
+	for ip, at := range n.directAsked {
+		if now.Sub(at) > directCallbackEvery {
+			delete(n.directAsked, ip)
 		}
 	}
 	for ip, r := range n.fwAsked {

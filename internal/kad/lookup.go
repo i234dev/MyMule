@@ -29,6 +29,9 @@ const (
 	searchKeyword                        // files whose names have a keyword
 	searchStoreFile                      // publish a file's source (us)
 	searchStoreKeyword                   // publish files under a keyword
+	searchNodeFWCheck                    // nodes to ask for the UDP test
+	searchFindBuddy                      // a buddy (we are firewalled)
+	searchFindSource                     // the buddy of a firewalled source
 )
 
 // maxAnswers is how many answers a value search collects before it stops
@@ -37,8 +40,11 @@ const maxAnswers = 300
 
 // lifetime is how long a search of each type runs.
 func (t searchType) lifetime() time.Duration {
-	if t == searchStoreFile || t == searchStoreKeyword {
+	switch t {
+	case searchStoreFile, searchStoreKeyword:
 		return storeLifetime
+	case searchFindBuddy:
+		return 100 * time.Second
 	}
 	return 45 * time.Second
 }
@@ -46,9 +52,9 @@ func (t searchType) lifetime() time.Duration {
 // requestCount is how many nodes each KADEMLIA2_REQ asks for.
 func (t searchType) requestCount() byte {
 	switch t {
-	case searchNode, searchNodeComplete:
+	case searchNode, searchNodeComplete, searchNodeFWCheck:
 		return findNode
-	case searchStoreFile, searchStoreKeyword:
+	case searchStoreFile, searchStoreKeyword, searchFindBuddy:
 		return store
 	}
 	return findValue
@@ -218,6 +224,10 @@ func (n *Node) processResponse(s *search, from netip.AddrPort, results []Contact
 		clear(s.possible)
 		return
 	}
+	if s.typ == searchNodeFWCheck {
+		s.answers++ // its contacts went to the UDP test
+		return
+	}
 	if fromContact == nil {
 		return
 	}
@@ -284,8 +294,9 @@ func (n *Node) tickSearches(now time.Time) {
 		default:
 			if (s.typ == searchFile || s.typ == searchKeyword) &&
 				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) ||
-				(s.typ == searchStoreFile || s.typ == searchStoreKeyword) &&
-					(s.answers > storeAnswers || age > s.typ.lifetime()-20*time.Second) {
+				(s.typ == searchStoreFile || s.typ == searchStoreKeyword || s.typ == searchFindBuddy) &&
+					(s.answers > storeAnswers || age > s.typ.lifetime()-20*time.Second) ||
+				s.typ == searchFindSource && (s.answers > 20 || age > s.typ.lifetime()-20*time.Second) {
 				// Waits for late answers, without asking anyone else.
 				s.prepareToStop(now)
 				continue

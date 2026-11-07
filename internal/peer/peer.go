@@ -115,6 +115,47 @@ func (h Hello) WithKad(port uint16, version byte) Hello {
 	return h
 }
 
+// WithUDPPort sets the eD2K UDP port our hello gives (the low 16 bits of
+// the UDP ports tag; the Kad port stays).
+func (h Hello) WithUDPPort(port uint16) Hello {
+	tags := make(proto.TagList, 0, len(h.Tags))
+	for _, t := range h.Tags {
+		if t.Name == "" && t.ID == CTEMuleUDPPorts {
+			t.Int = t.Int&^0xFFFF | uint64(port)
+		}
+		tags = append(tags, t)
+	}
+	h.Tags = tags
+	return h
+}
+
+// Hello tags of a firewalled Kad client: its buddy's IP (network order)
+// and UDP port.
+const (
+	CTEMuleBuddyIP  = 0xFC
+	CTEMuleBuddyUDP = 0xFD
+)
+
+// WithKadFirewall adds to a hello we send our Kad buddy (when we have
+// one) and whether we take direct callbacks (misc options 2, bit 12).
+func (h Hello) WithKadFirewall(buddyIP net.IP, buddyPort uint16, direct bool) Hello {
+	tags := make(proto.TagList, 0, len(h.Tags)+2)
+	for _, t := range h.Tags {
+		if t.Name == "" && t.ID == CTEMuleMiscOpts2 {
+			t.Int &^= 1 << 12
+			if direct {
+				t.Int |= 1 << 12
+			}
+		}
+		tags = append(tags, t)
+	}
+	if buddyIP.To4() != nil && buddyPort != 0 {
+		tags = append(tags, proto.IntTag(CTEMuleBuddyIP, ipToU32(buddyIP)), proto.IntTag(CTEMuleBuddyUDP, uint32(buddyPort)))
+	}
+	h.Tags = tags
+	return h
+}
+
 // NewHello builds the hello we send to peers.
 func NewHello(userHash ed2k.Hash, nick string, clientID uint32, port uint16, srvIP net.IP, srvPort uint16) Hello {
 	return Hello{

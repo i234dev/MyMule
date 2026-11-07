@@ -51,6 +51,10 @@ func allowedPerMinute(op byte) int {
 	switch op {
 	case OpBootstrapReq, OpPublishSourceReq, OpPublishNotesReq, OpFirewalledReq, OpFirewalled2Req, OpFindBuddyReq, OpPing:
 		return 2
+	case OpFWCheckUDPReq: // over TCP: UDP firewall tests we run for others
+		return 1
+	case ProtoEMule: // eD2K client UDP on the Kad port
+		return 10
 	case OpHelloReq, OpSearchNotesReq, OpSearchKeyReq, OpSearchSourceReq, OpPublishKeyReq:
 		return 3
 	case OpReq:
@@ -203,9 +207,13 @@ func (n *Node) handle(data []byte, from netip.AddrPort, now time.Time) {
 	if err != nil {
 		return
 	}
+	if len(rcv.Data) >= 2 && rcv.Data[0] == ProtoEMule {
+		n.onClientUDP(rcv.Data, from, now)
+		return
+	}
 	pkt, err := DecodePacket(rcv.Data)
 	if err != nil {
-		return // eD2K client UDP (0xC5) is not handled here
+		return
 	}
 	in := incoming{from: from, op: pkt.Opcode, payload: pkt.Payload, validKey: rcv.ValidKey}
 	if rcv.SenderKey != 0 {
@@ -256,6 +264,14 @@ func (n *Node) dispatch(in incoming, now time.Time) error {
 		return n.onSearchNotesReq(in, now)
 	case OpPublishRes, OpPublishResV1:
 		return n.onPublishRes(in, now)
+	case OpFindBuddyReq:
+		return n.onFindBuddyReq(in, now)
+	case OpFindBuddyRes:
+		return n.onFindBuddyRes(in, now)
+	case OpCallbackReq:
+		return n.onCallbackReq(in)
+	case OpFirewallUDP:
+		return n.onFirewallUDP(in, now)
 	case OpPing:
 		var w proto.Writer
 		w.U16(in.from.Port())
@@ -390,8 +406,12 @@ func (n *Node) sendHello(op byte, addr netip.AddrPort, version byte, receiverKey
 	WriteID(&w, n.keys.KadID)
 	w.U16(n.cfg.TCPPort())
 	w.U8(Version)
-	fw := n.firewalled()
-	if version >= 8 && (requestAck || fw) {
+	fw, udpFW := n.firewalled(), n.udpFirewalled()
+	var tags []proto.Tag
+	if n.udp.useIntern {
+		tags = append(tags, IntTag(TagSourceUDPPort, uint64(n.localPort())))
+	}
+	if version >= 8 && (requestAck || fw || udpFW) {
 		var o uint64
 		if requestAck {
 			o |= 4
@@ -399,10 +419,12 @@ func (n *Node) sendHello(op byte, addr netip.AddrPort, version byte, receiverKey
 		if fw {
 			o |= 2
 		}
-		WriteTags(&w, []proto.Tag{IntTag(TagKadMiscOptions, o)})
-	} else {
-		w.U8(0)
+		if udpFW {
+			o |= 1
+		}
+		tags = append(tags, IntTag(TagKadMiscOptions, o))
 	}
+	WriteTags(&w, tags)
 	if version >= 6 {
 		n.send(addr, op, w.B, target, receiverKey)
 	} else {
@@ -512,10 +534,20 @@ func (n *Node) onRes(in incoming, now time.Time) error {
 	if r.Len() != count*25 {
 		return errBad
 	}
+	s := n.searches[target]
+	fwCheck := s != nil && s.typ == searchNodeFWCheck && n.udp.running
 	var results []Contact
 	for range count {
 		c := readContact(r)
 		if c.Version <= 1 || !GoodAddr(c.IP, c.UDPPort) || (c.UDPPort == 53 && c.Version <= 5) {
+			continue
+		}
+		if fwCheck {
+			// UDP test candidates: nodes we never talked to, kept out of
+			// the table (and its hellos) until tested.
+			if len(n.udp.candidates) < 100 && n.table.Get(c.ID) == nil {
+				n.udp.candidates = append(n.udp.candidates, c)
+			}
 			continue
 		}
 		added, _ := n.table.AddUnfiltered(c, false, false, now)
@@ -523,7 +555,7 @@ func (n *Node) onRes(in incoming, now time.Time) error {
 			results = append(results, c)
 		}
 	}
-	if s := n.searches[target]; s != nil {
+	if s != nil {
 		n.processResponse(s, in.from, results, now)
 	}
 	return nil
@@ -580,6 +612,7 @@ func (n *Node) setExtPort(port uint16, from netip.Addr) {
 // means we are not firewalled.
 
 func (n *Node) recheckFirewalled(now time.Time) {
+	n.startUDPTest(now)
 	n.lastFWState = n.firewalledN < 2
 	n.firewalledN = 0
 	n.recheckIP = 0

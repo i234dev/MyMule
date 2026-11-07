@@ -190,23 +190,23 @@ func (n *Node) tickPublish(now time.Time) {
 
 // canPublish reports whether others can reach us to download: our TCP
 // port open (or, firewalled, a buddy to relay callbacks).
-func (n *Node) canPublish() bool { return !n.firewalled() && n.cfg.TCPPort() != 0 }
+func (n *Node) canPublish() bool {
+	if n.cfg.TCPPort() == 0 {
+		return false
+	}
+	return !n.firewalled() || n.udpReachable() || (n.mine != nil && n.mine.connected)
+}
 
 // storeFile sends a node our source entry for s.file.
 func (n *Node) storeFile(s *search, c Contact) {
 	if c.Version < 4 {
 		return // only the version 2 publish is supported
 	}
-	f := s.file
-	typ := uint64(1)
-	if f.Size > largeFileSize {
-		typ = 4
+	tags := n.sourceTags(s.file)
+	if tags == nil {
+		s.prepareToStop(n.now()) // nobody could reach us now
+		return
 	}
-	tags := []proto.Tag{IntTag(TagSourceType, typ), IntTag(TagSourcePort, uint64(n.cfg.TCPPort()))}
-	if c.Version >= 2 {
-		tags = append(tags, IntTag(TagFileSize, f.Size))
-	}
-	tags = append(tags, IntTag(TagEncryption, 0)) // no obfuscated TCP
 	var w proto.Writer
 	WriteID(&w, s.target)
 	WriteID(&w, ID(n.keys.UserHash))

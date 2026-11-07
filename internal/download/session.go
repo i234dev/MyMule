@@ -135,6 +135,9 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 		return
 	}
 
+	if src == nil && !outbound && m.incomingBuddy(ctx, c, hello) {
+		return // the firewalled Kad node we are the buddy of
+	}
 	if src == nil {
 		src = m.claimSource(hello, c.RemoteIP())
 		if src == nil {
@@ -215,6 +218,9 @@ func (m *Manager) handshake(c *peer.Conn, outbound bool) (peer.Hello, error) {
 			h, err := peer.DecodeHello(p.Payload, false)
 			if err != nil {
 				return h, err
+			}
+			if m.cfg.KadBuddyOffer != nil && m.cfg.KadBuddyOffer(c.RemoteIP(), h.UserHash) {
+				ours = ours.WithUDPPort(ours.KadPort())
 			}
 			return h, c.Send(proto.ProtoEDonkey, peer.OpHelloAnswer, ours.Encode(true))
 		case p.Proto == proto.ProtoEMule && p.Opcode == peer.OpEMuleInfo:

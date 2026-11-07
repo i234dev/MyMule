@@ -61,6 +61,7 @@ func (fn *fakeNet) node(t testing.TB, i int, cfg Config) *Node {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(n.saves.Wait) // before the folder goes: saves run in the background
 	fn.nodes[addr] = n
 	return n
 }

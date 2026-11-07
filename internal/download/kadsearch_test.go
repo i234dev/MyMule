@@ -3,12 +3,13 @@ package download
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/kad"
 	"mymule/internal/server"
 )
 
@@ -23,9 +24,9 @@ func kadFile(m *Manager, b byte) *File {
 func TestKadSourceSearches(t *testing.T) {
 	var mu sync.Mutex
 	var started []ed2k.Hash
-	var finds []func(net.IP, uint16)
+	var finds []func(kad.Source)
 	fail := false
-	m := NewManager(Config{Debug: func(string, ...any) {}, KadSources: func(h ed2k.Hash, size uint64, found func(net.IP, uint16)) error {
+	m := NewManager(Config{Debug: func(string, ...any) {}, KadSources: func(h ed2k.Hash, size uint64, found func(kad.Source)) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if fail {
@@ -69,8 +70,8 @@ func TestKadSourceSearches(t *testing.T) {
 		t.Fatal("not searched again after an hour")
 	}
 	// Sources found.
-	finds[0](net.IPv4(11, 0, 0, 1), 4662)
-	finds[0](net.IPv4(192, 168, 0, 1), 4662) // not public: dropped
+	finds[0](kad.Source{Type: 1, IP: netip.MustParseAddr("11.0.0.1"), TCPPort: 4662})
+	finds[0](kad.Source{Type: 1, IP: netip.MustParseAddr("192.168.0.1"), TCPPort: 4662}) // not public: dropped
 	f := m.files[started[0]]
 	if len(f.sources) != 1 {
 		t.Fatalf("%d sources", len(f.sources))

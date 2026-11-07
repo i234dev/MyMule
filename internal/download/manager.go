@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/kad"
 	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
@@ -72,8 +74,31 @@ type Config struct {
 	// over TCP). May be nil.
 	KadLegacyAck func(ip net.IP, kadPort uint16)
 	// KadSources starts a Kad search for sources of a file; found is
-	// called for each source reachable at ip:port. Nil when Kad is off.
-	KadSources func(hash ed2k.Hash, size uint64, found func(ip net.IP, port uint16)) error
+	// called for each source. Nil when Kad is off.
+	KadSources func(hash ed2k.Hash, size uint64, found func(kad.Source)) error
+	// KadCallback asks a firewalled Kad source (through its buddy, or
+	// itself over UDP) to connect to us; we want file from it.
+	KadCallback func(src kad.Source, file ed2k.Hash) error
+	// KadFirewall says what to tell peers about our reachability; may be
+	// nil.
+	KadFirewall func() KadFirewall
+	// KadUDPCheckRequest runs the Kad UDP firewall test a peer asked us
+	// for over TCP (OP_FWCHECKUDPREQ).
+	KadUDPCheckRequest func(ip net.IP, payload []byte)
+	// KadIncomingBuddy reports whether a peer that connected to us is the
+	// firewalled node we agreed to be the buddy of; send reaches it until
+	// KadServedBuddyGone.
+	KadIncomingBuddy   func(ip net.IP, userHash ed2k.Hash, send func(op byte, payload []byte) bool) bool
+	KadServedBuddyGone func(ip net.IP)
+	// KadOwnCallback reads an OP_CALLBACK our buddy passed on.
+	KadOwnCallback func(payload []byte) (ip netip.Addr, port uint16, file [16]byte, ok bool)
+	// KadBuddyOffer reports whether a peer connecting to us is a firewalled
+	// node we offered to be the buddy of: our hello then gives it our Kad
+	// port as our UDP port, which it hands downloaders.
+	KadBuddyOffer func(ip net.IP, userHash ed2k.Hash) bool
+	// KadBuddyUp and KadBuddyDown follow the connection to our buddy.
+	KadBuddyUp   func(ip net.IP, kadPort uint16)
+	KadBuddyDown func(ip net.IP)
 	// KadSearch searches Kad for files, calling found for each, until the
 	// search ends or ctx is done. Nil when Kad is off.
 	KadSearch func(ctx context.Context, q server.Query, found func(server.Result)) error
@@ -136,7 +161,8 @@ type Source struct {
 	Bytes   int64
 
 	busy       bool
-	callbackAt time.Time // when we last asked the server for a callback (LowID)
+	callbackAt time.Time   // when we last asked the server for a callback (LowID)
+	kadFW      *kad.Source // a firewalled Kad source, reached by a callback
 	file       *File
 }
 
@@ -180,6 +206,7 @@ type Manager struct {
 
 	ctx          context.Context
 	connectBacks atomic.Int32      // Kad firewall checks for other nodes running
+	buddyBusy    bool              // a connection to our Kad buddy is up or being made
 	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
 
 	inbound   connLimiter  // incoming peer connections
@@ -205,7 +232,9 @@ func NewManager(cfg Config) *Manager {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 40
 	}
-	return &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}}
+	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}}
+	m.callbacks.allowPrivate = cfg.allowPrivateSources
+	return m
 }
 
 // Add registers a part file for downloading.
@@ -695,8 +724,8 @@ func (m *Manager) kadTick(now time.Time) {
 	// tried again a minute later rather than every second.
 	due.kadAsked = now.Add(-KadReaskInterval + time.Minute)
 	m.mu.Unlock()
-	err := m.cfg.KadSources(hash, size, func(ip net.IP, port uint16) {
-		m.onKadSource(hash, ip, port)
+	err := m.cfg.KadSources(hash, size, func(s kad.Source) {
+		m.onKadSource(hash, s)
 	})
 	if err == nil {
 		m.mu.Lock()
@@ -705,7 +734,7 @@ func (m *Manager) kadTick(now time.Time) {
 	}
 }
 
-func (m *Manager) onKadSource(h ed2k.Hash, ip net.IP, port uint16) {
+func (m *Manager) onKadSource(h ed2k.Hash, s kad.Source) {
 	m.mu.Lock()
 	f := m.files[h]
 	var our uint32
@@ -713,10 +742,18 @@ func (m *Manager) onKadSource(h ed2k.Hash, ip net.IP, port uint16) {
 		our = m.srv.Status().ClientID
 	}
 	m.mu.Unlock()
-	if f == nil || ip.To4() == nil {
+	if f == nil {
 		return
 	}
-	src := server.Source{ID: server.IPToU32(ip), Port: port}
+	if !s.Direct() {
+		typeOK := s.Type == 3 || s.Type == 5 || (s.Type == 6 && s.Crypt&kad.ConnectDirectCallback != 0)
+		if typeOK && m.cfg.KadCallback != nil && m.addKadCallbackSource(f, s) {
+			m.cfg.Debug("%s: new firewalled source from Kad", f.pf.Name)
+		}
+		return
+	}
+	ip := net.IP(s.IP.AsSlice())
+	src := server.Source{ID: server.IPToU32(ip), Port: s.TCPPort}
 	if added := m.addSources(f, []server.Source{src}, "kad", our, false); added > 0 {
 		m.cfg.Debug("%s: new source %s from Kad", f.pf.Name, src.Addr())
 	}
@@ -728,6 +765,11 @@ func (m *Manager) schedule(ctx context.Context) {
 	now := time.Now()
 	var dial []*Source
 	var callbacks []uint32
+	type kadCB struct {
+		src  kad.Source
+		file ed2k.Hash
+	}
+	var kadCallbacks []kadCB
 
 	m.mu.Lock()
 	srv := m.srv
@@ -746,6 +788,23 @@ func (m *Manager) schedule(ctx context.Context) {
 			}
 			if m.active >= m.cfg.MaxConns {
 				break
+			}
+			if src.kadFW != nil {
+				// Reached only when it connects to us: ask its buddy (or
+				// it, over UDP); an answer that never came is a failure.
+				if !src.callbackAt.IsZero() && now.Sub(src.callbackAt) > callbackWait {
+					src.callbackAt = time.Time{}
+					src.Fails++
+					src.State = StateUnreachable
+					if src.Fails >= maxSourceFails {
+						delete(f.sources, key)
+						continue
+					}
+				}
+				kadCallbacks = append(kadCallbacks, kadCB{*src.kadFW, f.pf.Hash})
+				src.callbackAt = now
+				src.NextAsk = now.Add(ReaskInterval)
+				continue
 			}
 			if src.LowID != 0 {
 				// A callback we asked for and that never came counts as
@@ -779,6 +838,11 @@ func (m *Manager) schedule(ctx context.Context) {
 
 	for _, id := range callbacks {
 		srv.RequestCallback(id)
+	}
+	for _, cb := range kadCallbacks {
+		if err := m.cfg.KadCallback(cb.src, cb.file); err != nil {
+			m.cfg.Debug("Kad callback: %v", err)
+		}
 	}
 	for _, src := range dial {
 		m.wg.Add(1)
@@ -879,6 +943,15 @@ const callbackWait = 2 * time.Minute
 // incomingMatches reports whether a connection from ip, whose peer sent
 // hello h, may be the source src.
 func incomingMatches(src *Source, h peer.Hello, ip net.IP, now time.Time) bool {
+	if src.kadFW != nil {
+		// Known by the user hash it published under: while we wait for
+		// the callback we asked for, or when it queued us and our turn
+		// came.
+		if src.UserHash != h.UserHash {
+			return false
+		}
+		return src.State == StateQueued || (!src.callbackAt.IsZero() && now.Sub(src.callbackAt) <= callbackWait)
+	}
 	if src.LowID == 0 {
 		if ip == nil || !src.IP.Equal(ip) {
 			return false
@@ -955,6 +1028,10 @@ func (m *Manager) ourHello() peer.Hello {
 	if m.cfg.Kad != nil {
 		if port, version := m.cfg.Kad(); port != 0 {
 			h = h.WithKad(port, version)
+			if m.cfg.KadFirewall != nil {
+				fw := m.cfg.KadFirewall()
+				h = h.WithKadFirewall(fw.BuddyIP, fw.BuddyPort, fw.DirectCallback)
+			}
 		}
 	}
 	return h
@@ -963,11 +1040,20 @@ func (m *Manager) ourHello() peer.Hello {
 // kadPacket handles the Kad packets a peer sends over TCP; it reports
 // whether p was one.
 func (m *Manager) kadPacket(c *peer.Conn, p *proto.Packet) bool {
-	if p.Proto != proto.ProtoEMule || p.Opcode != peer.OpKadFWTCPCheckAck {
+	if p.Proto != proto.ProtoEMule {
 		return false
 	}
-	if m.cfg.KadFirewallAck != nil {
-		m.cfg.KadFirewallAck(c.RemoteIP())
+	switch p.Opcode {
+	case peer.OpKadFWTCPCheckAck:
+		if m.cfg.KadFirewallAck != nil {
+			m.cfg.KadFirewallAck(c.RemoteIP())
+		}
+	case kad.OpFWCheckUDPReq:
+		if m.cfg.KadUDPCheckRequest != nil {
+			m.cfg.KadUDPCheckRequest(c.RemoteIP(), p.Payload)
+		}
+	default:
+		return false
 	}
 	return true
 }

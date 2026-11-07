@@ -19,7 +19,7 @@ func (n *Node) closeEnough(target ID) bool {
 // storing reports whether we take publishes: only once we know other
 // nodes can reach us over UDP (else nobody could search what we store,
 // and the publisher would count us among the nodes that have it).
-func (n *Node) storing() bool { return n.udpOpen }
+func (n *Node) storing() bool { return n.udpReachable() }
 
 // Publishes that do not carry our key may come from a forged address: a
 // forged source would make every downloader connect to someone else, and

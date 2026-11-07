@@ -2,6 +2,7 @@ package kad
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net/netip"
 	"sort"
@@ -312,6 +313,10 @@ func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {
 		n.storeFile(s, c)
 	case searchStoreKeyword:
 		n.storeKeyword(s, c)
+	case searchFindBuddy:
+		n.storeFindBuddy(s, c)
+	case searchFindSource:
+		n.storeFindSource(s, c)
 	default:
 		return
 	}
@@ -379,7 +384,10 @@ func (n *Node) fileResult(s *search, answer ID, tags []proto.Tag) {
 		case TagSourceUDPPort:
 			src.UDPPort = uint16(t.Int)
 		case TagServerIP:
-			src.BuddyIP = ipFromU32(uint32(t.Int))
+			// Network order, unlike the source's own IP (as eMule).
+			var a [4]byte
+			binary.LittleEndian.PutUint32(a[:], uint32(t.Int))
+			src.BuddyIP = netip.AddrFrom4(a)
 		case TagServerPort:
 			src.BuddyPort = uint16(t.Int)
 		case TagBuddyHash:

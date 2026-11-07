@@ -184,7 +184,7 @@ func TestUnprovenPublishWaitsForPing(t *testing.T) {
 func TestNoStoreWhenUnreachable(t *testing.T) {
 	file := RandomID()
 	fn, a, b := storeNode(t, file)
-	a.udpOpen = false
+	a.udp.verified = false
 	var w proto.Writer
 	WriteID(&w, file)
 	WriteID(&w, RandomID())

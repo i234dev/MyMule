@@ -25,7 +25,13 @@ type searchType int
 const (
 	searchNode         searchType = iota // fill the table: stops at the first answer
 	searchNodeComplete                   // our own ID: a full lookup
+	searchFile                           // sources of a file
+	searchKeyword                        // files whose names have a keyword
 )
+
+// maxAnswers is how many answers a value search collects before it stops
+// asking (eMule's SEARCHFILE_TOTAL and SEARCHKEYWORD_TOTAL).
+const maxAnswers = 300
 
 // lifetime is how long a search of each type runs.
 func (t searchType) lifetime() time.Duration {
@@ -50,6 +56,16 @@ type search struct {
 	answers      int
 
 	// Contacts by their distance to the target.
+	// Value searches.
+	fileSize uint64                     // searchFile
+	terms    []byte                     // searchKeyword: the search tree, without the keyword
+	words    []string                   // searchKeyword: every word, which names must have
+	asked    map[netip.AddrPort]Contact // nodes sent the search request
+	seen     map[ID]bool                // answers already reported
+	onSource func(Source)
+	onResult func(KeywordResult)
+	done     chan struct{} // closed when the search ends
+
 	possible      map[ID]Contact
 	tried         map[ID]Contact
 	responded     map[ID]bool // whether it gave closer contacts
@@ -62,6 +78,7 @@ func newSearch(typ searchType, target ID, now time.Time) *search {
 		typ: typ, target: target, created: now, lastResponse: now,
 		possible: map[ID]Contact{}, tried: map[ID]Contact{}, responded: map[ID]bool{},
 		best: map[ID]Contact{}, requestedMore: map[ID]bool{},
+		asked: map[netip.AddrPort]Contact{}, seen: map[ID]bool{}, done: make(chan struct{}),
 	}
 }
 
@@ -83,12 +100,16 @@ func (s *search) prepareToStop(now time.Time) {
 	s.stopping = true
 }
 
-// startSearch starts a lookup unless one for the same target runs.
-func (n *Node) startSearch(typ searchType, target ID, now time.Time) *search {
+// startSearch starts a lookup unless one for the same target runs; setup
+// (if not nil) fills in the search before the first request goes out.
+func (n *Node) startSearch(typ searchType, target ID, now time.Time, setup func(*search)) *search {
 	if _, ok := n.searches[target]; ok {
 		return nil
 	}
 	s := newSearch(typ, target, now)
+	if setup != nil {
+		setup(s)
+	}
 	n.searches[target] = s
 	for _, c := range n.table.Closest(target, 3, 50) {
 		s.possible[c.ID.Xor(target)] = c
@@ -165,10 +186,6 @@ func (n *Node) jumpStart(s *search, now time.Time) {
 		break
 	}
 }
-
-// storePacket is where value searches ask a close node for the value (or
-// store it); node lookups have nothing to do there.
-func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {}
 
 // processResponse handles the contacts a node sent back for a search.
 func (n *Node) processResponse(s *search, from netip.AddrPort, results []Contact, now time.Time) {
@@ -254,10 +271,18 @@ func (n *Node) tickSearches(now time.Time) {
 			delete(n.searches, target)
 			n.searchEnded(s)
 		default:
-			n.jumpStart(s, now)
+			if (s.typ == searchFile || s.typ == searchKeyword) &&
+				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) {
+				// Waits for late answers, without asking anyone else.
+				s.prepareToStop(now)
+				continue
+			}
+			if !s.stopping {
+				n.jumpStart(s, now)
+			}
 		}
 	}
 }
 
 // searchEnded is called when a search is removed.
-func (n *Node) searchEnded(s *search) {}
+func (n *Node) searchEnded(s *search) { close(s.done) }

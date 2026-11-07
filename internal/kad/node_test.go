@@ -17,8 +17,10 @@ type fakeNet struct {
 	nodes map[netip.AddrPort]*Node
 	queue []dgram
 	now   time.Time
-	// sent records datagrams to addresses without a node.
+	// sent records datagrams to addresses without a node; all, every
+	// datagram delivered.
 	sent map[netip.AddrPort][][]byte
+	all  []dgram
 }
 
 type dgram struct {
@@ -77,6 +79,7 @@ func (fn *fakeNet) pump() {
 	for i := 0; i < 100000 && len(fn.queue) > 0; i++ {
 		d := fn.queue[0]
 		fn.queue = fn.queue[1:]
+		fn.all = append(fn.all, d)
 		n := fn.nodes[d.to]
 		if n == nil {
 			fn.sent[d.to] = append(fn.sent[d.to], d.b)
@@ -177,7 +180,7 @@ func TestNodeLookup(t *testing.T) {
 		}
 	}
 	a.mu.Lock()
-	s := a.startSearch(searchNodeComplete, target, fn.now)
+	s := a.startSearch(searchNodeComplete, target, fn.now, nil)
 	a.mu.Unlock()
 	fn.pump()
 	for i := 0; i < 40; i++ {

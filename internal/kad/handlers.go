@@ -240,6 +240,8 @@ func (n *Node) dispatch(in incoming, now time.Time) error {
 		return n.onReq(in)
 	case OpRes:
 		return n.onRes(in, now)
+	case OpSearchRes, OpSearchResV1:
+		return n.onSearchRes(in, now)
 	case OpPing:
 		var w proto.Writer
 		w.U16(in.from.Port())

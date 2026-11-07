@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -234,6 +235,11 @@ const silentAfter = 3
 // other servers were never asked, so the search came back empty. Now,
 // once the other servers have had their time, the connected one gets
 // connectedGrace more at most.
+// kadSearchWait is how long a global search waits for Kad results: most
+// arrive within seconds, and the rest of a Kad search (up to 45 s) adds
+// little.
+const kadSearchWait = 15 * time.Second
+
 func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Duration) ([]server.Result, int, error) {
 	var mg resultMerger
 
@@ -241,9 +247,31 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 	c := m.srv
 	m.mu.Unlock()
 	useUDP := m.udp != nil && m.cfg.Servers != nil
-	if c == nil && !useUDP {
+	if c == nil && !useUDP && m.cfg.KadSearch == nil {
 		return nil, 0, ErrNoServer
 	}
+
+	// Kad, alongside the servers.
+	kadDone := make(chan struct{})
+	if m.cfg.KadSearch != nil {
+		kctx, cancelKad := context.WithTimeout(ctx, kadSearchWait)
+		defer cancelKad()
+		go func() {
+			defer close(kadDone)
+			safe.Catch(m.cfg.Log, "kad search", func() {
+				m.cfg.KadSearch(kctx, q, func(r server.Result) {
+					// From other users, through Kad: an absurd size would
+					// make a download allocate too much.
+					if r.Size <= uint64(ed2k.MaxFileSize) && ed2k.ValidSize(int64(r.Size)) && r.Name != "" {
+						mg.add("kad", r)
+					}
+				})
+			})
+		}()
+	} else {
+		close(kadDone)
+	}
+	defer func() { <-kadDone }()
 
 	tcpDone := make(chan struct{})
 	tctx, cancelTCP := context.WithCancel(ctx)
@@ -285,6 +313,7 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 	if c != nil && ctx.Err() == nil {
 		m.noteSearchAnswer(c, answered)
 	}
+	<-kadDone
 
 	out, nServers := mg.results()
 	return out, nServers, nil
@@ -362,7 +391,11 @@ func (mg *resultMerger) results() ([]server.Result, int) {
 	for _, h := range mg.order {
 		out = append(out, *mg.byHash[h])
 	}
-	return out, len(mg.servers)
+	n := len(mg.servers)
+	if mg.servers["kad"] {
+		n-- // Kad is not a server
+	}
+	return out, n
 }
 
 // satAdd adds without wrapping around.

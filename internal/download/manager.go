@@ -71,6 +71,12 @@ type Config struct {
 	// Kad port, that we got through to its TCP port (newer ones are told
 	// over TCP). May be nil.
 	KadLegacyAck func(ip net.IP, kadPort uint16)
+	// KadSources starts a Kad search for sources of a file; found is
+	// called for each source reachable at ip:port. Nil when Kad is off.
+	KadSources func(hash ed2k.Hash, size uint64, found func(ip net.IP, port uint16)) error
+	// KadSearch searches Kad for files, calling found for each, until the
+	// search ends or ctx is done. Nil when Kad is off.
+	KadSearch func(ctx context.Context, q server.Query, found func(server.Result)) error
 
 	// SkipFreeSpaceCheck adds downloads even if the disk has no room for
 	// them. Only for tests that use large made-up downloads.
@@ -139,6 +145,7 @@ type File struct {
 	pf         *PartFile
 	sources    map[string]*Source
 	lastSrcReq time.Time
+	kadAsked   time.Time // last Kad source search
 	bytes      atomic.Int64
 	finishing  bool
 	finished   bool
@@ -252,6 +259,10 @@ func (m *Manager) Run(ctx context.Context) error {
 			m.wg.Add(1)
 			go m.udpLoop(ctx)
 		}
+	}
+	if m.cfg.KadSources != nil {
+		m.wg.Add(1)
+		go m.kadLoop(ctx)
 	}
 
 	tick := time.NewTicker(time.Second)
@@ -630,6 +641,84 @@ func (m *Manager) onUDPSources(from *net.UDPAddr, h ed2k.Hash, srcs []server.Sou
 	}
 	if added := m.addSources(f, srcs, server.ServerKey(from), our, false); added > 0 {
 		m.cfg.Log("%s: %d new sources from %s (UDP)", f.pf.Name, added, server.ServerKey(from))
+	}
+}
+
+// ---- Kad source searches ----
+
+// Kad source searches, as eMule: each file once an hour, at most 5 at a
+// time (a search lasts 45 seconds), one started per tick.
+const (
+	KadReaskInterval  = time.Hour
+	kadMaxSearches    = 5
+	kadSearchDuration = 45 * time.Second
+)
+
+func (m *Manager) kadLoop(ctx context.Context) {
+	defer m.wg.Done()
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		safe.Catch(m.cfg.Log, "kad sources", func() { m.kadTick(time.Now()) }, m.locks()...)
+	}
+}
+
+// kadTick starts the Kad source search that is due, if any.
+func (m *Manager) kadTick(now time.Time) {
+	m.mu.Lock()
+	running := 0
+	var due *File
+	for _, f := range m.files {
+		if now.Sub(f.kadAsked) < kadSearchDuration {
+			running++
+		}
+	}
+	for _, f := range m.files {
+		if f.finished || f.paused || len(f.sources) >= MaxSourcesPerFile || now.Sub(f.kadAsked) < KadReaskInterval {
+			continue
+		}
+		if due == nil || f.kadAsked.Before(due.kadAsked) {
+			due = f
+		}
+	}
+	if due == nil || running >= kadMaxSearches {
+		m.mu.Unlock()
+		return
+	}
+	hash, size := due.pf.Hash, uint64(due.pf.Size)
+	// Marked even if the search cannot start (Kad not connected yet):
+	// tried again a minute later rather than every second.
+	due.kadAsked = now.Add(-KadReaskInterval + time.Minute)
+	m.mu.Unlock()
+	err := m.cfg.KadSources(hash, size, func(ip net.IP, port uint16) {
+		m.onKadSource(hash, ip, port)
+	})
+	if err == nil {
+		m.mu.Lock()
+		due.kadAsked = now
+		m.mu.Unlock()
+	}
+}
+
+func (m *Manager) onKadSource(h ed2k.Hash, ip net.IP, port uint16) {
+	m.mu.Lock()
+	f := m.files[h]
+	var our uint32
+	if m.srv != nil {
+		our = m.srv.Status().ClientID
+	}
+	m.mu.Unlock()
+	if f == nil || ip.To4() == nil {
+		return
+	}
+	src := server.Source{ID: server.IPToU32(ip), Port: port}
+	if added := m.addSources(f, []server.Source{src}, "kad", our, false); added > 0 {
+		m.cfg.Debug("%s: new source %s from Kad", f.pf.Name, src.Addr())
 	}
 }
 

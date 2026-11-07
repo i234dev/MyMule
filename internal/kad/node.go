@@ -57,6 +57,10 @@ type Node struct {
 	banned     map[netip.Addr]time.Time
 	challenges []challenge
 
+	// deferred are calls to make once n.mu is released (results handed to
+	// other parts of MyMule, which take their own locks).
+	deferred []func()
+
 	bootstrapList []Contact
 	lastBootstrap time.Time
 	lastContact   time.Time
@@ -288,6 +292,7 @@ func (n *Node) Run(ctx context.Context) error {
 			case <-t.C:
 				safe.Catch(n.cfg.Log, "kad tick", func() {
 					n.mu.Lock()
+					defer n.runDeferred()
 					defer n.mu.Unlock()
 					n.tick(n.now())
 				}, &n.mu)
@@ -322,6 +327,7 @@ func (n *Node) Run(ctx context.Context) error {
 		data := append([]byte(nil), buf[:k]...)
 		safe.Catch(n.cfg.Log, "kad packet", func() {
 			n.mu.Lock()
+			defer n.runDeferred()
 			defer n.mu.Unlock()
 			n.handle(data, addr, n.now())
 		}, &n.mu)
@@ -333,13 +339,27 @@ func (n *Node) Run(ctx context.Context) error {
 	return nil
 }
 
+// later queues f to run once n.mu is released.
+func (n *Node) later(f func()) { n.deferred = append(n.deferred, f) }
+
+// runDeferred runs the queued calls; n.mu must not be held.
+func (n *Node) runDeferred() {
+	n.mu.Lock()
+	fs := n.deferred
+	n.deferred = nil
+	n.mu.Unlock()
+	for _, f := range fs {
+		safe.Catch(n.cfg.Log, "kad result", f)
+	}
+}
+
 // tick runs every second.
 func (n *Node) tick(now time.Time) {
 	if !n.nextFWCheck.After(now) {
 		n.recheckFirewalled(now)
 	}
 	if !n.nextSelf.After(now) {
-		n.startSearch(searchNodeComplete, n.keys.KadID, now)
+		n.startSearch(searchNodeComplete, n.keys.KadID, now, nil)
 		n.nextSelf = now.Add(4 * time.Hour)
 	}
 	timers, started := n.table.Tick(now, !n.bigTimer.After(now))
@@ -350,7 +370,7 @@ func (n *Node) tick(now time.Time) {
 		n.sendHello(OpHelloReq, c.Addr(), c.Version, c.Key.For(n.publicIP()), c.ID, false)
 	}
 	for _, target := range timers.Lookup {
-		n.startSearch(searchNode, target, now)
+		n.startSearch(searchNode, target, now, nil)
 	}
 	n.tickSearches(now)
 	if !n.nextConsolid.After(now) {

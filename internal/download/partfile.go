@@ -416,10 +416,12 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 	// Blocks already requested count as progress too; otherwise a peer
 	// asking for one block at a time would start a new part each time.
 	inFlight := map[int]int64{}
-	others := map[int]bool{} // parts where another peer holds blocks
+	others := map[int]bool{} // parts where another peer holds live blocks
 	for start, o := range pf.reserved {
 		inFlight[int(start/ed2k.PartSize)] += peer.BlockSize
-		if o != owner {
+		// A stale reservation (nothing sent for reserveStale) does not
+		// count: it would keep an isolated part from everybody else.
+		if o != owner && now.Sub(pf.resAt[start]) < reserveStale {
 			others[int(start/ed2k.PartSize)] = true
 		}
 	}

@@ -200,7 +200,7 @@ func (c *Conn) Send(protocol, opcode byte, payload []byte) error {
 // Read reads the next packet, failing if none arrives within timeout.
 func (c *Conn) Read(timeout time.Duration) (*proto.Packet, error) {
 	c.nc.SetReadDeadline(time.Now().Add(timeout))
-	p, err := proto.ReadPacketMax(c.nc, proto.MaxPeerPacketSize)
+	p, err := proto.ReadPeerPacket(c.nc, proto.MaxPeerPacketSize)
 	if err == nil && c.Trace != nil {
 		c.Trace(false, p)
 	}

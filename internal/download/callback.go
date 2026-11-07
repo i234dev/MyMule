@@ -92,14 +92,17 @@ func (m *Manager) onCallback(ctx context.Context, ip net.IP, port uint16) {
 		m.cfg.Debug("server callback to %s:%d ignored: %s", ip, port, why)
 		return
 	}
-	defer m.callbacks.done()
-	m.dialCallback(ctx, net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	m.dialCallback(ctx, net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), m.callbacks.done)
 }
 
-// dialCallback connects to addr and runs a session on it.
-func (m *Manager) dialCallback(ctx context.Context, addr string) {
+// dialCallback connects to addr and runs a session on it. connected is
+// called as soon as the connection attempt is over: the callback limit
+// counts connection attempts, not whole sessions, which a peer could
+// otherwise keep open to make us unreachable to everybody else.
+func (m *Manager) dialCallback(ctx context.Context, addr string, connected func()) {
 	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", addr)
+	nc, err := d.DialContext(ctx, "tcp4", addr)
+	connected()
 	if err != nil {
 		return
 	}

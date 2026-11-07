@@ -145,3 +145,30 @@ func TestStaleReservationTakenOver(t *testing.T) {
 		t.Fatalf("late write by the old holder: %v", err)
 	}
 }
+
+// A peer that holds the blocks of an isolated part and sends nothing for
+// them loses them after reserveStale like anywhere else; the part is not
+// kept from everybody for good.
+func TestIsolatedPartStaleReservation(t *testing.T) {
+	pf, data, _ := blameSetup(t)
+	first := []bool{true, false, false}
+	pf.mu.Lock()
+	pf.isolate[0] = true
+	pf.mu.Unlock()
+	held := pf.Reserve("idle:1", first, 3)
+	if len(held) == 0 {
+		t.Fatal("setup: no blocks")
+	}
+	if len(pf.Reserve("next:1", first, 1)) != 0 {
+		t.Fatal("isolated part shared while its peer was active")
+	}
+	pf.mu.Lock()
+	for start := range pf.resAt {
+		pf.resAt[start] = pf.resAt[start].Add(-reserveStale - time.Second)
+	}
+	pf.mu.Unlock()
+	serve(t, pf, "next:1", first, data, 0)
+	if !pf.VerifiedParts()[0] {
+		t.Fatal("isolated part held for good by a peer that sends nothing")
+	}
+}

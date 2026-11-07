@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -44,14 +45,29 @@ func ReadPacket(r io.Reader) (*Packet, error) { return ReadPacketMax(r, MaxPacke
 
 // ReadPacketMax is ReadPacket with a size limit that applies both to the
 // packet on the wire and to its decompressed payload.
-func ReadPacketMax(r io.Reader, max int) (*Packet, error) {
+func ReadPacketMax(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, true) }
+
+// ErrPacked is returned by ReadPeerPacket for a compressed packet.
+var ErrPacked = errors.New("proto: compressed packet refused")
+
+// ReadPeerPacket reads a packet from another client: like ReadPacketMax,
+// but compressed packets are refused. We never announce compression to
+// peers, so honest clients never send it, and unpacking let a peer make
+// us allocate and inflate about 2000 times what it sent.
+func ReadPeerPacket(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, false) }
+
+func readPacket(r io.Reader, max int, allowPacked bool) (*Packet, error) {
 	var hdr [6]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return nil, err
 	}
 	proto := hdr[0]
 	switch proto {
-	case ProtoEDonkey, ProtoEMule, ProtoPacked:
+	case ProtoEDonkey, ProtoEMule:
+	case ProtoPacked:
+		if !allowPacked {
+			return nil, ErrPacked
+		}
 	default:
 		return nil, fmt.Errorf("proto: unknown protocol byte 0x%02X", proto)
 	}

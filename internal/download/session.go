@@ -14,10 +14,15 @@ import (
 )
 
 const (
-	askTimeout      = 40 * time.Second
+	askTimeout     = 40 * time.Second
+	pipelineBlocks = 3
+)
+
+// Session time limits (variables for the tests).
+var (
 	queuedTimeout   = 15 * time.Minute // stay connected while the peer allows it
 	transferTimeout = 100 * time.Second
-	pipelineBlocks  = 3
+	askLimit        = 2 * time.Minute // whole asking phase (name, status, hash set, rank)
 )
 
 // handshakeTimeout is how long a new connection has, in total, to
@@ -29,6 +34,8 @@ var errDone = errors.New("session finished")
 // errCompressed ends a session whose peer sends compressed blocks, which
 // we do not support and never ask for.
 var errBanned = errors.New("peer sent corrupt data")
+
+var errStateTimeout = errors.New("peer took too long without progress")
 
 var errCompressed = errors.New("peer sent a compressed block, which we do not accept")
 
@@ -68,14 +75,25 @@ func (m *Manager) runSession(ctx context.Context, nc net.Conn, outbound bool, sr
 	panicked := safe.Catch(m.cfg.Log, "peer session with "+nc.RemoteAddr().String(), func() {
 		m.session(ctx, c, nc, outbound, src, &cl)
 	}, m.locks()...)
+	m.afterSession(ctx, c, nc, &cl, panicked)
+}
+
+// afterSession undoes what a session left (see runSession).
+func (m *Manager) afterSession(ctx context.Context, c *peer.Conn, nc net.Conn, cl *sessionCleanup, panicked bool) {
 	if cl.s != nil {
 		cl.s.releaseAll()
 	}
-	if cl.serveAfter && !panicked {
-		m.serveUploads(c, cl.hello)
-	}
+	// Release the source before serving the peer: the upload phase can
+	// last many minutes, and the source must not stay busy (and count
+	// against MaxConns) all that time.
 	if cl.src != nil {
 		m.releaseSource(cl.src)
+	}
+	if cl.serveAfter && !panicked {
+		// Its own panic containment: this runs after safe.Catch above.
+		safe.Catch(m.cfg.Log, "serving peer "+nc.RemoteAddr().String(), func() {
+			m.serveUploads(ctx, c, cl.hello)
+		}, m.locks()...)
 	}
 	if cl.uploadConnected {
 		m.cfg.Upload.Disconnected(c)
@@ -122,7 +140,7 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 		if src == nil {
 			// A peer that wants something from us, or one whose upload
 			// turn has come and we dialed.
-			m.serveUploads(c, hello)
+			m.serveUploads(ctx, c, hello)
 			return
 		}
 		cl.src = src
@@ -209,12 +227,23 @@ func (m *Manager) handshake(c *peer.Conn, outbound bool) (peer.Hello, error) {
 // serveUploads handles a connection from a peer that only wants files
 // from us. It stays open while the peer uses an upload slot and closes
 // after a minute of silence otherwise.
-func (m *Manager) serveUploads(c *peer.Conn, hello peer.Hello) {
+//
+// A connection we are not uploading on is kept for unservedLimit at most,
+// whatever the peer sends: otherwise any peer could hold one of our
+// incoming connection slots for ever with a packet every minute.
+func (m *Manager) serveUploads(ctx context.Context, c *peer.Conn, hello peer.Hello) {
+	if testServeHook != nil {
+		testServeHook()
+	}
 	up := m.cfg.Upload
-	for {
+	usefulAt := time.Now()
+	for ctx.Err() == nil {
 		timeout := 60 * time.Second
 		if up != nil && up.Serving(c) {
 			timeout = 2 * time.Minute
+			usefulAt = time.Now()
+		} else if time.Since(usefulAt) > unservedLimit {
+			return
 		}
 		p, err := c.Read(timeout)
 		if err != nil {
@@ -237,6 +266,13 @@ func (m *Manager) serveUploads(c *peer.Conn, hello peer.Hello) {
 	}
 }
 
+// unservedLimit is how long a peer connection may stay open without us
+// uploading on it (asking for files and its queue place takes seconds).
+var unservedLimit = 3 * time.Minute
+
+// testServeHook, when set by a test, runs at the start of serveUploads.
+var testServeHook func()
+
 type session struct {
 	m     *Manager
 	c     *peer.Conn
@@ -248,7 +284,12 @@ type session struct {
 	pending []Range // blocks requested from this peer
 	askedAt time.Time
 	timeout time.Duration
-	hello   peer.Hello
+	// deadline ends the current state whatever the peer sends: packets
+	// that carry nothing useful (an info packet, a repeated queue rank)
+	// reset the read timeout but not this, so a peer cannot hold one of
+	// our connection slots for ever. Data received moves it forward.
+	deadline time.Time
+	hello    peer.Hello
 }
 
 func (s *session) setState(st SourceState) {
@@ -273,10 +314,18 @@ func (s *session) run(ctx context.Context) error {
 		return err
 	}
 	s.timeout = askTimeout
+	s.deadline = time.Now().Add(askLimit)
 
 	for ctx.Err() == nil {
-		p, err := s.c.Read(s.timeout)
+		left := time.Until(s.deadline)
+		if left <= 0 {
+			return errStateTimeout
+		}
+		p, err := s.c.Read(min(s.timeout, left))
 		if err != nil {
+			if time.Until(s.deadline) <= 0 {
+				return errStateTimeout
+			}
 			return err
 		}
 		if err := s.handle(p); err != nil {
@@ -325,8 +374,17 @@ func (s *session) handle(p *proto.Packet) error {
 		if err != nil || h != s.pf.Hash {
 			return err
 		}
-		if avail != nil && len(avail) != NumParts(s.pf.Size) {
-			avail = nil // malformed; assume complete like eMule does for count 0
+		// eMule sends size/PartSize+1 parts (one more than there are
+		// when the size is an exact multiple); older clients the real
+		// number. Anything else is malformed: assume complete, as eMule
+		// does for a count of 0.
+		switch n := NumParts(s.pf.Size); {
+		case avail == nil:
+		case len(avail) == n:
+		case len(avail) == ed2k.StatusPartCount(s.pf.Size):
+			avail = avail[:n]
+		default:
+			avail = nil
 		}
 		s.m.mu.Lock()
 		s.src.Avail = avail
@@ -359,6 +417,7 @@ func (s *session) handle(p *proto.Packet) error {
 	case peer.OpAcceptUploadReq:
 		s.setState(StateDownloading)
 		s.timeout = transferTimeout
+		s.deadline = time.Now().Add(transferTimeout)
 		return s.requestMore()
 
 	case peer.OpOutOfPartReqs:
@@ -385,6 +444,9 @@ func (s *session) onQueued(rank int) {
 	s.src.State = StateQueued
 	s.src.Rank = rank
 	s.m.mu.Unlock()
+	if s.timeout != queuedTimeout { // first rank: the queued wait starts
+		s.deadline = time.Now().Add(queuedTimeout)
+	}
 	s.timeout = queuedTimeout
 }
 
@@ -464,6 +526,7 @@ func (s *session) store(off int64, data []byte) error {
 		return err
 	}
 	n := int64(len(data))
+	s.deadline = time.Now().Add(transferTimeout) // progress
 	s.f.bytes.Add(n)
 	s.m.mu.Lock()
 	s.src.Bytes += n

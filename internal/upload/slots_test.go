@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/peer"
 	"mymule/internal/proto"
 )
 
@@ -98,5 +99,39 @@ func TestLimiterBelowPacketSize(t *testing.T) {
 	case <-done:
 	case <-time.After(15 * time.Second):
 		t.Fatal("limiter of 8 KB/s never let a 10 KB packet through")
+	}
+}
+
+// When a peer reaches us on a new connection, closing its older one does
+// not end the upload slot it now has on the new one.
+func TestOldConnectionDoesNotEndSlot(t *testing.T) {
+	m, h := newTestManager(t)
+	ask(t, m, h, ed2k.Hash{1}, "198.51.100.1") // slot, on its first connection
+	m.mu.Lock()
+	var cl *client
+	for _, c := range m.clients {
+		cl = c
+	}
+	old := cl.conn
+	m.mu.Unlock()
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := b.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+	cur := peer.NewConn(a)
+	m.Connected(cur, peer.NewHello(ed2k.Hash{1}, "peer", 0x02000000, 4662, nil, 0), net.ParseIP("198.51.100.1"))
+	if !m.Serving(cur) {
+		t.Fatal("setup: the slot did not move to the new connection")
+	}
+	m.Disconnected(old)
+	if !m.Serving(cur) {
+		t.Fatal("closing the old connection ended the slot on the new one")
 	}
 }

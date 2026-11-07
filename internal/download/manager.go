@@ -206,7 +206,9 @@ func (m *Manager) Run(ctx context.Context) error {
 	m.ctx = ctx
 
 	if m.cfg.Port != 0 {
-		ln, err := net.Listen("tcp", net.JoinHostPort(m.cfg.ListenHost, strconv.Itoa(int(m.cfg.Port))))
+		// IPv4 only: eD2K has no IPv6, and on IPv6 one customer's /64
+		// would give unlimited addresses past the per-IP limit.
+		ln, err := net.Listen("tcp4", net.JoinHostPort(m.cfg.ListenHost, strconv.Itoa(int(m.cfg.Port))))
 		if err != nil {
 			m.cfg.Log("cannot listen on port %d (%v); incoming connections disabled", m.cfg.Port, err)
 		} else {

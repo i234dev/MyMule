@@ -17,6 +17,12 @@ import (
 // PartSize is the size of an eD2K chunk ("part"): 9.28 MB.
 const PartSize = 9728000
 
+// StatusPartCount is the number of parts eMule and aMule put in, and
+// expect in, a file status (OP_FILESTATUS): size/PartSize + 1. It is one
+// more than the real number of parts when the size is an exact multiple
+// of PartSize (the empty last part of the hash set); otherwise the same.
+func StatusPartCount(size int64) int { return int(size/PartSize) + 1 }
+
 // Hash is a 16-byte MD4 hash as used throughout the eD2K network.
 type Hash [16]byte
 

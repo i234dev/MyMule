@@ -143,3 +143,24 @@ func TestPackedPacketBomb(t *testing.T) {
 		t.Fatal("packed packet expanding past the limit accepted")
 	}
 }
+
+// Clients never get to send us compressed packets (we don't announce
+// compression), so they are refused without being unpacked; servers'
+// compressed packets are still accepted.
+func TestPeerPacketRefusesPacked(t *testing.T) {
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zw.Write(bytes.Repeat([]byte{0}, 1<<20))
+	zw.Close()
+	p := &Packet{Proto: ProtoPacked, Opcode: OpSearchResult, Payload: z.Bytes()}
+	if _, err := ReadPeerPacket(bytes.NewReader(p.Encode()), MaxPeerPacketSize); err != ErrPacked {
+		t.Fatalf("compressed peer packet: err = %v, want ErrPacked", err)
+	}
+	plain := &Packet{Proto: ProtoEDonkey, Opcode: 1, Payload: []byte("x")}
+	if got, err := ReadPeerPacket(bytes.NewReader(plain.Encode()), MaxPeerPacketSize); err != nil || string(got.Payload) != "x" {
+		t.Fatalf("plain peer packet: %v %v", got, err)
+	}
+	if _, err := ReadPacketMax(bytes.NewReader(p.Encode()), MaxPacketSize); err != nil {
+		t.Fatalf("compressed server packet refused: %v", err)
+	}
+}

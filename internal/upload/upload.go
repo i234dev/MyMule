@@ -126,6 +126,11 @@ func (m *Manager) Connected(c *peer.Conn, h peer.Hello, ip net.IP) {
 		m.mu.Unlock()
 		return
 	}
+	if cl.conn != nil && cl.conn != c {
+		// The peer's older connection is no longer how we reach it; when
+		// it closes, it must not end what happens on this one.
+		delete(m.byConn, cl.conn)
+	}
 	cl.conn = c
 	m.byConn[c] = cl
 	m.updateIdentity(cl, h, ip)
@@ -149,9 +154,10 @@ func (m *Manager) Disconnected(c *peer.Conn) {
 		return
 	}
 	delete(m.byConn, c)
-	if cl.conn == c {
-		cl.conn = nil
+	if cl.conn != c {
+		return // an older connection; the peer is served on another one
 	}
+	cl.conn = nil
 	if cl.uploading {
 		cl.uploading = false
 		m.enqueueLocked(cl)
@@ -211,7 +217,7 @@ func (m *Manager) Handle(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.Packet)
 		if f == nil {
 			return true, c.SendHash(proto.ProtoEDonkey, peer.OpFileReqAnsNoFil, hash)
 		}
-		return true, c.Send(proto.ProtoEDonkey, peer.OpFileStatus, fileStatus(hash, f.Avail()))
+		return true, c.Send(proto.ProtoEDonkey, peer.OpFileStatus, fileStatus(hash, f.FileSize(), f.Avail()))
 
 	case peer.OpHashSetRequest:
 		if len(p.Payload) < 16 {
@@ -253,15 +259,19 @@ func (m *Manager) Handle(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.Packet)
 	return false, nil
 }
 
-func fileStatus(h ed2k.Hash, avail []bool) []byte {
+func fileStatus(h ed2k.Hash, size int64, avail []bool) []byte {
 	var w proto.Writer
 	w.Bytes(h[:])
 	if avail == nil {
 		w.U16(0) // complete file
 		return w.B
 	}
-	w.U16(uint16(len(avail)))
-	bits := make([]byte, (len(avail)+7)/8)
+	// eMule's count (see ed2k.StatusPartCount): with the real number of
+	// parts, eMule rejects the status of files whose size is an exact
+	// multiple of the part size. The extra part, if any, is empty.
+	n := max(ed2k.StatusPartCount(size), len(avail))
+	w.U16(uint16(n))
+	bits := make([]byte, (n+7)/8)
 	for i, a := range avail {
 		if a {
 			bits[i/8] |= 1 << (i % 8)

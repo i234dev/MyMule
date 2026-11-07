@@ -444,3 +444,17 @@ func mustURL(t *testing.T, s string) *url.URL {
 	}
 	return u
 }
+
+// The login route needs no session, so it reads only a small form: a big
+// body is refused (even with the right password in it), not buffered.
+func TestQBittorrentLoginBodyLimit(t *testing.T) {
+	fx := newFixture(t)
+	login := fx.srv.URL + "/api/v2/auth/login"
+	if _, body := post(t, &http.Client{}, login, url.Values{"password": {testKey}, "pad": {strings.Repeat("x", 3000)}}); body != "Ok." {
+		t.Fatalf("normal-sized login: %q", body)
+	}
+	code, body := post(t, &http.Client{}, login, url.Values{"password": {testKey}, "pad": {strings.Repeat("x", 64<<10)}})
+	if code != http.StatusBadRequest || body == "Ok." {
+		t.Fatalf("oversized login: %d %q", code, body)
+	}
+}

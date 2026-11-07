@@ -92,7 +92,13 @@ func writeJSON(w http.ResponseWriter, v any) {
 // ---- auth ----
 
 func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	// The only route open to anyone: read a small form only (Go would
+	// otherwise take up to 10 MB per request into memory).
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginBody)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	pass := r.Form.Get("password")
 	// A form on another web site does not count as a failure.
 	ok := false
@@ -369,6 +375,7 @@ func (a *Adapter) entryLocked(h ed2k.Hash) *storeEntry {
 // Limits for torrents added through the qBittorrent API.
 const (
 	maxAddBody     = 10 << 20 // a whole add request
+	maxLoginBody   = 4096     // a login form
 	maxTorrentSize = 1 << 20  // one torrent file
 )
 

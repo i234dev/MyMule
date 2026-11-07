@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -133,5 +134,52 @@ func TestOldConnectionDoesNotEndSlot(t *testing.T) {
 	m.Disconnected(old)
 	if !m.Serving(cur) {
 		t.Fatal("closing the old connection ended the slot on the new one")
+	}
+}
+
+// We upload to a peer on connection A; our download side then reaches
+// the same peer (it is also one of our sources) on connection B. The
+// upload on A goes on, also after B closes.
+func TestSecondConnectionKeepsUpload(t *testing.T) {
+	m, h := newTestManager(t)
+	ask(t, m, h, ed2k.Hash{1}, "198.51.100.1") // slot on conn A
+	m.mu.Lock()
+	var cl *client
+	for _, c := range m.clients {
+		cl = c
+	}
+	a := cl.conn
+	m.mu.Unlock()
+	if !m.Serving(a) {
+		t.Fatal("setup: not serving A")
+	}
+	x, y := net.Pipe()
+	defer x.Close()
+	defer y.Close()
+	go io.Copy(io.Discard, y)
+	b := peer.NewConn(x)
+	m.Connected(b, peer.NewHello(ed2k.Hash{1}, "peer", 0x02000000, 4662, nil, 0), net.ParseIP("198.51.100.1"))
+	if !m.Serving(a) {
+		t.Error("Serving(A) false after a second connection: A's serveUploads loop drops to 60s/unservedLimit and its requests are ignored")
+	}
+	before := cl.totalSent
+	var w proto.Writer
+	w.Bytes(h[:])
+	w.U32(0)
+	w.U32(0)
+	w.U32(0)
+	w.U32(1000)
+	w.U32(0)
+	w.U32(0)
+	m.onRequestParts(a, &proto.Packet{Payload: w.B}, false)
+	if cl.totalSent == before {
+		t.Error("request on A not served")
+	}
+	m.Disconnected(b) // our download session ends
+	m.mu.Lock()
+	up := cl.uploading
+	m.mu.Unlock()
+	if !up {
+		t.Error("slot ended when the download connection B closed, though the upload runs on A")
 	}
 }

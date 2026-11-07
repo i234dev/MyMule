@@ -126,11 +126,9 @@ func (m *Manager) Connected(c *peer.Conn, h peer.Hello, ip net.IP) {
 		m.mu.Unlock()
 		return
 	}
-	if cl.conn != nil && cl.conn != c {
-		// The peer's older connection is no longer how we reach it; when
-		// it closes, it must not end what happens on this one.
-		delete(m.byConn, cl.conn)
-	}
+	// A peer may have several connections with us (it downloads from us
+	// on one while we download from it on another): all stay in byConn,
+	// and the newest is the one we use to reach it.
 	cl.conn = c
 	m.byConn[c] = cl
 	m.updateIdentity(cl, h, ip)
@@ -155,9 +153,15 @@ func (m *Manager) Disconnected(c *peer.Conn) {
 	}
 	delete(m.byConn, c)
 	if cl.conn != c {
-		return // an older connection; the peer is served on another one
+		return // not the connection we use for it; nothing changes
 	}
 	cl.conn = nil
+	for oc, o := range m.byConn {
+		if o == cl {
+			cl.conn = oc // still connected on another one: keep going
+			return
+		}
+	}
 	if cl.uploading {
 		cl.uploading = false
 		m.enqueueLocked(cl)

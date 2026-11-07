@@ -103,13 +103,24 @@ func TestCallbackSlotFreedAfterConnect(t *testing.T) {
 	m := NewManager(Config{})
 	freed := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go m.dialCallback(ctx, ln.Addr().String(), func() { close(freed) })
+	ended := make(chan struct{})
+	go func() {
+		m.dialCallback(ctx, ln.Addr().String(), func() { close(freed) })
+		close(ended)
+	}()
 	select {
 	case <-freed:
 	case <-time.After(time.Second):
 		t.Fatal("callback slot still held while the session runs")
 	}
+	// Leave nothing running for the next tests.
+	cancel()
+	m.mu.Lock()
+	for c := range m.conns {
+		c.Close()
+	}
+	m.mu.Unlock()
+	<-ended
 }
 
 // eMule announces size/PartSize+1 parts for files whose size is an exact

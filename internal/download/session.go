@@ -545,7 +545,7 @@ func (s *session) store(off int64, data []byte) error {
 
 	if complete {
 		s.c.Send(proto.ProtoEDonkey, peer.OpCancelTransfer, nil)
-		go s.m.finish(s.f)
+		s.m.goFinish(s.f)
 		return errDone
 	}
 	return s.requestMore()

@@ -47,11 +47,13 @@ type PartFile struct {
 	// Who sent the data of each part being downloaded, to find a peer
 	// that sends bad data (see blameLocked).
 	writers map[int]map[string]bool
-	unknown map[int]bool      // part has bytes from before a restart (writer unknown)
-	isolate map[int]bool      // part failed with several writers: next time one writer only
-	lastWr  map[int]time.Time // last write into an isolated part
-	strikes map[string]int    // per owner: parts it sent alone that failed
-	banned  map[string]bool   // owners that sent too many bad parts
+	unknown map[int]bool           // part has bytes from before a restart (writer unknown)
+	isolate map[int]bool           // part failed with several writers: next time one writer only
+	lastWr  map[int]time.Time      // last write into an isolated part
+	strikes map[string]int         // per owner: distinct parts it sent alone that failed
+	badPart map[string]map[int]int // per owner: failures per part (2 = not given to it again)
+	ownerAt map[string]time.Time   // per owner: last data it sent us
+	banned  map[string]bool        // owners that sent too many bad parts
 
 	f        *os.File
 	dataPath string
@@ -130,6 +132,8 @@ func create(dir string, link ed2k.Link, checkSpace bool) (*PartFile, error) {
 		isolate:  map[int]bool{},
 		lastWr:   map[int]time.Time{},
 		strikes:  map[string]int{},
+		badPart:  map[string]map[int]int{},
+		ownerAt:  map[string]time.Time{},
 		banned:   map[string]bool{},
 		dataPath: base + ".part",
 		metaPath: base + ".part.json",
@@ -182,6 +186,8 @@ func Open(metaPath string) (*PartFile, error) {
 		isolate:  map[int]bool{},
 		lastWr:   map[int]time.Time{},
 		strikes:  map[string]int{},
+		badPart:  map[string]map[int]int{},
+		ownerAt:  map[string]time.Time{},
 		banned:   map[string]bool{},
 		metaPath: metaPath,
 		dataPath: strings.TrimSuffix(metaPath, ".json"),
@@ -421,7 +427,7 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 		inFlight[int(start/ed2k.PartSize)] += peer.BlockSize
 		// A stale reservation (nothing sent for reserveStale) does not
 		// count: it would keep an isolated part from everybody else.
-		if o != owner && now.Sub(pf.resAt[start]) < reserveStale {
+		if o != owner && !pf.staleLocked(start, o, now) {
 			others[int(start/ed2k.PartSize)] = true
 		}
 	}
@@ -430,11 +436,20 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 		if v || (avail != nil && (p >= len(avail) || !avail[p])) {
 			continue
 		}
+		if pf.badPart[owner][p] > 1 {
+			continue // this peer's copy of it is bad
+		}
 		if pf.isolate[p] && pf.writtenByOther(p, owner) && !others[p] && time.Since(pf.lastWr[p]) > isolateAbandon {
-			// Its single peer went away: start the part over.
-			pf.done.Remove(pf.partRange(p))
+			// Its single peer went away: start the part over, and take
+			// the part's blocks from it.
+			pr := pf.partRange(p)
+			pf.done.Remove(pr)
 			delete(pf.writers, p)
 			delete(pf.unknown, p)
+			for start := pr.Start; start < pr.End; start += peer.BlockSize {
+				delete(pf.reserved, start)
+				delete(pf.resAt, start)
+			}
 			pf.dirty = true
 		}
 		if pf.isolate[p] && (others[p] || pf.writtenByOther(p, owner)) {
@@ -457,7 +472,7 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 			if pf.done.Contains(blk) {
 				continue
 			}
-			if o, taken := pf.reserved[start]; taken && (o == owner || now.Sub(pf.resAt[start]) < reserveStale) {
+			if o, taken := pf.reserved[start]; taken && (o == owner || !pf.staleLocked(start, o, now)) {
 				continue
 			}
 			// Free, or held by a peer that sent nothing for it for too
@@ -489,6 +504,14 @@ func (pf *PartFile) Has(r Range) bool {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	return pf.done.Contains(r)
+}
+
+// staleLocked reports whether block start, reserved for o, may be taken
+// over: nothing sent for it for reserveStale, and nothing from o at all
+// for as long (a slow peer still sending its first pipelined block keeps
+// the later ones).
+func (pf *PartFile) staleLocked(start int64, o string, now time.Time) bool {
+	return now.Sub(pf.resAt[start]) >= reserveStale && now.Sub(pf.ownerAt[o]) >= reserveStale
 }
 
 // reserveStale is how long a block stays reserved for a peer that sends
@@ -558,6 +581,7 @@ func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
 	}
 	pf.writers[part][owner] = true
 	pf.resAt[blk.Start] = time.Now()
+	pf.ownerAt[owner] = pf.resAt[blk.Start]
 	if pf.isolate[part] {
 		pf.lastWr[part] = time.Now()
 	}
@@ -617,6 +641,18 @@ func (pf *PartFile) blameLocked(p int) {
 	w := pf.writers[p]
 	if len(w) == 1 && !pf.unknown[p] {
 		for owner := range w {
+			// A first failure may be an accident: it may send the part
+			// again. Failing the same part twice means its copy is bad: it
+			// is not asked for that part any more. Only bad data in
+			// several different parts gets it banned, so a lone honest
+			// source with one damaged part keeps serving the rest.
+			if pf.badPart[owner] == nil {
+				pf.badPart[owner] = map[int]int{}
+			}
+			pf.badPart[owner][p]++
+			if pf.badPart[owner][p] > 1 {
+				return
+			}
 			pf.strikes[owner]++
 			if pf.strikes[owner] < banAfter {
 				return
@@ -909,7 +945,9 @@ func SanitizeName(name string) string {
 			b.WriteRune(r)
 		}
 	}
-	s := strings.TrimSpace(strings.TrimRight(b.String(), ". "))
+	// No dots or spaces (of any kind) at the end: Windows drops them, so
+	// the file would not get the name it was given.
+	s := strings.TrimLeftFunc(strings.TrimRightFunc(b.String(), dotOrSpace), unicode.IsSpace)
 	if s == "" || s == "." || s == ".." {
 		s = "download"
 	}
@@ -918,7 +956,7 @@ func SanitizeName(name string) string {
 		if len(ext) > 16 {
 			ext = ""
 		}
-		s = strings.TrimRight(netutil.Truncate(strings.TrimSuffix(s, ext), maxNameBytes-len(ext)), ". ") + ext
+		s = strings.TrimRightFunc(netutil.Truncate(strings.TrimSuffix(s, ext), maxNameBytes-len(ext)), dotOrSpace) + ext
 	}
 	// Windows reserved device names (with any extension).
 	switch strings.ToUpper(strings.TrimRight(strings.SplitN(s, ".", 2)[0], " ")) {
@@ -939,6 +977,8 @@ func SanitizeName(name string) string {
 	}
 	return s
 }
+
+func dotOrSpace(r rune) bool { return r == '.' || unicode.IsSpace(r) }
 
 // ReserveName claims a free name for a new file: p, or p with " (1)",
 // " (2)"... added. It creates the file, empty, with O_EXCL, so two

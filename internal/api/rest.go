@@ -80,8 +80,11 @@ func (r *REST) Authorized(req *http.Request) bool {
 	if r.also != nil && r.also(req) {
 		return true
 	}
-	if got == "" || r.key == "" || authlimit.CrossSite(req) {
+	if got == "" || r.key == "" {
 		return false
+	}
+	if authlimit.CrossSite(req) {
+		return authlimit.Default.CheckQuiet(req, got, r.key)
 	}
 	// A key was sent: a wrong one counts against the guessing limit.
 	return authlimit.Default.Check(req, got, r.key)

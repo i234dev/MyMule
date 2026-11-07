@@ -50,8 +50,10 @@ func blameSetup(t *testing.T) (pf *PartFile, data, garbage []byte) {
 func TestCorruptSenderBanned(t *testing.T) {
 	pf, data, garbage := blameSetup(t)
 	serve(t, pf, "evil:1", nil, garbage, 0)
-	if !pf.Banned("evil:1") || pf.Corrupt() != banAfter {
-		t.Fatalf("banned=%v corrupt=%d after bad parts from one peer", pf.Banned("evil:1"), pf.Corrupt())
+	// banAfter different bad parts, plus at most one retry of each before
+	// the last one (depending on which parts the random order picks).
+	if c := pf.Corrupt(); !pf.Banned("evil:1") || c < banAfter || c > 2*banAfter-1 {
+		t.Fatalf("banned=%v corrupt=%d after bad parts from one peer", pf.Banned("evil:1"), c)
 	}
 	if blocks := pf.Reserve("evil:1", nil, 5); len(blocks) != 0 {
 		t.Fatal("banned peer got more blocks")
@@ -90,10 +92,13 @@ func TestCorruptPartIsolated(t *testing.T) {
 	if len(pf.Reserve("good:1", first, 5)) != 0 {
 		t.Fatal("a second peer got blocks of the isolated part")
 	}
-	serve(t, pf, "evil:1", first, garbage, 0) // first strike
-	serve(t, pf, "evil:1", first, garbage, 0) // second: banned
-	if !pf.Banned("evil:1") || pf.Banned("good:1") {
-		t.Fatalf("culprit not found: evil banned=%v, good banned=%v", pf.Banned("evil:1"), pf.Banned("good:1"))
+	serve(t, pf, "evil:1", first, garbage, 0) // fails alone: may retry once
+	serve(t, pf, "evil:1", first, garbage, 0) // fails again: its copy is bad
+	if len(pf.Reserve("evil:1", first, 5)) != 0 {
+		t.Fatal("the peer whose copy of the part is bad still gets it")
+	}
+	if pf.Banned("good:1") {
+		t.Fatal("the honest peer was banned")
 	}
 	serve(t, pf, "good:1", nil, data, 0)
 	if !pf.Complete() {
@@ -170,5 +175,47 @@ func TestIsolatedPartStaleReservation(t *testing.T) {
 	serve(t, pf, "next:1", first, data, 0)
 	if !pf.VerifiedParts()[0] {
 		t.Fatal("isolated part held for good by a peer that sends nothing")
+	}
+}
+
+// An honest slow peer still sending its first pipelined block keeps the
+// later ones, even when they were reserved long ago.
+func TestSlowPeerKeepsPipelinedBlocks(t *testing.T) {
+	pf, data, _ := blameSetup(t)
+	first := []bool{true, false, false}
+	a := pf.Reserve("A", first, 3)
+	pf.mu.Lock()
+	for _, b := range a {
+		pf.resAt[b.Start] = time.Now().Add(-reserveStale - time.Minute)
+	}
+	pf.mu.Unlock()
+	if _, err := pf.Write("A", a[0].Start, data[a[0].Start:a[0].Start+10240]); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range pf.Reserve("B", first, 3) {
+		if b == a[1] || b == a[2] {
+			t.Fatal("an active slow peer's pipelined block was taken over")
+		}
+	}
+	if _, err := pf.Write("A", a[2].Start, data[a[2].Start:a[2].Start+10240]); err != nil {
+		t.Fatalf("the slow peer's data for its later block was refused: %v", err)
+	}
+}
+
+// A peer that sends a bad copy of the same part again and again is not
+// banned for it (a lone honest source with one damaged part), but bad
+// data in several different parts is.
+func TestBanNeedsDifferentBadParts(t *testing.T) {
+	pf, _, garbage := blameSetup(t)
+	first := []bool{true, false, false}
+	for i := 0; i < 4; i++ {
+		serve(t, pf, "flaky:1", first, garbage, 0)
+	}
+	if pf.Banned("flaky:1") || pf.Corrupt() != 2 {
+		t.Fatalf("banned=%v corrupt=%d: one bad part must cost at most two tries and no ban", pf.Banned("flaky:1"), pf.Corrupt())
+	}
+	serve(t, pf, "flaky:1", []bool{false, true, false}, garbage, 0)
+	if !pf.Banned("flaky:1") {
+		t.Fatal("bad data in two different parts did not get the peer banned")
 	}
 }

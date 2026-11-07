@@ -334,6 +334,13 @@ func (l *Library) scan(ctx context.Context) {
 		if c, ok := seen[path]; !ok || c.size != d.size || c.mtime != l.cache[path].MTime {
 			delete(l.disk, path)
 			l.reindexLocked()
+		} else if d.id != nil && !sameAsRegistered(d, path) {
+			// Another file now has its name, with the same size and date
+			// (a restore, rsync, cp -p): hash it again rather than serve
+			// it as the old one, or refuse it for ever.
+			delete(l.disk, path)
+			delete(l.cache, path)
+			l.reindexLocked()
 		}
 	}
 	var todo []cand
@@ -571,4 +578,11 @@ func ReadFull(f File, p []byte, off int64) error {
 		err = io.ErrUnexpectedEOF
 	}
 	return err
+}
+
+// sameAsRegistered reports whether path is still the file d was
+// registered with.
+func sameAsRegistered(d *diskFile, path string) bool {
+	st, err := os.Lstat(path)
+	return err == nil && os.SameFile(d.id, st)
 }

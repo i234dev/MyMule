@@ -59,17 +59,32 @@ func locationWarning(goos, dir, profile string) string {
 		"Moving the MyMule folder inside your profile (for example to Documents) avoids that."
 }
 
-// TightenDir makes dir private (0700) when other users may write in it.
-// Used for the temporary folder: older versions created it 0755, and a
-// folder others can write in lets them plant fake downloads there. It
-// reports whether it changed anything. Does nothing on Windows.
-func TightenDir(dir string) bool {
+// TightenDir removes write access for other users from dir when they
+// have it: older versions created the temporary folder 0755 or wider,
+// and a folder others can write in lets them plant fake downloads there.
+// It leaves alone what is not only MyMule's: a folder it does not own,
+// one with the sticky bit (like /tmp), and one that is or contains
+// another folder in keep (the downloads folder, which other programs
+// such as a media server may need). Reports whether it changed anything.
+// Does nothing on Windows.
+func TightenDir(dir string, keep ...string) bool {
 	if runtime.GOOS == "windows" {
 		return false
 	}
 	st, err := os.Lstat(dir)
-	if err != nil || !st.IsDir() || st.Mode().Perm()&0o022 == 0 {
+	if err != nil || !st.IsDir() || st.Mode().Perm()&0o022 == 0 ||
+		st.Mode()&os.ModeSticky != 0 || !ownedByMe(st) {
 		return false
 	}
-	return os.Chmod(dir, 0o700) == nil
+	abs, _ := filepath.Abs(dir)
+	for _, k := range keep {
+		if k == "" {
+			continue
+		}
+		ka, _ := filepath.Abs(k)
+		if rel, err := filepath.Rel(abs, ka); err == nil && (rel == "." || !strings.HasPrefix(rel, "..")) {
+			return false
+		}
+	}
+	return os.Chmod(dir, st.Mode().Perm()&^0o022) == nil
 }

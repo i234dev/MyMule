@@ -60,3 +60,20 @@ func TestClaimSourceNeedsProof(t *testing.T) {
 		t.Fatal("LowID source claimed after the callback window")
 	}
 }
+
+// A LowID uploader that queued us connects to us by itself when our slot
+// comes (no callback asked for at that moment): it is recognised by the
+// user hash it gave us before, a stranger with its client ID is not.
+func TestQueuedLowIDUploaderRecognised(t *testing.T) {
+	m := NewManager(Config{})
+	f := &File{sources: map[string]*Source{}}
+	m.files = map[ed2k.Hash]*File{{1}: f}
+	low := &Source{key: "low:1234", LowID: 1234, UserHash: ed2k.Hash{0xBB}, State: StateQueued, Rank: 3, file: f}
+	f.sources[low.key] = low
+	if src := m.claimSource(peer.Hello{UserHash: ed2k.Hash{0xCC}, ClientID: 1234}, pub(7)); src != nil {
+		t.Fatal("a stranger with the source's client ID was taken for it")
+	}
+	if src := m.claimSource(peer.Hello{UserHash: ed2k.Hash{0xBB}, ClientID: 1234}, pub(7)); src != low {
+		t.Fatal("the queued LowID uploader calling us for our slot was not recognised")
+	}
+}

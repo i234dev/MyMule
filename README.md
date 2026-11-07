@@ -172,8 +172,8 @@ The session lasts 30 days. **Log out** ends it for good, also for any copy
 of the session cookie; changing `api_key` logs everybody out. After 10
 wrong keys from one address, that address is blocked for 15 minutes; a
 long random key like the generated one keeps working even then, so
-nobody can lock you out, and requests that other web sites make your
-browser send are ignored.
+nobody can lock you out, and wrong keys that other web sites make your
+browser send don't count.
 
 When `web_ui = false` the pages don't exist and nothing extra runs; the
 interface only uses resources while a browser has it open.

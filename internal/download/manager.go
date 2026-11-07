@@ -515,7 +515,7 @@ func evictDeadSource(f *File, cur string) bool {
 			continue
 		}
 		if src.State == StateNoFile || (src.State == StateUnreachable && src.Fails >= maxSourceFails) ||
-			(src.LowID != 0 && src.server != cur) {
+			(src.LowID != 0 && cur != "" && src.server != cur) {
 			delete(f.sources, key)
 			return true
 		}
@@ -531,7 +531,7 @@ func evictDeadLowID(f *File, cur string) bool {
 		if src.busy || src.LowID == 0 {
 			continue
 		}
-		if src.server != cur || src.Fails > 0 || src.State == StateNoFile {
+		if (cur != "" && src.server != cur) || src.Fails > 0 || src.State == StateNoFile {
 			delete(f.sources, key)
 			return true
 		}
@@ -764,7 +764,15 @@ func incomingMatches(src *Source, h peer.Hello, ip net.IP, now time.Time) bool {
 		}
 		return src.Port == h.Port || (!src.UserHash.IsZero() && src.UserHash == h.UserHash)
 	}
-	if src.callbackAt.IsZero() || now.Sub(src.callbackAt) > callbackWait || src.LowID != h.ClientID {
+	if src.LowID != h.ClientID {
+		return false
+	}
+	// A LowID uploader that queued us connects to us by itself when our
+	// slot comes: known by the user hash it gave us before.
+	if src.State == StateQueued && !src.UserHash.IsZero() && src.UserHash == h.UserHash {
+		return true
+	}
+	if src.callbackAt.IsZero() || now.Sub(src.callbackAt) > callbackWait {
 		return false
 	}
 	return src.UserHash.IsZero() || src.UserHash == h.UserHash
@@ -839,7 +847,7 @@ func (m *Manager) retryFinish() {
 	m.mu.Unlock()
 	for _, f := range due {
 		if f.pf.Complete() {
-			go m.finish(f)
+			m.goFinish(f)
 		}
 	}
 }
@@ -882,6 +890,17 @@ func (m *Manager) locks() []safe.TryLocker {
 		l = append(l, m.cfg.Upload)
 	}
 	return l
+}
+
+// goFinish runs finish in the background, counted in m.wg: stopping
+// waits for it, instead of exiting in the middle of the final move and
+// leaving an empty placeholder or a half-copied file behind.
+func (m *Manager) goFinish(f *File) {
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.finish(f)
+	}()
 }
 
 // finish moves a completed file to the incoming directory (once).

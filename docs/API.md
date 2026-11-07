@@ -48,8 +48,9 @@ Two protections to keep in mind when you call the API from a script:
   can lock you out. Requests without any key don't count.
 - **Browsers on other sites.** A key sent by a browser on behalf of
   another web site (an image or form on a page you visit, detected by
-  the `Sec-Fetch-Site`, `Origin` or `Referer` headers) is refused and
-  doesn't count. Scripts and programs don't send these headers.
+  the `Sec-Fetch-Site`, `Origin` or `Referer` headers) never counts as
+  a wrong key, so a page cannot block your address; the right key still
+  works. Scripts and programs don't send these headers.
 - **Host names.** The API answers to IP addresses, `localhost` and the
   computer's own name. If you call it by another name (a NAS name, a
   domain behind a reverse proxy), add that name to `api_hosts` in

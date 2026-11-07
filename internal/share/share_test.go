@@ -263,3 +263,41 @@ func TestSwappedFileNotServed(t *testing.T) {
 		t.Fatalf("read after the swap: %v (%q), want ErrNotAvailable", err, buf[:4])
 	}
 }
+
+// A file replaced by an identical copy (rsync -a, robocopy, cp -p: a new
+// file with the same size and date) is hashed again and served after the
+// rescan its first refused read asks for.
+func TestReplacedIdenticalFileServedAgain(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "video.mkv")
+	data := bytes.Repeat([]byte("v"), 4000)
+	os.WriteFile(p, data, 0o644)
+	l := NewLibrary([]string{dir}, filepath.Join(t.TempDir(), "known.json"), nil)
+	l.scan(context.Background())
+	fh, _ := ed2k.HashReader(bytes.NewReader(data), nil)
+	f := l.Get(fh.Root)
+	if f == nil {
+		t.Fatal("not shared")
+	}
+	buf := make([]byte, 100)
+	if _, err := f.ReadAt(buf, 0); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(p)
+	tmp := filepath.Join(dir, "copy.tmp")
+	os.WriteFile(tmp, data, 0o644) // identical content
+	os.Chtimes(tmp, st.ModTime(), st.ModTime())
+	if err := os.Rename(tmp, p); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		l.scan(context.Background()) // what Rescan triggers
+		f = l.Get(fh.Root)
+		if f == nil {
+			t.Fatalf("scan %d: file unshared", i)
+		}
+		if _, err := f.ReadAt(buf, 0); err != nil {
+			t.Errorf("scan %d: identical file still refused after rescan: %v", i, err)
+		}
+	}
+}

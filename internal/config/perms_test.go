@@ -75,3 +75,34 @@ func TestLocationWarning(t *testing.T) {
 		t.Error("warning outside Windows")
 	}
 }
+
+// TightenDir removes other users' write access from MyMule's own
+// temporary folder, but leaves alone /tmp-like folders (sticky bit) and a
+// folder holding the downloads folder, which other programs may need.
+func TestTightenDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no permission bits on Windows")
+	}
+	base := t.TempDir()
+	own := filepath.Join(base, "temp")
+	os.Mkdir(own, 0o777)
+	os.Chmod(own, 0o777)
+	if !TightenDir(own) {
+		t.Fatal("open temporary folder not tightened")
+	}
+	if st, _ := os.Stat(own); st.Mode().Perm() != 0o755 {
+		t.Fatalf("mode %v, want 0755 (only write access removed)", st.Mode().Perm())
+	}
+	sticky := filepath.Join(base, "tmp")
+	os.Mkdir(sticky, 0o777)
+	os.Chmod(sticky, 0o777|os.ModeSticky)
+	if TightenDir(sticky) {
+		t.Fatal("a sticky folder like /tmp was changed")
+	}
+	shared := filepath.Join(base, "data")
+	os.MkdirAll(filepath.Join(shared, "downloads"), 0o777)
+	os.Chmod(shared, 0o775)
+	if TightenDir(shared, filepath.Join(shared, "downloads")) {
+		t.Fatal("a folder holding the downloads folder was changed")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode"
 
 	"mymule/internal/ed2k"
 )
@@ -136,5 +137,16 @@ func TestFinishRefusesSwappedFile(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(out); len(ents) != 0 {
 		t.Fatalf("files in the downloads folder: %v", ents)
+	}
+}
+
+// Names never end in a dot or a space of any kind (Windows drops them, so
+// the file would get another name than the one given). Found by fuzzing.
+func TestSanitizeNameNoTrailingDots(t *testing.T) {
+	for _, in := range []string{"0. ", "film.　.　", "a. . .", "x ."} {
+		out := SanitizeName(in)
+		if strings.HasSuffix(out, ".") || strings.TrimRightFunc(out, unicode.IsSpace) != out {
+			t.Errorf("SanitizeName(%q) = %q", in, out)
+		}
 	}
 }

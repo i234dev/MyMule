@@ -94,8 +94,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	pass := r.Form.Get("password")
-	// A form on another web site cannot log in, nor count as a failure.
-	if authlimit.CrossSite(r) || !authlimit.Default.Check(r, pass, a.cfg.Key) {
+	// A form on another web site does not count as a failure.
+	ok := false
+	if authlimit.CrossSite(r) {
+		ok = authlimit.Default.CheckQuiet(r, pass, a.cfg.Key)
+	} else {
+		ok = authlimit.Default.Check(r, pass, a.cfg.Key)
+	}
+	if !ok {
 		io.WriteString(w, "Fails.")
 		return
 	}

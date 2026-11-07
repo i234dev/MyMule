@@ -100,8 +100,8 @@ func run() {
 				fmt.Fprintln(os.Stderr, "warning: cannot create", dir+":", err)
 			}
 		}
-		if config.TightenDir(settings.TempDir) {
-			fmt.Fprintln(os.Stderr, "note: other users could write in", settings.TempDir+"; it is now private (0700)")
+		if config.TightenDir(settings.TempDir, settings.DownloadDir) {
+			fmt.Fprintln(os.Stderr, "note: other users could write in", settings.TempDir+"; they no longer can")
 		}
 		for _, note := range config.ImportLegacy(settings.TempDir) {
 			fmt.Fprintln(os.Stderr, note)

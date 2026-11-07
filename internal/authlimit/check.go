@@ -32,10 +32,19 @@ func (l *Limiter) Check(r *http.Request, got, key string) bool {
 	return right
 }
 
+// CheckQuiet reports whether got is the right key without counting a
+// wrong one, for requests a browser sent on behalf of another site (see
+// CrossSite): such a page makes up whatever key it likes, and counting
+// it would let any web page block the user's own address. The right key
+// still works (a link with ?apikey= opened from a dashboard), and the
+// address being blocked is respected as usual.
+func (l *Limiter) CheckQuiet(r *http.Request, got, key string) bool {
+	right := key != "" && subtle.ConstantTimeCompare([]byte(got), []byte(key)) == 1
+	return right && (len(key) >= StrongKeyLen || l.Allowed(r))
+}
+
 // CrossSite reports whether a browser sent r on behalf of a page from
 // another site: an <img> or a hidden form on a web page the user opened.
-// Such a request carries whatever key the page made up; it is refused
-// without counting, so a web page cannot block the user's own address.
 // Programs (curl, the *arr apps, scripts) send none of these headers.
 func CrossSite(r *http.Request) bool {
 	switch r.Header.Get("Sec-Fetch-Site") {

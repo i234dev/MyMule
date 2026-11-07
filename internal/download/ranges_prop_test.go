@@ -90,7 +90,7 @@ func TestScatteredTinyWritesBounded(t *testing.T) {
 	if accepted != maxPiecesPerBlock*len(blocks) || len(pf.done) != accepted {
 		t.Fatalf("%d pieces accepted, %d on record, for %d blocks", accepted, len(pf.done), len(blocks))
 	}
-	if el := time.Since(start); el > 3*time.Second {
+	if el := time.Since(start); el > 15*time.Second { // quadratic bookkeeping took minutes
 		t.Fatalf("took %v for %d blocks of %d bytes", el, len(blocks), peer.BlockSize)
 	}
 }

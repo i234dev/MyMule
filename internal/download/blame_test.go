@@ -136,11 +136,7 @@ func TestStaleReservationTakenOver(t *testing.T) {
 	pf, data, _ := blameSetup(t)
 	held := pf.Reserve("idle:1", nil, 3)
 	all := len(pf.Reserve("busy:1", nil, 1000)) // everything else
-	pf.mu.Lock()
-	for _, b := range held {
-		pf.resAt[b.Start] = pf.resAt[b.Start].Add(-reserveStale - time.Second)
-	}
-	pf.mu.Unlock()
+	ageReservations(pf, "idle:1")
 	got := pf.Reserve("busy:1", nil, 1000)
 	if len(got) != len(held) || all == 0 {
 		t.Fatalf("took over %d of %d stale blocks", len(got), len(held))
@@ -167,11 +163,7 @@ func TestIsolatedPartStaleReservation(t *testing.T) {
 	if len(pf.Reserve("next:1", first, 1)) != 0 {
 		t.Fatal("isolated part shared while its peer was active")
 	}
-	pf.mu.Lock()
-	for start := range pf.resAt {
-		pf.resAt[start] = pf.resAt[start].Add(-reserveStale - time.Second)
-	}
-	pf.mu.Unlock()
+	ageReservations(pf, "idle:1")
 	serve(t, pf, "next:1", first, data, 0)
 	if !pf.VerifiedParts()[0] {
 		t.Fatal("isolated part held for good by a peer that sends nothing")

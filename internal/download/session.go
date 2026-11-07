@@ -301,7 +301,11 @@ type session struct {
 	// reset the read timeout but not this, so a peer cannot hold one of
 	// our connection slots for ever. Data received moves it forward.
 	deadline time.Time
-	hello    peer.Hello
+	// The deadline is set when the peer first queues us or first gives
+	// us an upload slot, not each time it says so: alternating the two
+	// would otherwise hold the connection for ever.
+	queued, accepted bool
+	hello            peer.Hello
 }
 
 func (s *session) setState(st SourceState) {
@@ -449,7 +453,10 @@ func (s *session) handle(p *proto.Packet) error {
 	case peer.OpAcceptUploadReq:
 		s.setState(StateDownloading)
 		s.timeout = transferTimeout
-		s.deadline = time.Now().Add(transferTimeout)
+		if !s.accepted {
+			s.accepted = true
+			s.deadline = time.Now().Add(transferTimeout)
+		}
 		return s.requestMore()
 
 	case peer.OpOutOfPartReqs:
@@ -476,9 +483,10 @@ func (s *session) onQueued(rank int) {
 	s.src.State = StateQueued
 	s.src.Rank = rank
 	s.m.mu.Unlock()
-	if s.timeout != queuedTimeout { // first rank: the queued wait starts
+	if !s.queued && !s.accepted { // first rank: the queued wait starts
 		s.deadline = time.Now().Add(queuedTimeout)
 	}
+	s.queued = true
 	s.timeout = queuedTimeout
 }
 
@@ -538,7 +546,7 @@ func (s *session) onData(p *proto.Packet) error {
 }
 
 func (s *session) store(off int64, data []byte) error {
-	complete, err := s.pf.Write(s.owner, off, data)
+	fresh, complete, err := s.pf.writeNew(s.owner, off, data)
 	if s.pf.Banned(s.owner) {
 		// It sent a part that failed verification all by itself.
 		s.pf.BanIdentities(s.identities()...)
@@ -559,7 +567,13 @@ func (s *session) store(off int64, data []byte) error {
 		return err
 	}
 	n := int64(len(data))
-	s.deadline = time.Now().Add(transferTimeout) // progress
+	// Progress: the deadline moves by what the data is worth at
+	// minPeerRate (up to transferTimeout ahead), so a peer that sends a
+	// byte now and then does not keep the connection.
+	s.deadline = s.deadline.Add(credit(int(fresh)))
+	if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
+		s.deadline = limit
+	}
 	s.f.bytes.Add(n)
 	s.m.mu.Lock()
 	s.src.Bytes += n

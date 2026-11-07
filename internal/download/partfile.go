@@ -455,6 +455,7 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 			pf.done.Remove(pr)
 			delete(pf.writers, p)
 			delete(pf.unknown, p)
+			delete(pf.lastWr, p)
 			for start := pr.Start; start < pr.End; start += peer.BlockSize {
 				delete(pf.reserved, start)
 				delete(pf.resAt, start)
@@ -495,6 +496,12 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 			break
 		}
 	}
+	// An owner that comes back after a while (a peer reconnecting) starts
+	// a fresh clock with its new blocks, like a new one; one that kept
+	// sending keeps its own.
+	if len(out) > 0 && now.Sub(pf.ownerAt[owner]) >= reserveStale {
+		pf.ownerAt[owner] = now
+	}
 	return out
 }
 
@@ -524,8 +531,37 @@ func (pf *PartFile) staleLocked(start int64, o string, now time.Time) bool {
 }
 
 // reserveStale is how long a block stays reserved for a peer that sends
-// nothing for it; then another peer may take it over.
+// nothing for it (or too little, see progressed); then another peer may
+// take it over.
 const reserveStale = 3 * time.Minute
+
+// minPeerRate (bytes per second) is the slowest a peer may send and keep
+// the blocks it holds and its download connection.
+const minPeerRate = 512
+
+// credit is how much time n received bytes buy at minPeerRate.
+func credit(n int) time.Duration {
+	return time.Duration(n) * (time.Second / minPeerRate)
+}
+
+// progressed moves a progress clock t (a time compared with now - window
+// to tell whether a peer stopped sending) forward for n bytes received
+// now: by credit(n), from no earlier than now - window and never past
+// now. A peer sending at least minPeerRate keeps it close to now; one
+// that sends less falls behind, however often it sends. A clock not set
+// yet starts at now.
+func progressed(t, now time.Time, window time.Duration, n int) time.Time {
+	if t.IsZero() {
+		return now
+	}
+	if floor := now.Add(-window); t.Before(floor) {
+		t = floor
+	}
+	if t = t.Add(credit(n)); t.After(now) {
+		t = now
+	}
+	return t
+}
 
 // maxPiecesPerBlock is how many separate pieces of a block may be on disk.
 const maxPiecesPerBlock = 16
@@ -559,40 +595,57 @@ func (pf *PartFile) Owns(owner string, r Range) bool {
 // failed verification and been downloaded again from others, overwriting
 // a verified part with bytes of its choice.
 func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
+	_, complete, err := pf.writeNew(owner, off, data)
+	return complete, err
+}
+
+// writeNew is Write that also says how many of the bytes were new (not on
+// disk yet): only those count as progress, or a peer could keep what it
+// holds by sending the same bytes again and again.
+func (pf *PartFile) writeNew(owner string, off int64, data []byte) (int64, bool, error) {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	if pf.f == nil {
-		return false, errors.New("file closed")
+		return 0, false, errors.New("file closed")
+	}
+	if len(data) == 0 {
+		return 0, false, nil // nothing to write; and no sign of progress
 	}
 	end := off + int64(len(data))
 	if off < 0 || end > pf.Size || end < off {
-		return false, fmt.Errorf("write out of bounds: %d-%d", off, end)
+		return 0, false, fmt.Errorf("write out of bounds: %d-%d", off, end)
 	}
 	blk := pf.blockAt(off)
 	if end > blk.End || pf.reserved[blk.Start] != owner ||
 		pf.verified[off/ed2k.PartSize] || pf.banned[owner] {
-		return false, ErrNotReserved
+		return 0, false, ErrNotReserved
 	}
 	// Honest peers send a block in a few large pieces, nearly always in
 	// order. Countless tiny scattered pieces only serve to make our
 	// bookkeeping slow, so a block may be split into a few pieces only.
 	if pieces := pf.done.Pieces(blk) - pf.done.Pieces(Range{off, end}) + 1; pieces > maxPiecesPerBlock {
-		return false, ErrNotReserved
+		return 0, false, ErrNotReserved
 	}
 	if _, err := pf.f.WriteAt(data, off); err != nil {
-		return false, err
+		return 0, false, err
 	}
+	before := pf.done.Covered(blk)
 	pf.done.Add(Range{off, end})
+	fresh := pf.done.Covered(blk) - before
 	pf.dirty = true
 	part := int(off / ed2k.PartSize)
 	if pf.writers[part] == nil {
 		pf.writers[part] = map[string]bool{}
 	}
 	pf.writers[part][owner] = true
-	pf.resAt[blk.Start] = time.Now()
-	pf.ownerAt[owner] = pf.resAt[blk.Start]
+	// What the peer holds stays its own only while it sends at least
+	// minPeerRate: a trickle of bytes must not keep the last blocks of a
+	// download from everybody else.
+	now, n := time.Now(), int(fresh)
+	pf.resAt[blk.Start] = progressed(pf.resAt[blk.Start], now, reserveStale, n)
+	pf.ownerAt[owner] = progressed(pf.ownerAt[owner], now, reserveStale, n)
 	if pf.isolate[part] {
-		pf.lastWr[part] = time.Now()
+		pf.lastWr[part] = progressed(pf.lastWr[part], now, isolateAbandon, n)
 	}
 
 	// Verify any part this write completed.
@@ -603,7 +656,7 @@ func (pf *PartFile) Write(owner string, off int64, data []byte) (bool, error) {
 			pf.verifyLocked(p)
 		}
 	}
-	return pf.completeLocked(), nil
+	return fresh, pf.completeLocked(), nil
 }
 
 // verifyLocked checks part p against its hash. On mismatch the part's

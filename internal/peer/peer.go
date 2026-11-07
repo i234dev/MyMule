@@ -368,7 +368,9 @@ func DecodeDataPart(p *proto.Packet) (DataPart, error) {
 	d.Data = r.B
 	// 64-bit offsets above 2^63 turn negative as int64: refuse them here
 	// rather than rely on every later check.
-	if d.Start < 0 || (!d.Compressed && d.End < d.Start) {
+	// An empty packet carries nothing: refuse it as eMule and aMule do
+	// (accepting it let a peer look busy while sending no data).
+	if d.Start < 0 || (!d.Compressed && d.End <= d.Start) {
 		return d, fmt.Errorf("data packet with an impossible range %d-%d", d.Start, d.End)
 	}
 	if !d.Compressed && d.End-d.Start != int64(len(d.Data)) {

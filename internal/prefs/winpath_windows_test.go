@@ -19,7 +19,7 @@ func TestLibraryFolderShortName(t *testing.T) {
 	if err != nil || n == 0 || short == long {
 		t.Skip("no short names on this disk")
 	}
-	if err := checkFolder(filepath.Join(short, "MyMuleTestNotThere", "Movies"), nil, nil); err == nil {
+	if err := checkFolder(filepath.Join(short, "MyMuleTestNotThere", "Movies"), nil, nil, nil); err == nil {
 		t.Errorf("%s accepted", filepath.Join(short, "MyMuleTestNotThere", "Movies"))
 	}
 }

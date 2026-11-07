@@ -30,12 +30,12 @@ func TestWindowsPathForms(t *testing.T) {
 		`C:\Movies\film.mkv:hidden`,
 	}
 	for _, p := range bad {
-		if windowsPathProblem(p) == nil {
+		if windowsPathProblem(p, []string{"nas"}) == nil {
 			t.Errorf("%s accepted", p)
 		}
 	}
 	for _, p := range []string{`D:\Movies`, `C:\Users\someone\Videos\Series`, `\\nas\media\Movies`, `\\192.0.2.10\media`, `D:\.\Movies\..\Films`} {
-		if err := windowsPathProblem(p); err != nil {
+		if err := windowsPathProblem(p, []string{"NAS", "192.0.2.10"}); err != nil {
 			t.Errorf("%s refused: %v", p, err)
 		}
 	}
@@ -59,8 +59,26 @@ func TestLibraryFolderWindowsSpellings(t *testing.T) {
 		sys + `.`,
 		filepath.Join(sys, "System32") + ` `,
 	} {
-		if err := checkFolder(p, nil, nil); err == nil {
+		if err := checkFolder(p, nil, nil, nil); err == nil {
 			t.Errorf("%s accepted", p)
+		}
+	}
+}
+
+// Opening a network folder sends the Windows login hash to that
+// computer, so only the computers in network_hosts are accepted.
+func TestNetworkFoldersOnlyFromListedHosts(t *testing.T) {
+	for _, p := range []string{`\\attacker\s\m`, `\\attacker@SSL@443\DavWWWRoot\x`, `\\attacker@80\x\y`, `//attacker/s`, `\\nas.example.test\media`} {
+		if windowsPathProblem(p, []string{"nas"}) == nil {
+			t.Errorf("%s accepted", p)
+		}
+	}
+	if windowsPathProblem(`\\nas\media\Movies`, nil) == nil {
+		t.Error("network folder accepted with no network_hosts")
+	}
+	for _, p := range []string{`\\nas\media`, `\\NAS\media\Movies`, `\\nas@SSL@443\DavWWWRoot\x`, `//nas/media`} {
+		if err := windowsPathProblem(p, []string{"nas"}); err != nil {
+			t.Errorf("%s refused: %v", p, err)
 		}
 	}
 }

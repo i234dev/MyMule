@@ -324,39 +324,84 @@ func (l *Library) scan(ctx context.Context) {
 		}
 	}
 
-	// Forget files that disappeared or changed.
+	// Forget files that disappeared or changed. Nothing here touches the
+	// disk with l.mu held (see fileID).
 	seen := map[string]cand{}
 	for _, c := range found {
 		seen[c.path] = c
 	}
 	l.mu.Lock()
+	registered := make(map[string]*diskFile, len(l.disk))
 	for path, d := range l.disk {
-		if c, ok := seen[path]; !ok || c.size != d.size || c.mtime != l.cache[path].MTime {
-			delete(l.disk, path)
-			l.reindexLocked()
+		registered[path] = d
+	}
+	l.mu.Unlock()
+	var gone, swapped []string
+	for path, d := range registered {
+		if c, ok := seen[path]; !ok || c.size != d.size || c.mtime != d.mtime {
+			gone = append(gone, path)
 		} else if d.id != nil && !sameAsRegistered(d, path) {
 			// Another file now has its name, with the same size and date
 			// (a restore, rsync, cp -p): hash it again rather than serve
 			// it as the old one, or refuse it for ever.
-			delete(l.disk, path)
-			delete(l.cache, path)
-			l.reindexLocked()
+			swapped = append(swapped, path)
 		}
 	}
+	l.mu.Lock()
+	for _, path := range gone {
+		if l.disk[path] == registered[path] {
+			delete(l.disk, path)
+		}
+	}
+	for _, path := range swapped {
+		if l.disk[path] == registered[path] {
+			delete(l.disk, path)
+			delete(l.cache, path)
+		}
+	}
+	if len(gone)+len(swapped) > 0 {
+		l.reindexLocked()
+	}
+	type hit struct {
+		cand
+		ce cacheEntry
+	}
+	var hits []hit
 	var todo []cand
 	for _, c := range found {
 		if _, ok := l.disk[c.path]; ok {
 			continue
 		}
 		if ce, ok := l.cache[c.path]; ok && ce.Size == c.size && ce.MTime == c.mtime {
-			l.addDiskLocked(c.path, ce)
+			hits = append(hits, hit{c, ce})
 			continue
 		}
 		todo = append(todo, c)
 	}
 	l.toHash = len(todo)
 	l.mu.Unlock()
+	ids := make([]os.FileInfo, len(hits))
+	for i, h := range hits {
+		ids[i] = fileID(h.path, h.size, h.mtime)
+	}
+	l.mu.Lock()
+	for i, h := range hits {
+		// Moved or AddComplete may have changed it while unlocked.
+		if _, ok := l.disk[h.path]; !ok && sameEntry(l.cache[h.path], h.ce) {
+			l.addDiskLocked(h.path, h.ce, ids[i])
+		}
+	}
+	l.mu.Unlock()
 
+	// known.json is saved now and then while hashing, not after every
+	// file: it holds every shared file, and rewriting it each time made a
+	// first scan of a big library slower and slower.
+	dirty, lastSave := false, time.Now()
+	defer func() {
+		if dirty {
+			l.saveCache()
+		}
+	}()
 	for i, c := range todo {
 		if ctx.Err() != nil {
 			return
@@ -379,39 +424,97 @@ func (l *Library) scan(ctx context.Context) {
 				ce.Parts = append(ce.Parts, p.String())
 			}
 		}
+		id := fileID(c.path, c.size, c.mtime)
 		l.mu.Lock()
 		l.cache[c.path] = ce
-		l.addDiskLocked(c.path, ce)
+		l.addDiskLocked(c.path, ce, id)
 		l.mu.Unlock()
-		l.saveCache()
+		dirty = true
+		if time.Since(lastSave) >= cacheSaveEvery {
+			l.saveCache()
+			dirty, lastSave = false, time.Now()
+		}
 		l.log("shared %s", filepath.Base(c.path))
 	}
+	// Drop cache entries for files that no longer exist.
 	l.mu.Lock()
 	l.hashing, l.toHash, l.hashPct = "", 0, 0
-	// Drop cache entries for files that no longer exist.
-	for path := range l.cache {
+	unseen := map[string]cacheEntry{}
+	for path, ce := range l.cache {
 		if _, ok := seen[path]; !ok {
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				delete(l.cache, path)
-			}
+			unseen[path] = ce
+		}
+	}
+	l.mu.Unlock()
+	var missing []string
+	for path := range unseen {
+		diskAccess(path)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			missing = append(missing, path)
+		}
+	}
+	l.mu.Lock()
+	for _, path := range missing {
+		if _, shared := l.disk[path]; !shared && sameEntry(l.cache[path], unseen[path]) {
+			delete(l.cache, path)
+			dirty = true
 		}
 	}
 	l.mu.Unlock()
 }
 
-func (l *Library) addDiskLocked(path string, ce cacheEntry) {
-	d := &diskFile{path: path, name: filepath.Base(path), size: ce.Size, mtime: ce.MTime, hash: ce.Hash, changed: l.Rescan}
-	if st, err := os.Lstat(path); err == nil && st.Mode().IsRegular() && st.Size() == ce.Size && st.ModTime().UnixNano() == ce.MTime {
-		os.SameFile(st, st) // on Windows the file's id is read now, not on first use
-		d.id = st
+// sameEntry reports whether two cache entries describe the same file.
+func sameEntry(a, b cacheEntry) bool {
+	return a.Size == b.Size && a.MTime == b.MTime && a.Hash == b.Hash
+}
+
+// cacheSaveEvery is how often known.json is saved while hashing (a
+// variable so tests can change it).
+var cacheSaveEvery = 30 * time.Second
+
+// testDiskHook, when set by a test, runs before the scan looks at a file
+// on disk, to stand for a disk that does not answer.
+var testDiskHook func(path string)
+
+func diskAccess(path string) {
+	if testDiskHook != nil {
+		testDiskHook(path)
 	}
+}
+
+// fileID returns the file at path if it is still the regular file of that
+// size and date, to recognise it later (see diskFile.id), or nil. It
+// touches the disk, so it is never called with l.mu held: a sleeping NAS
+// or a dead network mount would otherwise stop everything that asks the
+// library anything (uploads, the download manager, the web status).
+func fileID(path string, size, mtime int64) os.FileInfo {
+	diskAccess(path)
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() || st.Size() != size || st.ModTime().UnixNano() != mtime {
+		return nil
+	}
+	os.SameFile(st, st) // on Windows the file's id is read now, not on first use
+	return st
+}
+
+// addDiskLocked shares the file at path; id is from fileID. The index is
+// updated in place: rebuilding it for every file made scanning a big
+// library take time growing with the square of the number of files.
+func (l *Library) addDiskLocked(path string, ce cacheEntry, id os.FileInfo) {
+	d := &diskFile{path: path, name: filepath.Base(path), size: ce.Size, mtime: ce.MTime, hash: ce.Hash, id: id, changed: l.Rescan}
 	for _, s := range ce.Parts {
 		if h, err := ed2k.ParseHash(s); err == nil {
 			d.parts = append(d.parts, h)
 		}
 	}
+	old, had := l.disk[path]
 	l.disk[path] = d
-	l.reindexLocked()
+	if had && old.hash != d.hash {
+		l.reindexLocked() // the old hash may have to go, or fall back to a partial file
+		return
+	}
+	l.byHash[d.hash] = d // complete files win over partial ones
+	l.version++
 }
 
 // reindexLocked rebuilds the hash index and bumps the version so the
@@ -444,6 +547,7 @@ func (l *Library) AddComplete(path string, hash ed2k.Hash, parts []ed2k.Hash) {
 	if err != nil {
 		return
 	}
+	id := fileID(path, info.Size(), info.ModTime().UnixNano())
 	ce := cacheEntry{Size: info.Size(), MTime: info.ModTime().UnixNano(), Hash: hash}
 	if len(parts) > 1 {
 		for _, p := range parts {
@@ -453,7 +557,7 @@ func (l *Library) AddComplete(path string, hash ed2k.Hash, parts []ed2k.Hash) {
 	l.mu.Lock()
 	l.cache[path] = ce
 	if l.inSharedDirLocked(path) {
-		l.addDiskLocked(path, ce)
+		l.addDiskLocked(path, ce, id)
 	}
 	l.mu.Unlock()
 	l.saveCache()
@@ -488,6 +592,7 @@ func (l *Library) Moved(oldPath, newPath string) {
 	if err != nil {
 		return
 	}
+	id := fileID(newPath, info.Size(), info.ModTime().UnixNano())
 	l.mu.Lock()
 	ce, ok := l.cache[oldPath]
 	if ok {
@@ -495,11 +600,13 @@ func (l *Library) Moved(oldPath, newPath string) {
 		delete(l.cache, oldPath)
 		delete(l.disk, oldPath)
 		l.cache[newPath] = ce
-		if l.inSharedDirLocked(newPath) {
-			l.addDiskLocked(newPath, ce)
-		} else {
-			l.reindexLocked()
+		if id != nil && id.Size() != ce.Size {
+			id = nil
 		}
+		if l.inSharedDirLocked(newPath) {
+			l.addDiskLocked(newPath, ce, id)
+		}
+		l.reindexLocked() // oldPath is gone
 	}
 	l.mu.Unlock()
 	if ok {
@@ -583,6 +690,7 @@ func ReadFull(f File, p []byte, off int64) error {
 // sameAsRegistered reports whether path is still the file d was
 // registered with.
 func sameAsRegistered(d *diskFile, path string) bool {
+	diskAccess(path)
 	st, err := os.Lstat(path)
 	return err == nil && os.SameFile(d.id, st)
 }

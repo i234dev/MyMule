@@ -269,6 +269,13 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)
+	eng.prefs.AllowNetworkHosts(settings.NetworkHosts)
+	saved, usable := eng.prefs.Get().Library, eng.prefs.Library()
+	for _, d := range [][2]string{{saved.MoviesDir, usable.MoviesDir}, {saved.SeriesDir, usable.SeriesDir}} {
+		if d[0] != "" && d[1] == "" {
+			logf("library folder %s is not used: it is no longer accepted (a network folder needs its computer in network_hosts in mymule.conf)", d[0])
+		}
+	}
 	eng.updateShared()
 	return eng, nil
 }

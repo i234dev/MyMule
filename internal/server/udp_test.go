@@ -211,3 +211,75 @@ func TestUDPSearchAnswersRouted(t *testing.T) {
 		t.Fatalf("newer search got %v, older got %v", cur, old)
 	}
 }
+
+// Two searches running at the same time ask the same server; its late
+// answers to the first one must not end up in the second (the *arr apps
+// search several titles at once).
+func TestUDPOverlappingSearchesKeepTheirAnswers(t *testing.T) {
+	u := &UDP{searches: map[int]*udpSearch{}, asked: map[string]time.Time{}}
+	var first, second []string
+	now := time.Now()
+	u.searches[1] = &udpSearch{q: Query{Keywords: "Blue Harbor"},
+		cb:   func(_ *net.UDPAddr, r Result) { first = append(first, r.Name) },
+		sent: map[string]time.Time{"203.0.113.7": now.Add(-2 * time.Second)}}
+	u.searches[2] = &udpSearch{q: Query{Keywords: "quiet orchard", MinSize: 500},
+		cb:   func(_ *net.UDPAddr, r Result) { second = append(second, r.Name) },
+		sent: map[string]time.Time{"203.0.113.7": now}}
+	answer := func(name string, size uint32) {
+		var w proto.Writer
+		w.U8(proto.ProtoEDonkey)
+		w.U8(OpGlobSearchRes)
+		w.Bytes(make([]byte, 16))
+		w.U32(0)
+		w.U16(0)
+		w.U32(2)
+		w.WriteTag(proto.StrTag(proto.FTFileName, name))
+		w.WriteTag(proto.IntTag(proto.FTFileSize, size))
+		u.noteAsked(net.IPv4(203, 0, 113, 7), time.Now())
+		u.dispatch(&net.UDPAddr{IP: net.IPv4(203, 0, 113, 7), Port: 4665}, w.B)
+	}
+	answer("blue.harbor.s01e01.mkv", 1000) // late answer to the first search
+	answer("Quiet Orchard 1080p.mkv", 1000)
+	answer("Quiet Orchard sample.mkv", 100) // too small for either: the newest
+	answer("unrelated name.avi", 1000)      // fits neither: the newest
+	if len(first) != 1 || first[0] != "blue.harbor.s01e01.mkv" || len(second) != 3 {
+		t.Fatalf("first search got %v, second got %v", first, second)
+	}
+}
+
+func TestQueryFits(t *testing.T) {
+	q := Query{Keywords: "Silver  Comet", MinSize: 10, MaxSize: 20}
+	for _, c := range []struct {
+		name string
+		size uint64
+		want bool
+	}{
+		{"the.silver.comet.mkv", 15, true},
+		{"SILVER-COMET", 10, true},
+		{"silver.mkv", 15, false},
+		{"silver comet", 9, false},
+		{"silver comet", 21, false},
+	} {
+		if got := q.fits(Result{Name: c.name, Size: c.size}); got != c.want {
+			t.Errorf("%q %d: %v", c.name, c.size, got)
+		}
+	}
+	if !(Query{Keywords: "x"}).fits(Result{Name: "X", Size: 1 << 40}) {
+		t.Error("no size limits refused a size")
+	}
+}
+
+// Punctuation and accents, which servers ignore, do not send a result to
+// the wrong search.
+func TestQueryFitsLoosely(t *testing.T) {
+	r := Result{Name: "Bright.Comets.S01E01.mkv", Size: 1}
+	if !(Query{Keywords: "bright's comets"}).fits(r) {
+		t.Error("apostrophe")
+	}
+	if !(Query{Keywords: "brîght comets"}).fits(r) {
+		t.Error("accent")
+	}
+	if (Query{Keywords: "dark comets"}).fits(r) {
+		t.Error("other words")
+	}
+}

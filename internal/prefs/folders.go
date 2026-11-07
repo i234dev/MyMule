@@ -66,13 +66,14 @@ func within(p, dir string) bool {
 // data folder: sharing it would publish mymule.conf). noInside lists
 // folders it may not be, contain or be inside (the temporary folder).
 // Symbolic links are resolved when the folder exists, so a link cannot
-// point around these rules.
-func checkFolder(abs string, noContain, noInside []string) error {
+// point around these rules. netHosts are the computers whose Windows
+// network folders are accepted (see windowsPathProblem).
+func checkFolder(abs string, noContain, noInside, netHosts []string) error {
 	if !filepath.IsAbs(abs) {
 		return errors.New("it must be a full path")
 	}
 	if runtime.GOOS == "windows" {
-		if err := windowsPathProblem(abs); err != nil {
+		if err := windowsPathProblem(abs, netHosts); err != nil {
 			return err
 		}
 	}

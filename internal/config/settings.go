@@ -39,6 +39,11 @@ type Settings struct {
 	// addresses, localhost and this computer's name).
 	APIHosts []string
 
+	// NetworkHosts are the computers whose Windows network folders
+	// (\\host\share) may be library folders. Others are refused: just
+	// opening such a folder sends Windows' login hash to that computer.
+	NetworkHosts []string
+
 	// WebUI serves the web interface on api_listen. Off by default.
 	WebUI bool
 
@@ -111,6 +116,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.APIKey }},
 	{"api_hosts", "The API and web interface answer to IP addresses, localhost and this\ncomputer's name. If you reach them by another name (a NAS name, or a domain\nbehind a reverse proxy), list it here, separated by commas. Other names\nare refused, which stops web pages from reaching the API through DNS tricks.",
 		func(s Settings) string { return strings.Join(s.APIHosts, ", ") }},
+	{"network_hosts", "Windows only: computers whose network folders (\\\\nas\\Movies) may be\nlibrary folders in the web interface, separated by commas (e.g. nas,\n192.168.0.10). Others are refused, because just opening a network folder\nsends your Windows login hash to that computer. Mapped drives (Z:) are\nnot affected.",
+		func(s Settings) string { return strings.Join(s.NetworkHosts, ", ") }},
 	{"web_ui", "Web interface in your browser, on the api_listen address\n(e.g. http://127.0.0.1:4711/). Log in with api_key. true or false.",
 		func(s Settings) string { return strconv.FormatBool(s.WebUI) }},
 	{"tmdb_api_key", "Movie and series data and posters for the web interface come from TMDB\n(themoviedb.org). Empty = use MyMule's own key. Put your own key here,\nor off to use only Wikidata (no posters).",
@@ -285,6 +292,17 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 			for _, h := range strings.Split(val, ",") {
 				if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
 					s.APIHosts = append(s.APIHosts, h)
+				}
+			}
+		case "network_hosts":
+			s.NetworkHosts = nil
+			for _, h := range strings.Split(val, ",") {
+				h = strings.ToLower(strings.Trim(strings.TrimSpace(h), `\/[]`))
+				if i := strings.IndexByte(h, '@'); i >= 0 {
+					h = h[:i] // a WebDAV address (nas@SSL@443): its computer
+				}
+				if h != "" {
+					s.NetworkHosts = append(s.NetworkHosts, h)
 				}
 			}
 		case "shared_dirs":

@@ -31,8 +31,13 @@ func resolveExisting(p string) string {
 // \\.\C:\...), network paths back to this same computer
 // (\\localhost\C$\Users\...), administrative shares (C$), alternate data
 // streams, and names ending in dots or spaces, which Windows silently
-// drops ("C:\Windows." is C:\Windows).
-func windowsPathProblem(p string) error {
+// drops ("C:\Windows." is C:\Windows). Network paths to other computers
+// are refused too unless the computer is in hosts (network_hosts in
+// mymule.conf): Windows logs in to any computer named in a path it opens,
+// sending the user's login hash, so a folder such as \\attacker\x or
+// \\attacker@SSL@443\DavWWWRoot (WebDAV) set through the API would hand
+// it to whoever runs that computer.
+func windowsPathProblem(p string, hosts []string) error {
 	s := strings.ReplaceAll(p, "/", `\`)
 	if strings.HasPrefix(s, `\\?\`) || strings.HasPrefix(s, `\\.\`) || strings.HasPrefix(s, `\??\`) {
 		return errors.New(`use a normal path such as D:\Movies`)
@@ -42,6 +47,9 @@ func windowsPathProblem(p string) error {
 		parts := strings.SplitN(strings.TrimPrefix(vol, `\\`), `\`, 2)
 		if len(parts) != 2 || parts[1] == "" || strings.HasSuffix(parts[1], "$") || isThisComputer(parts[0]) {
 			return errors.New("use the folder's normal path, not a network path to this computer or an administrative share")
+		}
+		if !networkHostAllowed(parts[0], hosts) {
+			return errors.New(`network folders are only accepted from the computers listed in network_hosts in mymule.conf (opening one sends your Windows login hash to that computer); a mapped drive such as Z:\Movies also works`)
 		}
 	} else if len(s) >= 2 && s[1] == ':' {
 		vol = s[:2]
@@ -58,6 +66,20 @@ func windowsPathProblem(p string) error {
 		}
 	}
 	return nil
+}
+
+// networkHostAllowed reports whether host, from a network path, is one of
+// hosts. A WebDAV host (nas@SSL@443, nas@8080) counts as its name.
+func networkHostAllowed(host string, hosts []string) bool {
+	if i := strings.IndexByte(host, '@'); i >= 0 {
+		host = host[:i]
+	}
+	for _, h := range hosts {
+		if h != "" && strings.EqualFold(h, host) {
+			return true
+		}
+	}
+	return false
 }
 
 // uncVolume returns the \\host\share part of a network path, or "".

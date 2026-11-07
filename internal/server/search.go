@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
@@ -52,6 +53,43 @@ type Query struct {
 	MaxSize   uint64 // bytes, 0 = no limit
 	Extension string // e.g. "mkv"
 }
+
+// fits reports whether r may match q: every keyword is in the name,
+// ignoring case and punctuation ("bright's" fits "Brights.Comets" and
+// "Bright.s.Comets"), and
+// the size is within the limits. Servers match more loosely than this
+// can tell (accents, other tags), so a keyword with letters beyond ASCII
+// fits anything. It only tells apart searches running at the same time;
+// it never drops a result.
+func (q Query) fits(r Result) bool {
+	if (q.MinSize > 0 && r.Size < q.MinSize) || (q.MaxSize > 0 && r.Size > q.MaxSize) {
+		return false
+	}
+	name := plainText(r.Name)
+	for _, w := range strings.Fields(q.Keywords) {
+		if strings.IndexFunc(w, func(c rune) bool { return c > 0x7f }) >= 0 {
+			continue
+		}
+		for _, part := range strings.FieldsFunc(strings.ToLower(w), notAlnum) {
+			if !strings.Contains(name, part) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// plainText lowercases s and keeps only its letters and digits.
+func plainText(s string) string {
+	return strings.Map(func(c rune) rune {
+		if notAlnum(c) {
+			return -1
+		}
+		return unicode.ToLower(c)
+	}, s)
+}
+
+func notAlnum(c rune) bool { return !unicode.IsLetter(c) && !unicode.IsDigit(c) }
 
 // Search expression opcodes.
 const (

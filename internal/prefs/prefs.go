@@ -52,6 +52,7 @@ type Store struct {
 	mu      sync.Mutex
 	p       Preferences
 	protect []string // folders a library folder must not overlap at all
+	hosts   []string // computers whose network folders are accepted
 }
 
 // Open loads preferences from path (defaults if missing). Relative folder
@@ -98,6 +99,14 @@ func (s *Store) Protect(dirs ...string) {
 	}
 }
 
+// AllowNetworkHosts sets the computers whose Windows network folders may
+// be library folders (network_hosts in mymule.conf).
+func (s *Store) AllowNetworkHosts(hosts []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hosts = append([]string(nil), hosts...)
+}
+
 // Get returns the current preferences.
 func (s *Store) Get() Preferences {
 	s.mu.Lock()
@@ -126,12 +135,13 @@ func (s *Store) Library() library.Settings {
 func (s *Store) check(abs string) error {
 	s.mu.Lock()
 	noInside := append([]string{}, s.protect...)
+	hosts := s.hosts
 	s.mu.Unlock()
 	base := s.base
 	if b, err := filepath.Abs(base); err == nil {
 		base = b
 	}
-	return checkFolder(abs, []string{base}, noInside)
+	return checkFolder(abs, []string{base}, noInside, hosts)
 }
 
 // usable resolves a library folder, or returns "" if it is not acceptable.

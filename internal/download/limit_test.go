@@ -177,10 +177,19 @@ func TestSessionPanicIsContained(t *testing.T) {
 		}
 		c.Close()
 	}
-	if !m.mu.TryLock() {
+	// The panic handler itself briefly takes the lock to see that it was
+	// released, after logging: try for a while.
+	free := false
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if m.mu.TryLock() {
+			m.mu.Unlock()
+			free = true
+			break
+		}
+	}
+	if !free {
 		t.Fatal("manager lock left held")
 	}
-	m.mu.Unlock()
 	mu.Lock()
 	defer mu.Unlock()
 	if panics != 2 {

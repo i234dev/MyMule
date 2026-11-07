@@ -135,6 +135,9 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 		return
 	}
 
+	if m.cfg.OnPeerHello != nil {
+		m.cfg.OnPeerHello(c.RemoteIP(), hello)
+	}
 	if src == nil && !outbound && m.incomingBuddy(ctx, c, hello) {
 		return // the firewalled Kad node we are the buddy of
 	}

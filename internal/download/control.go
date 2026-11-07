@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/kad"
 	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -404,6 +406,46 @@ func satAdd(a, b uint32) uint32 {
 		return ^uint32(0)
 	}
 	return a + b
+}
+
+// KadProblem says why Kad is not running although it is on ("" = none).
+func (m *Manager) KadProblem() string { return m.cfg.KadProblem }
+
+// KadStatus returns Kad's state, or nil when Kad is off.
+func (m *Manager) KadStatus() *kad.Status {
+	if m.cfg.KadStatus == nil {
+		return nil
+	}
+	st := m.cfg.KadStatus()
+	return &st
+}
+
+// ListenPortWanted is the TCP port configured for peers (0 = none),
+// whether or not listening on it worked.
+func (m *Manager) ListenPortWanted() uint16 { return m.cfg.Port }
+
+// ListenPort returns the TCP port we accept peers on (0 = none).
+func (m *Manager) ListenPort() uint16 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.port
+}
+
+// PublicIP returns our public IP as the connected server sees it (HighID
+// only), or the zero address.
+func (m *Manager) PublicIP() netip.Addr {
+	m.mu.Lock()
+	srv := m.srv
+	m.mu.Unlock()
+	if srv == nil {
+		return netip.Addr{}
+	}
+	st := srv.Status() // once: HighID and the ID must go together
+	if !st.HighID {
+		return netip.Addr{}
+	}
+	a, _ := netip.AddrFromSlice(server.IPFromU32(st.ClientID).To4())
+	return a
 }
 
 // SharingStatus returns the upload and shared-library state, if sharing

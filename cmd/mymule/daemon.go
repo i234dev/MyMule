@@ -76,6 +76,7 @@ type engine struct {
 	up    *upload.Manager
 	prefs *prefs.Store   // preferences edited in the web interface
 	items *library.Store // downloads that are movies or episodes
+	kad   *kadEngine     // nil when Kad is off
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -199,9 +200,12 @@ func (e *engine) start(ctx context.Context) {
 		go e.lib.Run(ctx, 10*time.Minute)
 		go e.up.Run(ctx)
 	}
+	if e.kad != nil {
+		e.kad.run(ctx, e.ListenPortWanted())
+	}
 }
 
-func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
+func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, error) {
 	uh, err := config.UserHash()
 	if err != nil {
 		return nil, err
@@ -239,7 +243,7 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 			Debug:     debug,
 		})
 	}
-	m = download.NewManager(download.Config{
+	dc := download.Config{
 		UserHash:    uh,
 		Nick:        *e.conn.nick,
 		Port:        uint16(*e.port),
@@ -273,12 +277,20 @@ func (e engineFlags) manager(tmp string, stayAlive bool) (*engine, error) {
 		},
 		Library: lib,
 		Upload:  up,
-	})
+	}
+	var kadEng *kadEngine
+	if withKad {
+		kadEng = setupKad(&dc, &m, lib, uh)
+	}
+	m = download.NewManager(dc)
 	dataDir, err := config.Dir()
 	if err != nil {
+		if kadEng != nil {
+			kadEng.close()
+		}
 		return nil, err
 	}
-	*eng = engine{Manager: m, lib: lib, up: up,
+	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)
@@ -311,7 +323,7 @@ func cmdDaemon(args []string) error {
 	for _, e := range bad {
 		logf("skipping a download that cannot be resumed: %v", e)
 	}
-	m, err := ef.manager(tmp, true)
+	m, err := ef.manager(tmp, true, settings.Kad)
 	if err != nil {
 		return err
 	}
@@ -325,6 +337,9 @@ func cmdDaemon(args []string) error {
 	dir, _ := config.Dir()
 	srv, err := api.Listen(m.Manager, dir, stop)
 	if err != nil {
+		if m.kad != nil {
+			m.kad.close()
+		}
 		return fmt.Errorf("control API: %w", err)
 	}
 	defer srv.Close()
@@ -345,6 +360,9 @@ func cmdDaemon(args []string) error {
 	}
 
 	err = m.Run(ctx)
+	if m.kad != nil {
+		m.kad.wait() // it saves its nodes and what others published to us
+	}
 	if n := m.moving.Load(); n > 0 {
 		logf("waiting for %d file(s) being moved into the library", n)
 	}
@@ -445,6 +463,9 @@ func cmdStatus(args []string) error {
 			fmt.Print("\033[H\033[2J") // clear screen
 		}
 		printStatus(st.Server, st.Files)
+		if st.Kad != nil {
+			fmt.Printf("Kad: %s\n", st.Kad.Summary())
+		}
 		printSharing(st)
 		if *watch <= 0 {
 			return nil

@@ -108,6 +108,13 @@ const STRINGS = {
     "share.queue": "{n} waiting in queue", "share.none": "Nobody is downloading from you right now.",
     "share.off": "Sharing is off (sharing = false in mymule.conf).",
     "server.none": "not connected", "server.high": "HighID", "server.low": "LowID",
+    "kad.connecting": "Kad: connecting", "kad.open": "Kad", "kad.contacts": "contacts",
+    "kad.fwhint": "Firewalled: other users cannot connect to you directly. Forward the TCP and Kad UDP ports in your router.",
+    "kad.buddy": "Firewalled, reached through another Kad node (buddy).",
+    "kad.callback": "TCP firewalled, reached by callbacks over UDP.",
+    "kad.openhint": "Other users can reach you.",
+    "kad.udphint": "Other Kad nodes cannot reach your Kad port: forward it (UDP) in your router.",
+    "kad.error": "Kad: not running",
     "server.lowhint": "LowID: other users can't connect to you. Forward the port in your router.",
     "err.network": "Can't reach MyMule. Is it running?",
   },
@@ -214,6 +221,13 @@ const STRINGS = {
     "share.queue": "{n} esperando en la cola", "share.none": "Ahora mismo nadie te está descargando.",
     "share.off": "Compartir está desactivado (sharing = false en mymule.conf).",
     "server.none": "sin conexión", "server.high": "HighID", "server.low": "LowID",
+    "kad.connecting": "Kad: conectando", "kad.open": "Kad", "kad.contacts": "contactos",
+    "kad.fwhint": "Firewalled: los demás no pueden conectar contigo directamente. Abre en el router el puerto TCP y el UDP de Kad.",
+    "kad.buddy": "Firewalled, accesible a través de otro nodo Kad (buddy).",
+    "kad.callback": "TCP firewalled, accesible con retrollamadas por UDP.",
+    "kad.openhint": "Los demás pueden conectar contigo.",
+    "kad.udphint": "Los demás nodos Kad no llegan a tu puerto Kad: ábrelo (UDP) en el router.",
+    "kad.error": "Kad: no funciona",
     "server.lowhint": "LowID: los demás no pueden conectar contigo. Abre el puerto en el router.",
     "err.network": "No se puede conectar con MyMule. ¿Está en marcha?",
   },
@@ -375,6 +389,39 @@ function render() {
   if (currentTab === "media") markHaveReleases();
 }
 
+function renderKad(k) {
+  const chip = $("#chip-kad");
+  if (!k) { chip.hidden = true; return; }
+  chip.hidden = false;
+  if (k.error) {
+    chip.textContent = t("kad.error");
+    chip.className = "chip bad";
+    chip.title = k.error;
+    return;
+  }
+  if (!k.connected) {
+    chip.textContent = t("kad.connecting");
+    chip.className = "chip bad";
+    chip.title = "";
+    return;
+  }
+  chip.textContent = t("kad.open") + " · " + k.contacts + " " + t("kad.contacts");
+  const callbacks = k.udp_tested && !k.udp_firewalled;
+  if (!k.firewalled && !k.udp_firewalled) {
+    chip.className = "chip ok";
+    chip.title = t("kad.openhint");
+  } else if (!k.firewalled) {
+    chip.className = "chip warn";
+    chip.title = t("kad.udphint");
+  } else if (k.buddy || callbacks) {
+    chip.className = "chip warn";
+    chip.title = k.buddy ? t("kad.buddy") : t("kad.callback");
+  } else {
+    chip.className = "chip warn";
+    chip.title = t("kad.fwhint");
+  }
+}
+
 function renderHeader() {
   const s = status.server || {};
   const chip = $("#chip-server");
@@ -387,6 +434,7 @@ function renderHeader() {
     chip.className = "chip chip-button " + (s.high_id ? "ok" : "warn");
     chip.title = (s.high_id ? s.address : t("server.lowhint")) + " · " + t("srv.title");
   }
+  renderKad(status.kad);
   $("#chip-down").textContent = "↓ " + speed(status.download_speed);
   $("#chip-up").textContent = "↑ " + speed(status.upload ? status.upload.speed : 0);
   $("#version").textContent = "MyMule " + status.version;

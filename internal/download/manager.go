@@ -96,6 +96,14 @@ type Config struct {
 	// node we offered to be the buddy of: our hello then gives it our Kad
 	// port as our UDP port, which it hands downloaders.
 	KadBuddyOffer func(ip net.IP, userHash ed2k.Hash) bool
+	// OnPeerHello is called with every peer's hello (Kad starts from the
+	// clients that give their Kad port). May be nil.
+	OnPeerHello func(ip net.IP, h peer.Hello)
+	// KadStatus returns Kad's state for the status pages; nil when Kad is
+	// off.
+	KadStatus func() kad.Status
+	// KadProblem says why Kad is not running although it is on.
+	KadProblem string
 	// KadBuddyUp and KadBuddyDown follow the connection to our buddy.
 	KadBuddyUp   func(ip net.IP, kadPort uint16)
 	KadBuddyDown func(ip net.IP)

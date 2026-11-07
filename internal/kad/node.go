@@ -528,12 +528,19 @@ func (n *Node) sendTo(c Contact, op byte, payload []byte) {
 
 // Status is a snapshot for the web page and the API.
 type Status struct {
-	ID         ID
-	Contacts   int
-	Connected  bool
-	Firewalled bool
-	ExternalIP netip.Addr
-	Searches   int
+	ID            ID
+	Contacts      int
+	Connected     bool
+	Firewalled    bool // other clients cannot connect to our TCP port
+	UDPFirewalled bool // other nodes cannot reach our Kad port unasked
+	UDPTested     bool // the UDP test has given a result
+	ExternalIP    netip.Addr
+	ExternalPort  uint16
+	Buddy         bool // firewalled, with a buddy relaying callbacks
+	ServingBuddy  bool // we relay callbacks for a firewalled node
+	Searches      int
+	// What other nodes published to us.
+	StoredKeywords, StoredSources, StoredNotes int
 }
 
 // Status returns the node's state.
@@ -543,8 +550,38 @@ func (n *Node) Status() Status {
 	now := n.now()
 	return Status{
 		ID: n.keys.KadID, Contacts: n.table.Len(), Connected: n.connected(now),
-		Firewalled: n.firewalled(), ExternalIP: n.extIP, Searches: len(n.searches),
+		Firewalled: n.firewalled(), UDPFirewalled: n.udpFirewalled(), UDPTested: n.udp.verified,
+		ExternalIP: n.extIP, ExternalPort: n.extPort,
+		Buddy: n.mine != nil && n.mine.connected, ServingBuddy: n.served != nil && n.served.connected,
+		Searches:       len(n.searches),
+		StoredKeywords: n.index.nKeyword, StoredSources: n.index.nSource, StoredNotes: n.index.nNotes,
 	}
+}
+
+// NeedsNodes reports whether the node knows no node at all to start
+// from (a nodes.dat would help).
+func (n *Node) NeedsNodes() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.table.Len() == 0 && len(n.bootstrapList) == 0 && !n.connected(n.now())
+}
+
+// AddBootstrapContact adds a node to start from: a client that told us its
+// Kad port (in its eD2K hello). Used while we know few nodes.
+func (n *Node) AddBootstrapContact(ip netip.Addr, port uint16) {
+	ip = ip.Unmap()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.table.Len() >= 10 || !GoodAddr(ip, port) || len(n.bootstrapList) >= maxBootstrap {
+		return
+	}
+	for _, c := range n.bootstrapList {
+		if c.IP == ip {
+			return
+		}
+	}
+	// Its Kad ID is unknown: a plain bootstrap request, as to an old node.
+	n.bootstrapList = append(n.bootstrapList, Contact{IP: ip, UDPPort: port, Version: 2})
 }
 
 func (n *Node) String() string {

@@ -29,6 +29,7 @@ type Status struct {
 	Files  []download.FileStatus `json:"files"`
 	Upload *upload.Status        `json:"upload,omitempty"`
 	Shared *share.Status         `json:"shared,omitempty"`
+	Kad    *KadInfo              `json:"kad,omitempty"`
 }
 
 // AddRequest is the body of POST /v1/add.

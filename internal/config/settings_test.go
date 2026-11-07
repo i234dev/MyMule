@@ -47,6 +47,9 @@ func TestSettingsParse(t *testing.T) {
 	lines := []string{
 		"# comment",
 		"port = 12345",
+		"kad = false",
+		"kad_port = 5000",
+		"kad_nodes_url = https://example.org/nodes.dat",
 		"server = 192.0.2.10:4661",
 		`nick = "tester"`,
 		"temp_dir = tmp",
@@ -70,7 +73,7 @@ func TestSettingsParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Settings{Port: 12345, Server: "192.0.2.10:4661", Nick: "tester",
+	want := Settings{Port: 12345, Kad: false, KadPort: 5000, KadNodesURL: "https://example.org/nodes.dat", Server: "192.0.2.10:4661", Nick: "tester",
 		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10,
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
@@ -186,5 +189,22 @@ func TestLegacyIdentityRetired(t *testing.T) {
 	ImportLegacy(filepath.Join(home, "temp"))
 	if _, err := os.Stat(filepath.Join(old, "userhash.dat")); !os.IsNotExist(err) {
 		t.Fatal("old identity not retired")
+	}
+}
+
+func TestKadSettings(t *testing.T) {
+	d := Defaults()
+	if !d.Kad || d.KadPort != 4672 || d.KadNodesURL != DefaultKadNodesURL {
+		t.Fatalf("defaults %v %d %q", d.Kad, d.KadPort, d.KadNodesURL)
+	}
+	for _, bad := range []string{"kad = maybe", "kad_port = 0", "kad_port = 70000", "kad_nodes_url = ftp://x/nodes.dat", "kad_nodes_url = file:///etc/passwd", "kad_nodes_url = nodes.dat"} {
+		s := Defaults()
+		if _, err := parseSettings(bad+"\n", &s); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	s := Defaults()
+	if _, err := parseSettings("kad_nodes_url =\n", &s); err != nil || s.KadNodesURL != "" {
+		t.Fatalf("empty URL: %v %q", err, s.KadNodesURL)
 	}
 }

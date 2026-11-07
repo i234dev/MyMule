@@ -86,7 +86,7 @@ func cmdDownload(args []string) error {
 		return fmt.Errorf("nothing to download; usage: mymule download [flags] <ed2k-link>...")
 	}
 
-	m, err := ef.manager(tmp, false)
+	m, err := ef.manager(tmp, false, false)
 	if err != nil {
 		return err
 	}

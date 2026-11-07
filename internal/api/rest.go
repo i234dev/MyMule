@@ -135,6 +135,7 @@ type RStatus struct {
 	Downloads     []RDownload    `json:"downloads"`
 	Upload        *upload.Status `json:"upload,omitempty"`
 	Shared        *share.Status  `json:"shared,omitempty"`
+	Kad           *KadInfo       `json:"kad,omitempty"`
 }
 
 // ToRDownload converts a manager status to the REST format.
@@ -181,6 +182,7 @@ func (r *REST) getStatus(w http.ResponseWriter, req *http.Request) {
 		st.DownloadSpeed += f.Speed
 	}
 	st.Upload, st.Shared = r.m.SharingStatus()
+	st.Kad = KadInfoOf(r.m.KadStatus(), r.m.KadProblem())
 	reply(w, st)
 }
 

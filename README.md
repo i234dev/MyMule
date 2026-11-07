@@ -39,6 +39,9 @@ Python, cron, home automation).
   corrupt parts are thrown away and downloaded again, and a peer that
   keeps sending bad data is not used for that file any more
 - Sources from every server in the list (UDP), not only the connected one
+- Kad, eMule's network without servers: searches and sources there too,
+  your shared files published, and a full Kad node for others (see
+  [Kad](#kad))
 - Sharing and uploads: shared folders, completed downloads and the verified
   parts of partial downloads; upload queue, slots taken in turns (10 MB
   or 15 minutes each), speed limit
@@ -59,7 +62,7 @@ Python, cron, home automation).
 - Built to face hostile peers and servers: everything they send is
   checked and bounded (see [Security](#security))
 
-Not implemented yet: Kad, protocol obfuscation, credits.
+Not implemented yet: protocol obfuscation (TCP), credits.
 
 ## Quick start
 
@@ -85,6 +88,9 @@ On first run MyMule creates `mymule.conf` next to the executable:
 
 ```ini
 port = 4662            # TCP port for peers; forward it in your router for HighID
+kad = true             # Kad network (no servers needed): true or false
+kad_port = 4672        # UDP port for Kad; forward it in your router (UDP) too
+kad_nodes_url = http://upd.emule-security.org/nodes.dat  # first Kad nodes; empty = only from other clients
 server =               # ip:port, or empty to choose automatically
 nick = MyMule
 temp_dir = temp        # partial downloads (relative or absolute path)
@@ -122,6 +128,28 @@ so forwarding the TCP port (`port` in the config) to your machine gets you
 far more sources. `mymule status` shows whether you have HighID or LowID.
 If you have a listen port configured but get LowID, MyMule tries other
 servers, since some servers never test the port.
+
+### Kad
+
+Kad is eMule's serverless network. With `kad = true` (the default),
+MyMule joins it as a full node, as eMule does:
+
+- global searches (web interface, API, *arr apps) ask Kad too, and every
+  download looks for sources there once an hour, so files only found on
+  Kad (marked `[kad ...]` by some servers) download as well;
+- your shared files are published on Kad, so Kad users find them;
+- MyMule keeps what other users publish near its Kad ID and answers
+  their searches.
+
+The first time, MyMule gets a list of Kad nodes from `kad_nodes_url`
+(the address eMule offers); later it remembers them in `nodes.dat`. With
+`kad_nodes_url` empty it starts from the eMule clients it meets instead.
+
+Forward the Kad UDP port (`kad_port`, 4672 by default) in your router,
+as well as the TCP port. Without them Kad still works, behind a firewall:
+other nodes reach you through a "buddy" node, or by asking you to connect
+to them, and MyMule stores nothing for others (it could not be searched).
+`mymule status`, `mymule top` and the web interface show Kad's state.
 
 ## Web interface
 
@@ -276,8 +304,8 @@ it on. With it off, none of these endpoints exist.
 ### Limitations
 
 - Results whose only sources are on the Kad network (marked
-  `[kad ...]` by some servers) can't be downloaded yet: MyMule doesn't
-  speak Kad. Prefer results with several sources.
+  `[kad ...]` by some servers) need Kad (`kad = true`, the default) to
+  download.
 - eD2K downloads can take a while to start, because peers serve uploads in
   queues. HighID (see above) helps a lot.
 - One file per download: eD2K links are single files.
@@ -357,7 +385,10 @@ decompression, file sizes (256 GiB at most), the number of connections,
 sources and queue places per address, and where MyMule will connect to
 (only public addresses, never your own network). Data written to a part
 that was already verified is refused, and every finished file is checked
-against its hash once more before it is handed over. A bug triggered by
+against its hash once more before it is handed over. Kad packets are
+checked the same way, and what other nodes can make MyMule store, send or
+connect to is limited (in bytes, packets and connections) and needs proof
+of their address. A bug triggered by
 what a peer sends ends that connection, not the program. Text from the
 network (file names, nicks, messages) is cleaned before it reaches the
 terminal or the log.

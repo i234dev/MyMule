@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,7 +21,14 @@ const SettingsFile = "mymule.conf"
 
 // Settings is the user configuration. Command-line flags override it.
 type Settings struct {
-	Port        uint16 // TCP listen port for peers; 0 disables incoming connections
+	Port uint16 // TCP listen port for peers; 0 disables incoming connections
+
+	// Kad: eMule's serverless network (on by default).
+	Kad     bool
+	KadPort uint16 // UDP port
+	// KadNodesURL is a nodes.dat to start from when no Kad contact is
+	// known; empty = only from other clients.
+	KadNodesURL string
 	Server      string // ip:port to connect to; empty = pick from the server list
 	Nick        string
 	TempDir     string // absolute after Load
@@ -64,6 +72,9 @@ type Settings struct {
 func Defaults() Settings {
 	return Settings{
 		Port:           4662,
+		Kad:            true,
+		KadPort:        4672,
+		KadNodesURL:    DefaultKadNodesURL,
 		Nick:           "MyMule",
 		TempDir:        "temp",
 		DownloadDir:    "downloads",
@@ -75,6 +86,10 @@ func Defaults() Settings {
 		APIListen:      "127.0.0.1:4711",
 	}
 }
+
+// DefaultKadNodesURL is where a first nodes.dat comes from (the one eMule
+// offers).
+const DefaultKadNodesURL = "http://upd.emule-security.org/nodes.dat"
 
 // NewAPIKey returns a random key for the HTTP API.
 func NewAPIKey() string {
@@ -94,6 +109,12 @@ type setting struct {
 var settingsDoc = []setting{
 	{"port", "TCP port for incoming peer connections. Forward it in your router\n(TCP) to get HighID. 0 disables incoming connections.",
 		func(s Settings) string { return strconv.Itoa(int(s.Port)) }},
+	{"kad", "Kad, eMule's network without servers: true or false. It finds files\nand sources that servers do not know.",
+		func(s Settings) string { return strconv.FormatBool(s.Kad) }},
+	{"kad_port", "UDP port for Kad. Forward it in your router (UDP) so that other Kad\nnodes can reach you; without it Kad still works, with less.",
+		func(s Settings) string { return strconv.Itoa(int(s.KadPort)) }},
+	{"kad_nodes_url", "A nodes.dat (list of Kad nodes) to start from when MyMule knows none,\nas http:// or https:// URL. Empty = start only from other clients.",
+		func(s Settings) string { return s.KadNodesURL }},
 	{"server", "Server to connect to, as ip:port. Leave empty to pick automatically\nfrom the server list ('mymule servers list'), preferring HighID.",
 		func(s Settings) string { return s.Server }},
 	{"nick", "Nickname shown to other users.", func(s Settings) string { return s.Nick }},
@@ -255,6 +276,26 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: port must be 0-65535", line)
 			}
 			s.Port = uint16(n)
+		case "kad":
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: kad must be true or false", line)
+			}
+			s.Kad = b
+		case "kad_port":
+			n, err := strconv.ParseUint(val, 10, 16)
+			if err != nil || n == 0 {
+				return present, fmt.Errorf("line %d: kad_port must be 1-65535", line)
+			}
+			s.KadPort = uint16(n)
+		case "kad_nodes_url":
+			if val != "" {
+				u, err := url.Parse(val)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					return present, fmt.Errorf("line %d: kad_nodes_url must be an http:// or https:// URL, or empty", line)
+				}
+			}
+			s.KadNodesURL = val
 		case "server":
 			s.Server = val
 		case "nick":

@@ -162,6 +162,9 @@ func headerLine(st *api.Status, w int, now time.Time) string {
 			}
 			srv = fmt.Sprintf("%s (%s) %s", st.Server.Name, st.Server.Addr, id)
 		}
+		if st.Kad != nil {
+			srv += " │ Kad " + kadShort(st.Kad)
+		}
 	}
 	header := fmt.Sprintf(" MyMule %s │ %s │ ↓ %s  ↑ %s ", version, srv, speed(down), speed(upSpeed))
 	clock := now.Format("15:04:05") + " "
@@ -513,4 +516,21 @@ func cmdTop(args []string) error {
 			lastW = -1
 		}
 	}
+}
+
+// kadShort is Kad's state for the top line: contacts and reachability.
+func kadShort(k *api.KadInfo) string {
+	switch {
+	case k.Error != "":
+		return "not running"
+	case !k.Connected:
+		return "connecting"
+	case k.Firewalled && !k.Buddy && !(k.UDPTested && !k.UDPFirewalled):
+		return fmt.Sprintf("%d firewalled", k.Contacts)
+	case k.Firewalled:
+		return fmt.Sprintf("%d (callbacks)", k.Contacts)
+	case k.UDPFirewalled:
+		return fmt.Sprintf("%d UDP firewalled", k.Contacts)
+	}
+	return fmt.Sprintf("%d open", k.Contacts)
 }

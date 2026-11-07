@@ -64,7 +64,7 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/api/v1/version` | Name and version |
-| GET | `/api/v1/status` | Server, speeds, downloads, uploads, shared files |
+| GET | `/api/v1/status` | Server, Kad, speeds, downloads, uploads, shared files |
 | GET | `/api/v1/downloads` | All downloads |
 | GET | `/api/v1/downloads/{hash}` | One download |
 | POST | `/api/v1/downloads` | Add ed2k links |
@@ -141,6 +141,24 @@ Results are sorted by number of sources:
 ```
 
 Pass `link` to `POST /api/v1/downloads` to download a result.
+
+### Kad in the status
+
+`GET /api/v1/status` includes `kad` when Kad is on (`kad = true` in
+`mymule.conf`):
+
+| Field | Meaning |
+|---|---|
+| `error` | Only when Kad is on but cannot run (for example its UDP port is in use); the other fields are then empty |
+| `connected` | Kad nodes answered in the last 20 minutes |
+| `contacts` | Kad nodes known |
+| `firewalled` | Other clients cannot connect to your TCP port |
+| `udp_firewalled` | Other Kad nodes cannot reach your Kad UDP port |
+| `udp_tested` | The UDP test has given a result (until then `udp_firewalled` is a guess) |
+| `buddy` | Firewalled, reached through another Kad node that relays callbacks |
+| `serving_buddy` | Relaying callbacks for a firewalled node |
+| `searches` | Kad lookups running |
+| `stored_keywords`, `stored_sources`, `stored_notes` | What other nodes published to you (only when your Kad port is reachable) |
 
 ## Examples
 

@@ -13,7 +13,7 @@ import (
 // version is overridden at build time by the release pipeline:
 //
 //	go build -ldflags "-X main.version=v1.2.3" ./cmd/mymule
-var version = "0.9.9"
+var version = "1.0.0"
 
 const usage = `mymule - eD2K network client
 

@@ -61,6 +61,11 @@ type PartFile struct {
 	metaPath string
 	dirty    bool
 	deleted  bool // Delete was called: never write the state again
+
+	// finishing is where Finish is moving the file (saved in the state
+	// first, so a crash before the state is removed is known to have
+	// finished).
+	finishing string
 }
 
 type partMeta struct {
@@ -71,6 +76,8 @@ type partMeta struct {
 	HashSet  []string   `json:"hashset,omitempty"`
 	Done     [][2]int64 `json:"done"`
 	Verified []bool     `json:"verified"`
+	// Finishing is the final path the file is being moved to.
+	Finishing string `json:"finishing,omitempty"`
 }
 
 // NumParts is the number of 9.28 MB parts (as peers count them).
@@ -207,6 +214,9 @@ func Open(metaPath string) (*PartFile, error) {
 		pf.done.Add(Range{r[0], min(r[1], pf.Size)})
 	}
 	copy(pf.verified, m.Verified)
+	if done, err := pf.finishedBefore(m.Finishing); done {
+		return nil, err
+	}
 	f, err := openRegular(pf.dataPath, os.O_RDWR, true)
 	if err != nil {
 		return nil, err
@@ -228,6 +238,31 @@ func Open(metaPath string) (*PartFile, error) {
 		}
 	}
 	return pf, nil
+}
+
+// ErrFinished is returned by Open for a download that was finished, but
+// whose state file was left (a crash or a power cut at the very end).
+var ErrFinished = errors.New("already finished")
+
+// finishedBefore reports whether the download was finished as path
+// before the state file could be removed: its data file is gone, and a
+// regular file of its size is at path. The state file is then removed.
+// (The state file is not trusted: path is only looked at, never changed.)
+func (pf *PartFile) finishedBefore(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+	if _, err := os.Lstat(pf.dataPath); !errors.Is(err, os.ErrNotExist) {
+		return false, nil // the data is still here: it was not moved
+	}
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() != pf.Size {
+		return false, nil
+	}
+	if err := os.Remove(pf.metaPath); err != nil {
+		return true, fmt.Errorf("%s: %w as %s, but its state file stays: %v", pf.Name, ErrFinished, path, err)
+	}
+	return true, fmt.Errorf("%s: %w as %s; its state file is removed", pf.Name, ErrFinished, path)
 }
 
 // LoadAll opens every download state file in dir. A state file that
@@ -275,6 +310,8 @@ func (pf *PartFile) saveLocked() error {
 		Added:    pf.Added,
 		Verified: pf.verified,
 		Done:     [][2]int64{},
+
+		Finishing: pf.finishing,
 	}
 	for _, h := range pf.hashSet {
 		m.HashSet = append(m.HashSet, h.String())
@@ -926,6 +963,22 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 		}
 		return "", err
 	}
+	// Where it goes is saved first: a crash between moving it and
+	// removing the state would otherwise download it all again.
+	pf.mu.Lock()
+	pf.finishing = dst
+	err = pf.saveLocked()
+	pf.mu.Unlock()
+	if err != nil {
+		os.Remove(dst) // the reserved, still empty name
+		if rerr := pf.reopen(); rerr != nil {
+			return "", fmt.Errorf("%w (and reopening it: %v)", err, rerr)
+		}
+		return "", err
+	}
+	if testBeforeMove != nil {
+		testBeforeMove(pf.metaPath, dst)
+	}
 	if err := os.Rename(pf.dataPath, dst); err != nil {
 		// Different volume: copy instead.
 		if err := copyFile(pf.dataPath, dst); err != nil {
@@ -942,8 +995,17 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 	return dst, nil
 }
 
+// testBeforeMove, when set by a test, runs in Finish right before the
+// file is moved.
+var testBeforeMove func(metaPath, dst string)
+
 // reopen opens the data file again after a failed Finish.
 func (pf *PartFile) reopen() error {
+	pf.mu.Lock()
+	if pf.finishing != "" {
+		pf.finishing, pf.dirty = "", true // not moved after all
+	}
+	pf.mu.Unlock()
 	f, err := openRegular(pf.dataPath, os.O_RDWR, false)
 	if err != nil {
 		return err

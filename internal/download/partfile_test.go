@@ -2,6 +2,7 @@ package download
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -645,5 +646,136 @@ func TestManagerFreeSpaceCheck(t *testing.T) {
 	_, files := m.Status()
 	for _, f := range files {
 		m.Cancel(f.Hash)
+	}
+}
+
+// A crash after the file was moved but before its state file was removed
+// does not download it all again: the next start sees it finished and
+// removes the state file. If the data file is still there, the download
+// resumes as usual.
+func TestFinishCutShort(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "cutshort.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	meta := pf.metaPath
+	// Right before the move, the state already says where it goes.
+	var saidBefore string
+	testBeforeMove = func(metaPath, dst string) {
+		b, _ := os.ReadFile(metaPath)
+		var m partMeta
+		json.Unmarshal(b, &m)
+		if m.Finishing == dst {
+			saidBefore = dst
+		}
+	}
+	defer func() { testBeforeMove = nil }()
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saidBefore != out {
+		t.Fatal("the state did not say where the file was going before it moved")
+	}
+	// What a crash right after the move leaves: the state, saying where
+	// the file was going.
+	pf.mu.Lock()
+	pf.deleted, pf.finishing = false, out
+	pf.saveLocked()
+	pf.mu.Unlock()
+	if _, err := os.Stat(meta); err != nil {
+		t.Fatal(err)
+	}
+	pfs, bad, err := LoadAll(dir)
+	if err != nil || len(pfs) != 0 || len(bad) != 1 || !errors.Is(bad[0], ErrFinished) {
+		t.Fatalf("loaded %d, bad %v, %v", len(pfs), bad, err)
+	}
+	if _, err := os.Stat(meta); !os.IsNotExist(err) {
+		t.Fatal("state file left")
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("the finished file was touched")
+	}
+	if _, err := os.Stat(strings.TrimSuffix(meta, ".json")); !os.IsNotExist(err) {
+		t.Fatal("an empty data file was made again")
+	}
+}
+
+// A state file naming a finished file that does not match (another size)
+// is not taken as finished; nor while the data file is still there.
+func TestFinishingNotTrusted(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "nottrusted.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	// A file of the right size at the path, but the data still here: not
+	// moved, so not finished.
+	same := filepath.Join(dir, "same-size.bin")
+	os.WriteFile(same, make([]byte, len(data)), 0o644)
+	pf.mu.Lock()
+	pf.finishing, pf.dirty = same, true
+	pf.saveLocked()
+	pf.mu.Unlock()
+	pf.Close()
+	again, err := Open(pf.metaPath)
+	if err != nil {
+		t.Fatalf("data still there, file of its size named: %v", err)
+	}
+	again.Close()
+	other := filepath.Join(dir, "other.bin")
+	os.WriteFile(other, []byte("short"), 0o644)
+	pf.mu.Lock()
+	pf.finishing, pf.dirty = other, true
+	pf.saveLocked()
+	pf.mu.Unlock()
+	again, err = Open(pf.metaPath)
+	if err != nil {
+		t.Fatalf("data still there: %v", err)
+	}
+	again.Close()
+	os.Remove(pf.dataPath)
+	again, err = Open(pf.metaPath)
+	if errors.Is(err, ErrFinished) {
+		t.Fatal("a file of another size taken as the finished one")
+	}
+	if again != nil {
+		again.Close()
+	}
+	if got, _ := os.ReadFile(other); string(got) != "short" {
+		t.Fatal("the named file was touched")
+	}
+}
+
+// A failed move takes the "finishing" mark back.
+func TestFinishFailureClearsFinishing(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "clears.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	pf.Close()
+	defer pf.Close()
+	// As if the move had just failed: marked, then reopened.
+	pf.mu.Lock()
+	pf.finishing = filepath.Join(dir, "incoming", "x")
+	pf.mu.Unlock()
+	if err := pf.reopen(); err != nil {
+		t.Fatal(err)
+	}
+	pf.Save()
+	b, _ := os.ReadFile(pf.metaPath)
+	if strings.Contains(string(b), "finishing") {
+		t.Fatalf("mark kept: %s", b)
 	}
 }

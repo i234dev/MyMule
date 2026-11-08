@@ -321,7 +321,7 @@ func cmdDaemon(args []string) error {
 		return err
 	}
 	for _, e := range bad {
-		logf("skipping a download that cannot be resumed: %v", e)
+		logBadDownload(e)
 	}
 	m, err := ef.manager(tmp, true, settings.Kad)
 	if err != nil {

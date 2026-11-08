@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -59,7 +60,7 @@ func cmdDownload(args []string) error {
 		return err
 	}
 	for _, e := range bad {
-		logf("skipping a download that cannot be resumed: %v", e)
+		logBadDownload(e)
 	}
 	known := map[ed2k.Hash]bool{}
 	for _, pf := range pfs {
@@ -135,7 +136,7 @@ func cmdDownloads(args []string) error {
 		return err
 	}
 	for _, e := range bad {
-		logf("skipping a download that cannot be resumed: %v", e)
+		logBadDownload(e)
 	}
 	defer func() {
 		for _, pf := range pfs {
@@ -178,7 +179,7 @@ func cmdCancel(args []string) error {
 		return err
 	}
 	for _, e := range bad {
-		logf("skipping a download that cannot be resumed: %v", e)
+		logBadDownload(e)
 	}
 	q := strings.ToLower(args[0])
 	var match []*download.PartFile
@@ -204,4 +205,14 @@ func cmdCancel(args []string) error {
 		pf.Close()
 	}
 	return fmt.Errorf("%d downloads match; be more specific", len(match))
+}
+
+// logBadDownload says why a download was not loaded: finished already (a
+// crash at the very end), or it cannot be resumed.
+func logBadDownload(err error) {
+	if errors.Is(err, download.ErrFinished) {
+		logf("%v", err)
+		return
+	}
+	logf("skipping a download that cannot be resumed: %v", err)
 }

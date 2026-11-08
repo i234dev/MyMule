@@ -164,7 +164,13 @@ web_ui = true
 ```
 
 Then open `http://127.0.0.1:4711/` (the `api_listen` address) and log in
-with the `api_key` from `mymule.conf`. It has five tabs:
+with the `api_key` from `mymule.conf`.
+
+![The web interface: a movie with its poster and the files found for it, scored by language and quality](docs/webui-movies.png)
+
+<sub>The Movies & series tab with demo data: the titles and files are made up.</sub>
+
+It has five tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
   resume, cancel, clear finished, and add `ed2k://` links.

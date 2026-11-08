@@ -1,0 +1,180 @@
+<!doctype html>
+<!-- Generated from docs/site/page.html and docs/site/lang/{{.Lang}}.json by
+     'go run ./tools/sitegen'. Edit those, not this file. -->
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{a "title"}}</title>
+<meta name="description" content="{{a "description"}}">
+<meta name="color-scheme" content="light dark">
+<link rel="canonical" href="{{.URL}}">
+{{- range .Langs}}
+<link rel="alternate" hreflang="{{.Code}}" href="{{.URL}}">
+{{- end}}
+<link rel="alternate" hreflang="x-default" href="{{.Base}}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MyMule">
+<meta property="og:title" content="{{a "title"}}">
+<meta property="og:description" content="{{a "description"}}">
+<meta property="og:url" content="{{.URL}}">
+<meta property="og:image" content="{{.Base}}social.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{a "social_alt"}}">
+<meta property="og:locale" content="{{a "locale"}}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="{{.Root}}favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{.Root}}logo.png">
+<link rel="stylesheet" href="{{.Root}}site.css">
+{{- if eq .Lang "en"}}
+{{- /* First visit in another language this page exists in: go there.
+       A language picked in the menu is remembered and wins. */}}
+<script>
+(function () {
+  var langs = [{{range $i, $l := .Langs}}{{if $i}}, {{end}}{{$l.Code}}{{end}}], pick = null;
+  try { pick = localStorage.getItem('lang'); } catch (e) {}
+  if (!pick) {
+    var nav = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < nav.length && !pick; i++) {
+      var c = String(nav[i]).slice(0, 2).toLowerCase();
+      if (langs.indexOf(c) >= 0) pick = c;
+    }
+  }
+  if (pick && pick !== 'en' && langs.indexOf(pick) >= 0) location.replace(pick + '/' + location.hash);
+})();
+</script>
+{{- end}}
+</head>
+<body data-copy="{{a "copy"}}" data-copied="{{a "copied"}}">
+<div class="wrap">
+  <nav class="top">
+    <a href="./">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="{{.Root}}wordmark-dark.svg">
+        <img src="{{.Root}}wordmark.svg" alt="MyMule" width="196" height="40">
+      </picture>
+    </a>
+    <ul class="langs" aria-label="{{a "language"}}">
+      {{- range .Langs}}
+      <li><a href="{{.Href}}" hreflang="{{.Code}}" lang="{{.Code}}" title="{{.Name}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>
+      {{- end}}
+    </ul>
+  </nav>
+  <header>
+    <h1>MyMule</h1>
+    <p class="lead">{{t "lead"}}</p>
+    <div class="buttons">
+      <a class="btn primary" href="#install">{{t "btn_install"}}</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule">{{t "btn_source"}}</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule#readme">{{t "btn_docs"}}</a>
+    </div>
+    <p class="version" id="version" hidden>{{t "latest"}} <a href="https://github.com/i234dev/MyMule/releases/latest"></a> · <time></time></p>
+  </header>
+
+  <figure>
+    <img src="{{.Root}}top-demo.png" alt="{{a "top_alt"}}" width="1247" height="480">
+    <figcaption>{{t "top_caption"}}</figcaption>
+  </figure>
+
+  <h2>{{t "ways_title"}}</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>{{t "web_title"}}</h3>
+      <p>{{t "web_text"}}</p>
+    </div>
+    <div class="card">
+      <h3>{{t "cli_title"}}</h3>
+      <p>{{t "cli_text"}}</p>
+    </div>
+    <div class="card">
+      <h3>{{t "arr_title"}}</h3>
+      <p>{{t "arr_text"}}</p>
+    </div>
+    <div class="card">
+      <h3>{{t "api_title"}}</h3>
+      <p>{{t "api_text"}}</p>
+    </div>
+  </div>
+
+  <figure>
+    <img src="{{.Root}}webui-movies.png" alt="{{a "webui_alt"}}" width="1800" height="1140" loading="lazy">
+    <figcaption>{{t "webui_caption"}}</figcaption>
+  </figure>
+
+  <h2>{{t "features_title"}}</h2>
+  <ul class="plain">
+    <li>{{t "feature_search"}}</li>
+    <li>{{t "feature_kad"}}</li>
+    <li>{{t "feature_md4"}}</li>
+    <li>{{t "feature_upload"}}</li>
+    <li>{{t "feature_resume"}}</li>
+    <li>{{t "feature_highid"}}</li>
+    <li>{{t "feature_checked"}}</li>
+  </ul>
+
+  <h2 id="install">{{t "install_title"}}</h2>
+  <div class="tabs" role="tablist" hidden>
+    <button role="tab" id="tab-docker" aria-controls="docker" aria-selected="true">Docker</button>
+    <button role="tab" id="tab-brew" aria-controls="brew" aria-selected="false">{{t "tab_brew"}}</button>
+    <button role="tab" id="tab-scoop" aria-controls="scoop" aria-selected="false">Windows</button>
+    <button role="tab" id="tab-download" aria-controls="download" aria-selected="false">{{t "tab_download"}}</button>
+  </div>
+
+  <section class="panel" id="docker" role="tabpanel" aria-labelledby="tab-docker">
+    <h3>Docker</h3>
+    <p>{{t "docker_intro"}}</p>
+    <div class="cmd"><pre><code>docker run -d --name mymule --restart unless-stopped -e PUID=1000 -e PGID=1000 -v ./config:/config -v ./downloads:/downloads -p 4662:4662/tcp -p 4672:4672/udp -p 4711:4711/tcp ghcr.io/i234dev/mymule:latest</code></pre></div>
+    <p>{{t "docker_after"}}</p>
+  </section>
+
+  <section class="panel" id="brew" role="tabpanel" aria-labelledby="tab-brew">
+    <h3>{{t "tab_brew"}}</h3>
+    <p>{{t "brew_intro"}}</p>
+    <div class="cmd"><pre><code>brew install i234dev/tap/mymule</code></pre></div>
+    <p>{{t "brew_after"}}</p>
+  </section>
+
+  <section class="panel" id="scoop" role="tabpanel" aria-labelledby="tab-scoop">
+    <h3>Windows</h3>
+    <p>{{t "scoop_intro"}}</p>
+    <div class="cmd"><pre><code>scoop bucket add mymule https://github.com/i234dev/scoop-bucket
+scoop install mymule</code></pre></div>
+    <p>{{t "scoop_after"}}</p>
+  </section>
+
+  <section class="panel" id="download" role="tabpanel" aria-labelledby="tab-download">
+    <h3>{{t "tab_download"}}</h3>
+    <p>{{t "download_text"}}</p>
+  </section>
+
+  <h2>{{t "quick_title"}}</h2>
+  <p>{{t "quick_intro"}}</p>
+<pre><code>mymule start                 # {{t "quick_start"}}
+mymule search -links ubuntu  # {{t "quick_search"}}
+mymule add "ed2k://|file|...|/"
+mymule top                   # {{t "quick_top"}}
+mymule stop</code></pre>
+  <p>{{t "quick_web"}}</p>
+  <p>{{t "quick_more"}}</p>
+
+  <h2 id="faq">{{t "faq_title"}}</h2>
+  <div class="faq">
+    {{- range .FAQ}}
+    <details>
+      <summary>{{t (printf "faq_%s_q" .)}}</summary>
+      <p>{{t (printf "faq_%s_a" .)}}</p>
+    </details>
+    {{- end}}
+  </div>
+
+  <p class="note">{{t "legal_note"}}</p>
+
+  <footer>
+    <p>{{t "footer_license"}}</p>
+    <p>{{t "footer_independent"}}</p>
+  </footer>
+</div>
+<script src="{{.Root}}site.js"></script>
+</body>
+</html>

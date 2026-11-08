@@ -69,6 +69,9 @@ func render(root string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The pages always get LF line ends, also from a Windows checkout
+	// that turned the template into CRLF.
+	src = bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n"))
 	texts := map[string]map[string]string{}
 	for _, l := range langs {
 		data, err := os.ReadFile(filepath.Join(root, "docs", "site", "lang", l.Code+".json"))

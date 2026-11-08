@@ -46,7 +46,7 @@ func TestUselessRequestsDoNotKeepSlot(t *testing.T) {
 func TestUnreachablePeerDoesNotBlockQueue(t *testing.T) {
 	m, _ := newTestManager(t)
 	dialed := make(chan string, 100)
-	m.cfg.Dial = func(ip net.IP, _ uint16) { dialed <- ip.String() }
+	m.cfg.Dial = func(ip net.IP, _ uint16, _ ed2k.Hash, _ byte) { dialed <- ip.String() }
 	m.cfg.Slots = 1
 	m.mu.Lock()
 	for i, ip := range []string{"198.51.100.1", "198.51.100.2"} {

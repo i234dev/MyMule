@@ -57,6 +57,10 @@ Python, cron, home automation).
   to peers that prove their identity; they are kept in `credits.dat`, and
   your key in `cryptkey.dat` (keep it: with a new one, peers no longer
   recognize you)
+- Protocol obfuscation, as eMule's: connections to other users and to
+  servers look like random data, which hides eMule traffic from internet
+  providers that slow it down (`obfuscation` in `mymule.conf`). It does not
+  make you anonymous
 - Resume after a stop, a crash or a reboot
 - HighID support (listen port) and server callbacks to reach firewalled peers
 - Runs as a background daemon, controlled with short commands
@@ -73,8 +77,6 @@ Python, cron, home automation).
 - Portable: settings and data live next to the executable
 - Built to face hostile peers and servers: everything they send is
   checked and bounded (see [Security](#security))
-
-Not implemented yet: protocol obfuscation (TCP).
 
 ## Install
 
@@ -166,6 +168,7 @@ nick = MyMule
 temp_dir = temp        # partial downloads (relative or absolute path)
 download_dir = downloads
 max_conns = 40
+obfuscation = true     # hide eMule traffic: true, required (only obfuscated) or false
 sharing = true         # master switch: false = share and upload nothing
 share_downloads = true # share download_dir (partial downloads: verified parts only)
 shared_dirs =          # more folders to share, separated by ';'

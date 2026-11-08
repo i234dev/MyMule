@@ -34,6 +34,9 @@ type Settings struct {
 	TempDir     string // absolute after Load
 	DownloadDir string // absolute after Load
 	MaxConns    int
+	// Obfuscation of peer connections: "true" (when the peer supports
+	// it), "required" (only obfuscated connections) or "false".
+	Obfuscation string
 
 	Sharing        bool     // master switch: share and upload at all
 	SharedDirs     []string // extra shared folders, absolute after Load
@@ -79,6 +82,7 @@ func Defaults() Settings {
 		TempDir:        "temp",
 		DownloadDir:    "downloads",
 		MaxConns:       40,
+		Obfuscation:    "true",
 		Sharing:        true,
 		ShareDownloads: true,
 		UploadSlots:    20,
@@ -125,6 +129,8 @@ var settingsDoc = []setting{
 	{"temp_dir", "Folder for partial downloads (.part files).", func(s Settings) string { return s.TempDir }},
 	{"download_dir", "Folder for completed downloads.", func(s Settings) string { return s.DownloadDir }},
 	{"max_conns", "Maximum simultaneous peer connections.", func(s Settings) string { return strconv.Itoa(s.MaxConns) }},
+	{"obfuscation", "Protocol obfuscation: connections to other users look like random\ndata, which hides eMule traffic from internet providers that slow it\ndown. true = obfuscate with every user that supports it; required =\nonly obfuscated connections (fewer sources: older clients cannot connect);\nfalse = never. It does not make you anonymous.",
+		func(s Settings) string { return s.Obfuscation }},
 	{"sharing", "Share files with other users at all: true or false. With false,\nnothing is shared or uploaded (other users give you lower priority).",
 		func(s Settings) string { return strconv.FormatBool(s.Sharing) }},
 	{"share_downloads", "Share the files in download_dir with other users (like eMule's\nIncoming folder): true or false. Partial downloads are always shared,\nbut only the parts already verified.",
@@ -352,6 +358,13 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: max_conns must be a positive number", line)
 			}
 			s.MaxConns = n
+		case "obfuscation":
+			switch v := strings.ToLower(val); v {
+			case "true", "false", "required":
+				s.Obfuscation = v
+			default:
+				return present, fmt.Errorf("line %d: obfuscation must be true, required or false", line)
+			}
 		case "sharing":
 			b, err := strconv.ParseBool(val)
 			if err != nil {

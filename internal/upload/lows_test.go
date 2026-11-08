@@ -88,7 +88,7 @@ func TestNoRotationForPeersThatCannotTakeTheSlot(t *testing.T) {
 	}
 
 	// A peer we can dial does get it.
-	m.cfg.Dial = func(net.IP, uint16) {}
+	m.cfg.Dial = func(net.IP, uint16, ed2k.Hash, byte) {}
 	m.mu.Lock()
 	lowID.lowID = false
 	m.mu.Unlock()

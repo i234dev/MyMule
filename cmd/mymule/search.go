@@ -53,7 +53,7 @@ func (f connFlags) connectTo(ctx context.Context, cfg server.Config, addr string
 	if err != nil {
 		return nil, err
 	}
-	cfg.UserHash, cfg.Nick = hash, *f.nick
+	cfg.UserHash, cfg.Nick, cfg.Crypt = hash, *f.nick, obfuscation()
 	if *f.verbose {
 		cfg.Log = func(format string, args ...any) {
 			fmt.Fprintf(os.Stderr, "  "+format+"\n", args...)
@@ -120,6 +120,9 @@ func (f connFlags) connectTo(ctx context.Context, cfg server.Config, addr string
 				return nil, ctx.Err()
 			}
 			continue
+		}
+		if c.Obfuscated() {
+			fmt.Fprintln(os.Stderr, "  obfuscated connection")
 		}
 		if c.Status().HighID {
 			if fallback != nil {

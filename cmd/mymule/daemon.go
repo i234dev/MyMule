@@ -27,6 +27,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
 	"mymule/internal/meta"
+	"mymule/internal/obfus"
 	"mymule/internal/prefs"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -208,6 +209,18 @@ func (e *engine) start(ctx context.Context) {
 	go e.cred.Run(ctx)
 }
 
+// obfuscation is the protocol obfuscation we offer, as crypt options,
+// from the obfuscation setting.
+func obfuscation() byte {
+	switch settings.Obfuscation {
+	case "false":
+		return 0
+	case "required":
+		return obfus.Supports | obfus.Requests | obfus.Requires
+	}
+	return obfus.Supports | obfus.Requests
+}
+
 // saveCredits writes the credits when the engine stops.
 func (e *engine) saveCredits() { e.cred.Save() }
 
@@ -253,11 +266,13 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 			Slots:     settings.UploadSlots,
 			LimitKBps: settings.UploadLimit,
 			Library:   lib,
-			Dial:      func(ip net.IP, port uint16) { m.DialForUpload(ip, port) },
-			Ratio:     cred.Ratio,
-			Uploaded:  cred.Uploaded,
-			Log:       logf,
-			Debug:     debug,
+			Dial: func(ip net.IP, port uint16, h ed2k.Hash, crypt byte) {
+				m.DialForUpload(ip, port, h, crypt) // m is set below
+			},
+			Ratio:    cred.Ratio,
+			Uploaded: cred.Uploaded,
+			Log:      logf,
+			Debug:    debug,
 		})
 	}
 	dc := download.Config{
@@ -296,9 +311,10 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 				eng.organize(h, name, path)
 			}()
 		},
-		Library: lib,
-		Upload:  up,
-		Credits: cred,
+		Library:     lib,
+		Upload:      up,
+		Credits:     cred,
+		Obfuscation: obfuscation(),
 	}
 	var kadEng *kadEngine
 	if withKad {

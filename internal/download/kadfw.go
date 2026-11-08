@@ -67,8 +67,7 @@ func (m *Manager) kadTask(name string, f func(ctx context.Context)) bool {
 
 // dialPeer connects to ip:port and exchanges hellos.
 func (m *Manager) dialPeer(ctx context.Context, ip net.IP, port uint16) (*peer.Conn, peer.Hello, error) {
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	nc, err := m.dial(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), ed2k.Hash{}, 0)
 	if err != nil {
 		return nil, peer.Hello{}, err
 	}
@@ -223,8 +222,7 @@ func (m *Manager) KadConnectTo(ip net.IP, port uint16) bool {
 	go func() {
 		defer m.wg.Done()
 		addr := net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
-		d := net.Dialer{Timeout: ConnectTimeout}
-		nc, err := d.DialContext(ctx, "tcp4", addr)
+		nc, err := m.dial(ctx, "tcp4", addr, ed2k.Hash{}, 0)
 		m.callbacks.done()
 		if err != nil {
 			return

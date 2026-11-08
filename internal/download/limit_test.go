@@ -167,6 +167,7 @@ func TestSessionPanicIsContained(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		c.Write([]byte{proto.ProtoEDonkey}) // a plain connection: the session starts
 		select {
 		case msg := <-logged:
 			if !strings.Contains(msg, "recovered from a panic") {

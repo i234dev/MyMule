@@ -25,6 +25,9 @@ type Config struct {
 	// Dir holds kad.dat (our ID and key) and nodes.dat.
 	Dir      string
 	UserHash [16]byte
+	// Crypt is the obfuscation we offer on our TCP port (crypt options: 1
+	// supports, 2 requests, 4 requires), told to downloaders.
+	Crypt byte
 	// TCPPort returns our eD2K TCP port (0 = no incoming connections).
 	TCPPort func() uint16
 	// PublicIP returns our public IP if known some other way (from an

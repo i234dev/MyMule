@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
 )
 
@@ -85,7 +86,7 @@ func (g *callbackGate) done() {
 // onCallback handles OP_CALLBACKREQUESTED: while we are LowID, another
 // client that wants to talk to us asks, through the server, that we
 // connect to it.
-func (m *Manager) onCallback(ctx context.Context, ip net.IP, port uint16) {
+func (m *Manager) onCallback(ctx context.Context, ip net.IP, port uint16, userHash ed2k.Hash, crypt byte) {
 	m.mu.Lock()
 	highID := m.srv != nil && m.srv.Status().HighID
 	m.mu.Unlock()
@@ -93,16 +94,15 @@ func (m *Manager) onCallback(ctx context.Context, ip net.IP, port uint16) {
 		m.cfg.Debug("server callback to %s:%d ignored: %s", ip, port, why)
 		return
 	}
-	m.dialCallback(ctx, net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), m.callbacks.done)
+	m.dialCallback(ctx, net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), userHash, crypt, m.callbacks.done)
 }
 
 // dialCallback connects to addr and runs a session on it. connected is
 // called as soon as the connection attempt is over: the callback limit
 // counts connection attempts, not whole sessions, which a peer could
 // otherwise keep open to make us unreachable to everybody else.
-func (m *Manager) dialCallback(ctx context.Context, addr string, connected func()) {
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp4", addr)
+func (m *Manager) dialCallback(ctx context.Context, addr string, userHash ed2k.Hash, crypt byte, connected func()) {
+	nc, err := m.dial(ctx, "tcp4", addr, userHash, crypt)
 	connected()
 	if err != nil {
 		return

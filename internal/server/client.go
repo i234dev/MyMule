@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"mymule/internal/ed2k"
 	"mymule/internal/netutil"
+	"mymule/internal/obfus"
 	"mymule/internal/proto"
 	"mymule/internal/safe"
 )
@@ -31,12 +33,17 @@ type Config struct {
 	UserHash ed2k.Hash
 	Nick     string
 	Port     uint16 // our TCP listen port (advertised); 0 means none
-	Log      func(format string, args ...any)
+	// Crypt is the obfuscation we offer (crypt options: 1 supports, 2
+	// requests, 4 requires): the server then gives us the user hash and
+	// crypt options of sources, which obfuscated connections need.
+	Crypt byte
+	Log   func(format string, args ...any)
 	// OnCallback is invoked when another client asks, through the server,
 	// that we connect to it. Servers send this to LowID clients, which
 	// cannot be connected to; the IP and port come from the server and
-	// must be checked before use.
-	OnCallback func(ip net.IP, port uint16)
+	// must be checked before use. userHash and crypt are zero when the
+	// server does not give them.
+	OnCallback func(ip net.IP, port uint16, userHash ed2k.Hash, crypt byte)
 }
 
 // Status is the server's view of us after login.
@@ -94,8 +101,7 @@ func Dial(ctx context.Context, info Info, cfg Config) (*Conn, error) {
 	if cfg.Log == nil {
 		cfg.Log = func(string, ...any) {}
 	}
-	var d net.Dialer
-	nc, err := d.DialContext(ctx, "tcp", info.Addr())
+	nc, err := dialServer(ctx, info, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +203,15 @@ func (c *Conn) sendLogin() error {
 	w.U16(c.cfg.Port)
 
 	flags := uint32(proto.SrvCapZlib | proto.SrvCapNewTags | proto.SrvCapUnicode | proto.SrvCapLargeFiles)
+	if c.cfg.Crypt&1 != 0 {
+		flags |= proto.SrvCapSupportCry
+	}
+	if c.cfg.Crypt&2 != 0 {
+		flags |= proto.SrvCapRequestCry
+	}
+	if c.cfg.Crypt&4 != 0 {
+		flags |= proto.SrvCapRequireCry
+	}
 	tags := []proto.Tag{
 		proto.StrTag(proto.CTName, c.cfg.Nick),
 		proto.IntTag(proto.CTVersion, EDonkeyVersion),
@@ -208,6 +223,40 @@ func (c *Conn) sendLogin() error {
 		w.WriteTag(t)
 	}
 	return c.send(proto.OpLoginRequest, w.B)
+}
+
+// dialServer connects to a server: obfuscated, on its obfuscation port,
+// when it has one and we offer obfuscation; otherwise, or if that fails
+// and we do not require it, plainly.
+func dialServer(ctx context.Context, info Info, cfg Config) (net.Conn, error) {
+	var d net.Dialer
+	if cfg.Crypt&1 != 0 && info.ObfuTCPPort != 0 {
+		addr := net.JoinHostPort(info.IP.String(), strconv.Itoa(int(info.ObfuTCPPort)))
+		nc, err := d.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			stop := context.AfterFunc(ctx, func() { nc.Close() })
+			c, herr := obfus.Server(nc)
+			stop()
+			if herr == nil {
+				return c, nil
+			}
+			nc.Close()
+			err = herr
+		}
+		if cfg.Crypt&4 != 0 {
+			return nil, fmt.Errorf("obfuscated connection: %w", err)
+		}
+		cfg.Log("  obfuscated connection failed (%v); connecting without", err)
+	} else if cfg.Crypt&4 != 0 {
+		return nil, errors.New("obfuscation is required and this server does not offer it")
+	}
+	return d.DialContext(ctx, "tcp", info.Addr())
+}
+
+// Obfuscated reports whether the connection to the server is obfuscated.
+func (c *Conn) Obfuscated() bool {
+	oc, ok := c.conn.(*obfus.Conn)
+	return ok && oc.Obfuscated()
 }
 
 // readLoop dispatches incoming packets. Packets with a registered waiter
@@ -314,8 +363,14 @@ func (c *Conn) handle(p *proto.Packet) {
 		c.deliver(p)
 	case proto.OpCallbackRequested:
 		ip, port := IPFromU32(r.U32()), r.U16()
+		var hash ed2k.Hash
+		var crypt byte
+		if r.Len() >= 17 {
+			crypt = r.U8()
+			hash = r.Hash()
+		}
 		if r.Err() == nil && c.cfg.OnCallback != nil {
-			go c.cfg.OnCallback(ip, port)
+			go c.cfg.OnCallback(ip, port, hash, crypt)
 		}
 	case proto.OpCallbackFail:
 		c.logServer("server: callback request failed")
@@ -496,6 +551,10 @@ func (c *Conn) QueryMore(ctx context.Context) ([]Result, bool, error) {
 type Source struct {
 	ID   uint32 // IP for HighID, client ID for LowID
 	Port uint16
+	// From servers that give them: the source's crypt options and user
+	// hash, needed to connect to it with obfuscation.
+	Crypt    byte
+	UserHash ed2k.Hash
 }
 
 func (s Source) LowID() bool { return s.ID < LowIDLimit }
@@ -518,16 +577,34 @@ func (c *Conn) GetSources(ctx context.Context, h ed2k.Hash, size uint64) ([]Sour
 		w.U32(uint32(size))
 	}
 	sameFile := func(p *proto.Packet) bool { return len(p.Payload) >= 16 && bytes.Equal(p.Payload[:16], h[:]) }
-	p, err := c.request(ctx, proto.OpGetSources, w.B, sameFile, proto.OpFoundSources)
+	// Servers that support it give each source's crypt options and user
+	// hash, when we ask for them that way.
+	op := byte(proto.OpGetSources)
+	if c.cfg.Crypt&1 != 0 && c.Status().TCPFlags&SrvTCPObfuscation != 0 {
+		op = proto.OpGetSourcesObfu
+	}
+	p, err := c.request(ctx, op, w.B, sameFile, proto.OpFoundSources, proto.OpFoundSourcesObfu)
 	if err != nil {
 		return nil, err
 	}
+	return decodeSources(p)
+}
+
+func decodeSources(p *proto.Packet) ([]Source, error) {
 	r := proto.NewReader(p.Payload)
 	r.Hash()
 	n := int(r.U8())
 	srcs := make([]Source, 0, n)
 	for i := 0; i < n && r.Err() == nil; i++ {
-		srcs = append(srcs, Source{ID: r.U32(), Port: r.U16()})
+		s := Source{ID: r.U32(), Port: r.U16()}
+		if p.Opcode == proto.OpFoundSourcesObfu {
+			s.Crypt = r.U8()
+			if s.Crypt&0x80 != 0 {
+				s.UserHash = r.Hash()
+			}
+			s.Crypt &= 0x7F
+		}
+		srcs = append(srcs, s)
 	}
 	return srcs, r.Err()
 }
@@ -569,6 +646,7 @@ const (
 	SrvTCPNewTags     = 0x0008
 	SrvTCPUnicode     = 0x0010
 	SrvTCPLargeFiles  = 0x0100
+	SrvTCPObfuscation = 0x0400 // gives sources' crypt options and user hashes
 )
 
 // Offer is a shared file announced to the server.

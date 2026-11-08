@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	credits "mymule/internal/credit"
 	"mymule/internal/ed2k"
+	"mymule/internal/obfus"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/upload"
@@ -31,7 +33,26 @@ func noServer(ctx context.Context, cfg server.Config) (*server.Conn, error) {
 }
 
 // Two MyMule instances: A shares a file, B downloads it from A.
-func TestUploadToAnotherMyMule(t *testing.T) {
+func TestUploadToAnotherMyMule(t *testing.T) { uploadBetween(t, 0, false) }
+
+// The same with obfuscation required on both sides (so the connection
+// can only be obfuscated) and credits: each identifies the other, and
+// counts what went from A to B.
+func TestUploadObfuscatedWithCredits(t *testing.T) {
+	uploadBetween(t, obfus.Supports|obfus.Requests|obfus.Requires, true)
+}
+
+func uploadBetween(t *testing.T, obf byte, withCredits bool) {
+	var credA, credB *credits.Store
+	if withCredits {
+		var err error
+		if credA, err = credits.Open(t.TempDir(), t.Logf); err != nil {
+			t.Fatal(err)
+		}
+		if credB, err = credits.Open(t.TempDir(), t.Logf); err != nil {
+			t.Fatal(err)
+		}
+	}
 	data := testData(ed2k.PartSize*2 + 123457)
 	shared := t.TempDir()
 	if err := os.WriteFile(filepath.Join(shared, "shared.bin"), data, 0o644); err != nil {
@@ -55,12 +76,19 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 	var a *Manager
 	up := upload.New(upload.Config{
 		Slots: 2, Library: lib, Debug: t.Logf,
-		Dial: func(ip net.IP, port uint16) { a.DialForUpload(ip, port) },
+		Dial: func(ip net.IP, port uint16, h ed2k.Hash, c byte) { a.DialForUpload(ip, port, h, c) },
 	})
+	if credA != nil {
+		up = upload.New(upload.Config{
+			Slots: 2, Library: lib, Debug: t.Logf, Ratio: credA.Ratio, Uploaded: credA.Uploaded,
+			Dial: func(ip net.IP, port uint16, h ed2k.Hash, c byte) { a.DialForUpload(ip, port, h, c) },
+		})
+	}
 	a = NewManager(Config{
 		UserHash: ed2k.Hash{0xA}, Nick: "uploader", Port: portA, ListenHost: "127.0.0.1", StayAlive: true,
 		TempDir: t.TempDir(), IncomingDir: t.TempDir(),
 		Connect: noServer, Library: lib, Upload: up, Debug: t.Logf,
+		Credits: credA, Obfuscation: obf,
 	})
 	go up.Run(ctx)
 	go a.Run(ctx)
@@ -72,10 +100,20 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 		UserHash: ed2k.Hash{0xB}, Nick: "downloader", Port: freePort(t), ListenHost: "127.0.0.1",
 		TempDir: t.TempDir(), IncomingDir: incoming, Connect: noServer, Debug: t.Logf,
 		OnComplete: func(_ ed2k.Hash, name, path string) { donePath = path },
+		Credits:    credB, Obfuscation: obf,
 	})
+	b.cfg.allowPrivateSources = true
 	link := ed2k.Link{Name: "copy.bin", Size: int64(len(data)), Hash: fh.Root}
 	if err := b.AddLink(link, "127.0.0.1:"+strconv.Itoa(int(portA))); err != nil {
 		t.Fatal(err)
+	}
+	if obf != 0 {
+		// As a server or Kad would give it: A's user hash and crypt options.
+		b.mu.Lock()
+		for _, src := range b.files[fh.Root].sources {
+			src.UserHash, src.Crypt = ed2k.Hash{0xA}, obfus.Supports
+		}
+		b.mu.Unlock()
 	}
 
 	time.Sleep(200 * time.Millisecond) // let A start listening
@@ -91,6 +129,14 @@ func TestUploadToAnotherMyMule(t *testing.T) {
 	}
 	if st := up.Status(); st.Total < int64(len(data)) {
 		t.Fatalf("uploader reports only %d bytes sent", st.Total)
+	}
+	if withCredits {
+		ip := net.IPv4(127, 0, 0, 1)
+		ca, _ := credA.Get(ed2k.Hash{0xB}, ip)
+		cb, _ := credB.Get(ed2k.Hash{0xA}, ip)
+		if !ca.Identified || !cb.Identified || ca.Uploaded < uint64(len(data)) || cb.Downloaded < uint64(len(data)) {
+			t.Fatalf("credits: A has %+v for B, B has %+v for A", ca, cb)
+		}
 	}
 }
 

@@ -156,6 +156,7 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 	m.bindConn(c, src.file)
 	m.mu.Lock()
 	src.UserHash = hello.UserHash
+	src.Crypt = hello.Crypt()
 	src.Name = hello.Name()
 	src.Fails = 0
 	f := src.file

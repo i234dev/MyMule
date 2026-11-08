@@ -104,6 +104,24 @@ func (h Hello) KadVersion() byte { return byte(h.Tags.Int(CTEMuleMiscOpts2) & 0x
 // version 1, bit 1 version 2 (0 = none).
 func (h Hello) SecIdent() byte { return byte(h.Tags.Int(CTEMuleMiscOpts1)>>16) & 0x0F }
 
+// Crypt is the obfuscation the peer offers in its hello (misc options 2,
+// bits 7-9), as crypt options: 1 supports, 2 requests, 4 requires.
+func (h Hello) Crypt() byte { return byte(h.Tags.Int(CTEMuleMiscOpts2)>>7) & 0x07 }
+
+// WithCrypt sets the obfuscation a hello we send offers (crypt options,
+// as Crypt returns them).
+func (h Hello) WithCrypt(opts byte) Hello {
+	tags := make(proto.TagList, 0, len(h.Tags))
+	for _, t := range h.Tags {
+		if t.Name == "" && t.ID == CTEMuleMiscOpts2 {
+			t.Int = t.Int&^(7<<7) | uint64(opts&7)<<7
+		}
+		tags = append(tags, t)
+	}
+	h.Tags = tags
+	return h
+}
+
 // KadPort is the peer's Kad UDP port (0 = none).
 func (h Hello) KadPort() uint16 { return uint16(h.Tags.Int(CTEMuleUDPPorts) >> 16) }
 

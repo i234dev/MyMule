@@ -5,6 +5,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"mymule/internal/ed2k"
 )
 
 // pub returns distinct public addresses for the tests. Nothing is dialled.
@@ -84,7 +86,7 @@ func TestOnCallbackDoesNotDialLocalAddresses(t *testing.T) {
 	a := ln.Addr().(*net.TCPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m.onCallback(ctx, a.IP, uint16(a.Port))
+	m.onCallback(ctx, a.IP, uint16(a.Port), ed2k.Hash{}, 0)
 	select {
 	case <-accepted:
 		t.Fatalf("callback to %s connected", a)

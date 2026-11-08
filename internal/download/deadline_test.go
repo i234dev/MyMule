@@ -105,7 +105,7 @@ func TestCallbackSlotFreedAfterConnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ended := make(chan struct{})
 	go func() {
-		m.dialCallback(ctx, ln.Addr().String(), func() { close(freed) })
+		m.dialCallback(ctx, ln.Addr().String(), ed2k.Hash{}, 0, func() { close(freed) })
 		close(ended)
 	}()
 	select {

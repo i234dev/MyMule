@@ -38,7 +38,7 @@ type Config struct {
 	// Dial connects to a queued HighID peer whose turn has come. The
 	// connection must perform the hello handshake and then report it
 	// through Connected.
-	Dial func(ip net.IP, port uint16)
+	Dial func(ip net.IP, port uint16, userHash ed2k.Hash, crypt byte)
 	// Ratio, when set, gives a peer's credit ratio (1 to 10): its waiting
 	// time counts that many times in the queue, as in eMule.
 	Ratio func(userHash ed2k.Hash, ip net.IP) float64
@@ -55,6 +55,7 @@ type client struct {
 	port     uint16
 	lowID    bool
 	emule    bool
+	crypt    byte // obfuscation it offers, from its hello
 	file     ed2k.Hash
 	conn     *peer.Conn
 
@@ -189,6 +190,7 @@ func (m *Manager) updateIdentity(cl *client, h peer.Hello, ip net.IP) {
 	cl.ip = ip
 	cl.port = h.Port
 	cl.lowID = h.ClientID != 0 && h.ClientID < 0x01000000
+	cl.crypt = h.Crypt()
 	_, cl.emule = h.Tags.Find(peer.CTEMuleVersion)
 }
 
@@ -651,8 +653,10 @@ func (m *Manager) tick() {
 	var accepts []*peer.Conn
 	var outOfParts []*peer.Conn
 	type dial struct {
-		ip   net.IP
-		port uint16
+		ip    net.IP
+		port  uint16
+		hash  ed2k.Hash
+		crypt byte
 	}
 	var dials []dial
 
@@ -707,7 +711,7 @@ func (m *Manager) tick() {
 			accepts = append(accepts, next.conn)
 		} else {
 			next.awaiting = now.Add(acceptWait)
-			dials = append(dials, dial{next.ip, next.port})
+			dials = append(dials, dial{next.ip, next.port, next.userHash, next.crypt})
 		}
 	}
 	m.mu.Unlock()
@@ -721,7 +725,7 @@ func (m *Manager) tick() {
 		go safe.Catch(m.cfg.Log, "upload: accept", func() { m.accept(c) }, m)
 	}
 	for _, d := range dials {
-		go m.cfg.Dial(d.ip, d.port)
+		go m.cfg.Dial(d.ip, d.port, d.hash, d.crypt)
 	}
 }
 

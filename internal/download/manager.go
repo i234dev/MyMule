@@ -2,6 +2,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"mymule/internal/ed2k"
 	"mymule/internal/kad"
 	"mymule/internal/netutil"
+	"mymule/internal/obfus"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
 	"mymule/internal/safe"
@@ -56,11 +58,16 @@ type Config struct {
 	Upload  *upload.Manager
 	// Credits, when set, runs eMule's secure identification with every
 	// peer and counts what each one uploads to us.
-	Credits    *credits.Store
-	Log        func(format string, args ...any) // important events
-	Debug      func(format string, args ...any) // per-peer chatter
-	Trace      bool                             // log every peer packet via Debug
-	OnComplete func(hash ed2k.Hash, name, path string)
+	Credits *credits.Store
+	// Obfuscation is the protocol obfuscation we offer, as crypt options
+	// (obfus.Supports, Requests, Requires): with Supports, connections to
+	// peers that support it are obfuscated, and obfuscated connections
+	// to us are accepted; with Requires, nothing else is.
+	Obfuscation byte
+	Log         func(format string, args ...any) // important events
+	Debug       func(format string, args ...any) // per-peer chatter
+	Trace       bool                             // log every peer packet via Debug
+	OnComplete  func(hash ed2k.Hash, name, path string)
 
 	// OnSilentServer is called once per connection when the connected
 	// server (address addr) leaves several searches in a row without an
@@ -164,6 +171,7 @@ type Source struct {
 	server   string // server through which a LowID source is reachable
 	UserHash ed2k.Hash
 	Name     string
+	Crypt    byte // crypt options: whether it takes obfuscated connections
 
 	State   SourceState
 	Rank    int
@@ -401,7 +409,8 @@ func (m *Manager) serverLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		scfg := server.Config{
 			Port:       m.port,
-			OnCallback: func(ip net.IP, port uint16) { m.onCallback(ctx, ip, port) },
+			Crypt:      m.cfg.Obfuscation,
+			OnCallback: func(ip net.IP, port uint16, h ed2k.Hash, crypt byte) { m.onCallback(ctx, ip, port, h, crypt) },
 		}
 		m.mu.Lock()
 		m.reconnect = false
@@ -564,7 +573,7 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 		if s.LowID() && !allowLowID {
 			continue
 		}
-		src := &Source{Port: s.Port, file: f, NextAsk: time.Now()}
+		src := &Source{Port: s.Port, Crypt: s.Crypt, UserHash: s.UserHash, file: f, NextAsk: time.Now()}
 		if s.LowID() {
 			src.LowID = s.ID
 			src.server = via
@@ -780,7 +789,7 @@ func (m *Manager) onKadSource(h ed2k.Hash, s kad.Source) {
 		return
 	}
 	ip := net.IP(s.IP.AsSlice())
-	src := server.Source{ID: server.IPToU32(ip), Port: s.TCPPort}
+	src := server.Source{ID: server.IPToU32(ip), Port: s.TCPPort, Crypt: s.Crypt, UserHash: s.UserHash}
 	if added := m.addSources(f, []server.Source{src}, "kad", our, false); added > 0 {
 		m.cfg.Debug("%s: new source %s from Kad", f.pf.Name, src.Addr())
 	}
@@ -900,11 +909,16 @@ func (m *Manager) schedule(ctx context.Context) {
 
 func (m *Manager) dialSource(ctx context.Context, src *Source) {
 	defer m.wg.Done()
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", src.key)
+	m.mu.Lock()
+	hash, crypt := src.UserHash, src.Crypt
+	m.mu.Unlock()
+	nc, err := m.dial(ctx, "tcp", src.key, hash, crypt)
 	if err != nil {
 		m.cfg.Debug("%s [%s]: connect failed: %v", src.file.pf.Name, src.key, err)
 		m.mu.Lock()
+		if errors.Is(err, errObfuscation) {
+			src.Crypt = 0 // next time without, if we may
+		}
 		src.Fails++
 		src.State = StateUnreachable
 		src.NextAsk = time.Now().Add(time.Duration(src.Fails) * 5 * time.Minute)
@@ -939,7 +953,18 @@ func (m *Manager) acceptLoop(ctx context.Context, ln net.Listener) {
 		go func() {
 			defer m.wg.Done()
 			defer m.inbound.release(ip)
-			m.runSession(ctx, nc, false, nil)
+			stop := context.AfterFunc(ctx, func() { nc.Close() })
+			c, err := obfus.Accept(nc, m.cfg.UserHash, m.cfg.Obfuscation&obfus.Requires == 0, m.cfg.Obfuscation&obfus.Supports != 0)
+			stop()
+			if err != nil {
+				m.cfg.Debug("incoming connection from %s: %v", ip, err)
+				nc.Close()
+				return
+			}
+			if c.Obfuscated() {
+				m.cfg.Debug("obfuscated connection from %s", ip)
+			}
+			m.runSession(ctx, c, false, nil)
 		}()
 	}
 }
@@ -1043,6 +1068,35 @@ func (m *Manager) trackConn(c *peer.Conn, add bool) {
 	}
 }
 
+// errObfuscation is returned by dial when an obfuscated connection could
+// not be made.
+var errObfuscation = errors.New("obfuscation")
+
+// dial connects to a peer at addr, with obfuscation if the peer takes it
+// (userHash and crypt known) and we offer it. With obfuscation required,
+// a peer that does not take it is not dialed.
+func (m *Manager) dial(ctx context.Context, network, addr string, userHash ed2k.Hash, crypt byte) (net.Conn, error) {
+	ours := m.cfg.Obfuscation
+	obf := ours&obfus.Supports != 0 && crypt&obfus.Supports != 0 && !userHash.IsZero()
+	if !obf && ours&obfus.Requires != 0 {
+		return nil, fmt.Errorf("%w required, and the peer does not support it (or we do not know its user hash)", errObfuscation)
+	}
+	d := net.Dialer{Timeout: ConnectTimeout}
+	nc, err := d.DialContext(ctx, network, addr)
+	if err != nil || !obf {
+		return nc, err
+	}
+	stop := context.AfterFunc(ctx, func() { nc.Close() })
+	c, err := obfus.Client(nc, userHash)
+	stop()
+	if err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("%w: %v", errObfuscation, err)
+	}
+	m.cfg.Debug("obfuscated connection to %s", addr)
+	return c, nil
+}
+
 // startIdent begins the secure identification on a connection whose
 // hello exchange is done.
 func (m *Manager) startIdent(c *peer.Conn, h peer.Hello) {
@@ -1116,7 +1170,7 @@ func (m *Manager) ourHello() peer.Hello {
 		id = srv.Status().ClientID
 		sip, sport = srv.Info().IP, srv.Info().Port
 	}
-	h := peer.NewHello(m.cfg.UserHash, m.cfg.Nick, id, m.port, sip, sport)
+	h := peer.NewHello(m.cfg.UserHash, m.cfg.Nick, id, m.port, sip, sport).WithCrypt(m.cfg.Obfuscation)
 	if m.cfg.Kad != nil {
 		if port, version := m.cfg.Kad(); port != 0 {
 			h = h.WithKad(port, version)
@@ -1199,8 +1253,7 @@ func (m *Manager) KadConnectBack(ip net.IP, port uint16, userHash ed2k.Hash) boo
 }
 
 func (m *Manager) connectBack(ctx context.Context, ip net.IP, port uint16, userHash ed2k.Hash) {
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	nc, err := m.dial(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), ed2k.Hash{}, 0)
 	if err != nil {
 		m.cfg.Debug("kad firewall check for %s:%d: cannot connect: %v", ip, port, err)
 		return
@@ -1481,7 +1534,7 @@ func (m *Manager) refreshShared() {
 
 // DialForUpload connects to a queued peer whose upload turn has come. It
 // is the upload manager's Dial function.
-func (m *Manager) DialForUpload(ip net.IP, port uint16) {
+func (m *Manager) DialForUpload(ip net.IP, port uint16, userHash ed2k.Hash, crypt byte) {
 	m.mu.Lock()
 	ctx := m.ctx
 	if ctx == nil || ctx.Err() != nil || m.closing {
@@ -1492,8 +1545,7 @@ func (m *Manager) DialForUpload(ip net.IP, port uint16) {
 	m.wg.Add(1)
 	m.mu.Unlock()
 	defer m.wg.Done()
-	d := net.Dialer{Timeout: ConnectTimeout}
-	nc, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	nc, err := m.dial(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), userHash, crypt)
 	if err != nil {
 		m.cfg.Debug("upload: cannot reach %s:%d: %v", ip, port, err)
 		return

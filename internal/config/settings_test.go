@@ -55,6 +55,7 @@ func TestSettingsParse(t *testing.T) {
 		"temp_dir = tmp",
 		"download_dir = " + abs,
 		"max_conns = 10",
+		"obfuscation = Required",
 		"sharing = false",
 		"share_downloads = false",
 		"shared_dirs = isos; " + abs,
@@ -74,7 +75,7 @@ func TestSettingsParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Settings{Port: 12345, Kad: false, KadPort: 5000, KadNodesURL: "https://example.org/nodes.dat", Server: "192.0.2.10:4661", Nick: "tester",
-		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10,
+		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10, Obfuscation: "required",
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
 		WebUI: true, TMDBKey: "off", ArrSupport: true, SearchLanguages: []string{"es", "pt-br"},

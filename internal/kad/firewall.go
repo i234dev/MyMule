@@ -717,9 +717,9 @@ func (n *Node) sourceTags(f SharedFile) []proto.Tag {
 	if n.udp.useIntern {
 		tags = append(tags, IntTag(TagSourceUDPPort, uint64(n.localPort())))
 	}
-	// Connect options: no TCP obfuscation; 0x08 = we take direct
+	// Connect options: our TCP obfuscation, and 0x08 = we take direct
 	// callbacks, which eMule requires of type 6 sources.
-	opts := uint64(0)
+	opts := uint64(n.cfg.Crypt & 0x07)
 	if n.firewalled() && n.udpReachable() {
 		opts = ConnectDirectCallback
 	}

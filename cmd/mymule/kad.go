@@ -123,6 +123,7 @@ func setupKad(dc *download.Config, m **download.Manager, lib *share.Library, uh 
 		Conn:     conn,
 		Dir:      dir,
 		UserHash: uh,
+		Crypt:    obfuscation(),
 		TCPPort: func() uint16 {
 			if mm := mgr(); mm != nil {
 				return mm.ListenPort()

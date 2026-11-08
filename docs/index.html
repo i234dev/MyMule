@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyMule</title>
+<meta name="description" content="A light client for the eMule network (eD2K and Kad), written in Go: one binary, web interface, command line, HTTP API and Radarr/Sonarr support.">
+<meta name="color-scheme" content="light dark">
+<style>
+:root {
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --text: #1d1f23;
+  --muted: #5d636e;
+  --line: #e3e0d8;
+  --accent: #2f6f4f;
+  --accent-text: #ffffff;
+  --code-bg: #f1efe9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1b1e23;
+    --text: #e7e8ea;
+    --muted: #9aa0aa;
+    --line: #2c3038;
+    --accent: #6fbf94;
+    --accent-text: #0f1a14;
+    --code-bg: #22262d;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 16px; }
+header { padding: 64px 0 32px; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+.lead { font-size: 1.2rem; color: var(--muted); max-width: 640px; margin: 0 0 28px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn {
+  display: inline-block; padding: 11px 20px; border-radius: 8px; font-weight: 600;
+  text-decoration: none; border: 1px solid var(--accent);
+}
+.btn.primary { background: var(--accent); color: var(--accent-text); }
+.btn.secondary { color: var(--accent); }
+figure { margin: 8px 0 48px; }
+figure img {
+  width: 100%; height: auto; display: block; border-radius: 10px;
+  border: 1px solid var(--line); background: #000;
+}
+figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
+h2 { font-size: 1.5rem; margin: 48px 0 16px; letter-spacing: -0.01em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+}
+.card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.card p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+ul.plain { padding-left: 1.2em; margin: 0; }
+ul.plain li { margin: 6px 0; }
+pre {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-size: 0.92rem; line-height: 1.5;
+}
+code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.note {
+  border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); margin: 24px 0;
+}
+footer { border-top: 1px solid var(--line); margin-top: 64px; padding: 24px 0 48px; color: var(--muted); font-size: 0.9rem; }
+footer p { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MyMule</h1>
+    <p class="lead">A light client for the eMule network, eD2K and Kad, written in Go. One small binary with no dependencies, for Windows, Linux, macOS, FreeBSD, ARM boards and NAS devices, using about 15&nbsp;MB of RAM.</p>
+    <div class="buttons">
+      <a class="btn primary" href="https://github.com/i234dev/MyMule/releases/latest">Download</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule">Source on GitHub</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule#readme">Documentation</a>
+    </div>
+  </header>
+
+  <figure>
+    <img src="top-demo.png" alt="mymule top: live view of downloads, uploads and shared files" width="1247" height="480">
+    <figcaption><code>mymule top</code>, the live view in the terminal, with demo data.</figcaption>
+  </figure>
+
+  <h2>Use it the way that suits you</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Web interface</h3>
+      <p>Downloads, searches, sharing and servers from any browser, phone included. Search movies and series by title and get their files scored by language and quality.</p>
+    </div>
+    <div class="card">
+      <h3>Command line</h3>
+      <p>A background daemon with short commands, and <code>mymule top</code>, a live full-screen view where you can also search and manage downloads.</p>
+    </div>
+    <div class="card">
+      <h3>Radarr, Sonarr and friends</h3>
+      <p>A Torznab indexer and a qBittorrent-compatible download client, so eD2K becomes one more source for Radarr, Sonarr, Lidarr, Readarr and Prowlarr.</p>
+    </div>
+    <div class="card">
+      <h3>HTTP API</h3>
+      <p>A small JSON API for scripts: PHP, Python, shell, cron jobs and home automation.</p>
+    </div>
+  </div>
+
+  <h2>Features</h2>
+  <ul class="plain">
+    <li>Searches on the connected server or on every known server at once, and on Kad.</li>
+    <li>Kad, the network without servers: searches and sources there too, your shared files published, and a full Kad node for others.</li>
+    <li>MD4 verification of every 9.28&nbsp;MB part: corrupt parts are downloaded again, and peers that keep sending bad data are dropped.</li>
+    <li>Sharing and uploads with a queue, slots taken in turns and a speed limit.</li>
+    <li>Resume after a stop, a crash or a reboot.</li>
+    <li>HighID support, server callbacks and Kad buddies to reach firewalled peers.</li>
+    <li>Everything other peers and nodes send is checked and bounded.</li>
+  </ul>
+
+  <h2>Quick start</h2>
+  <p>Download the archive for your system from <a href="https://github.com/i234dev/MyMule/releases/latest">Releases</a>, unpack it and run:</p>
+<pre><code>mymule servers update        # fetch a server list
+mymule start                 # start the engine in the background
+mymule search -links ubuntu  # search; -links prints ed2k:// links
+mymule add "ed2k://|file|...|/"
+mymule top                   # live view (q to quit)
+mymule stop</code></pre>
+  <p>Every release comes with a <code>SHA256SUMS</code> file and a signed build provenance attestation. See the <a href="https://github.com/i234dev/MyMule#readme">README</a> for configuration, the web interface, running on a server or NAS, and security; <a href="https://github.com/i234dev/MyMule/blob/master/docs/API.md">the API</a> and <a href="https://github.com/i234dev/MyMule/blob/master/docs/ARR.md">the *arr guide</a> have their own pages.</p>
+
+  <p class="note">Only use MyMule for content you are allowed to download and share. eD2K is a public network: other users see your IP address and the files you share. Please read the <a href="https://github.com/i234dev/MyMule#terms-of-use-and-disclaimer">terms of use and disclaimer</a> before using it.</p>
+
+  <footer>
+    <p>MyMule is free software under the <a href="https://github.com/i234dev/MyMule/blob/master/LICENSE">GNU GPL v3</a>.</p>
+    <p>It is an independent project, not affiliated with or endorsed by the eMule project.</p>
+  </footer>
+</div>
+</body>
+</html>

@@ -259,7 +259,9 @@ func applyEnv(s *Settings, lookup func(string) (string, bool)) error {
 	for _, st := range settingsDoc {
 		name := EnvPrefix + strings.ToUpper(st.key)
 		v, ok := lookup(name)
-		if !ok || (st.key == "api_key" && strings.TrimSpace(v) == "") {
+		// Empty as the file reader sees it: quotes and spaces trimmed
+		// ('"', '""', '" "' leave no key at all).
+		if !ok || (st.key == "api_key" && strings.TrimSpace(strings.Trim(strings.TrimSpace(v), `"`)) == "") {
 			continue
 		}
 		if strings.ContainsAny(v, "\r\n") {

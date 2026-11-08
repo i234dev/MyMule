@@ -237,6 +237,14 @@ func TestEnvOverridesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Nor does a key that is empty once its quotes and spaces go.
+	for _, v := range []string{`"`, `""`, `" "`, " ", `"  "  `} {
+		t.Setenv("MYMULE_API_KEY", v)
+		if s2, err := LoadSettings(); err != nil || s2.APIKey != "filekey-0123456789" {
+			t.Fatalf("MYMULE_API_KEY=%q: key %q, %v", v, s2.APIKey, err)
+		}
+	}
+	t.Setenv("MYMULE_API_KEY", "")
 	if !s.WebUI || s.APIListen != "0.0.0.0:4711" || s.APIKey != "filekey-0123456789" ||
 		s.Nick != "FromFile" || s.DownloadDir != filepath.Join(home, "media") {
 		t.Fatalf("settings: %+v", s)

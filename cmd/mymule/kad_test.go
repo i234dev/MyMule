@@ -115,7 +115,9 @@ func nodesDat(n int) []byte {
 }
 
 func TestFetchNodes(t *testing.T) {
-	good := nodesDat(30)
+	// K nodes: one bin holds them all, so none is dropped whatever their
+	// random IDs (with more, a full bin that cannot split drops some).
+	good := nodesDat(kad.K)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nodes.dat", func(w http.ResponseWriter, r *http.Request) { w.Write(good) })
 	mux.HandleFunc("/missing", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
@@ -128,10 +130,10 @@ func TestFetchNodes(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	n := testNode(t)
-	if c, err := fetchNodes(context.Background(), n, srv.URL+"/nodes.dat"); err != nil || c != 30 {
+	if c, err := fetchNodes(context.Background(), n, srv.URL+"/nodes.dat"); err != nil || c != kad.K {
 		t.Fatalf("good file: %d %v", c, err)
 	}
-	if c, err := fetchNodes(context.Background(), testNode(t), srv.URL+"/same"); err != nil || c != 30 {
+	if c, err := fetchNodes(context.Background(), testNode(t), srv.URL+"/same"); err != nil || c != kad.K {
 		t.Fatalf("redirect on the same host: %d %v", c, err)
 	}
 	for _, path := range []string{"/missing", "/huge", "/elsewhere"} {

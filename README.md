@@ -423,7 +423,7 @@ signed build provenance attestation, which ties each file to this
 repository and the exact commit it was built from. With the GitHub CLI:
 
 ```sh
-gh attestation verify mymule-v0.9.6-linux-amd64.tar.gz --repo i234dev/MyMule
+gh attestation verify mymule-v0.9.7-linux-amd64.tar.gz --repo i234dev/MyMule
 ```
 
 The Windows and macOS binaries are not signed with a commercial

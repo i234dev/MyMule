@@ -902,6 +902,13 @@ func (pf *PartFile) Finish(dir string) (string, error) {
 	}
 	pf.mu.Unlock()
 	if err := pf.Close(); err != nil {
+		// The state could not be saved (a full disk): the download stays
+		// open as it was, to be finished later.
+		if pf.f == nil {
+			if rerr := pf.reopen(); rerr != nil {
+				return "", fmt.Errorf("%w (and reopening it: %v)", err, rerr)
+			}
+		}
 		return "", err
 	}
 	// What is moved must be the file just checked, not something put in

@@ -442,6 +442,45 @@ func TestFinishFailureCanBeRetried(t *testing.T) {
 	}
 }
 
+// A state file that cannot be saved when finishing (a full disk) leaves
+// the download open and usable, not closed until a restart.
+func TestFinishSaveFailureKeepsItOpen(t *testing.T) {
+	dir := t.TempDir()
+	data := testData(5000)
+	link, _ := linkFor(t, "fulldisk.bin", data)
+	pf, err := Create(dir, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	download(t, pf, data)
+	pf.mu.Lock()
+	pf.dirty = true
+	meta := pf.metaPath
+	pf.mu.Unlock()
+	os.Remove(meta)
+	os.Mkdir(meta, 0o755) // the state file cannot be written
+	if _, err := pf.Finish(filepath.Join(dir, "incoming")); err == nil {
+		t.Fatal("Finish succeeded without saving the state")
+	}
+	pf.mu.Lock()
+	open := pf.f != nil
+	pf.mu.Unlock()
+	if !open {
+		t.Fatal("download left closed")
+	}
+	if _, err := pf.ReadVerified(make([]byte, 100), 0); err != nil {
+		t.Fatalf("not readable (cannot be shared): %v", err)
+	}
+	os.Remove(meta)
+	out, err := pf.Finish(filepath.Join(dir, "incoming"))
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Fatal("final file differs")
+	}
+}
+
 // Copies between disks go through a temporary name: the final name never
 // holds a half-written file, and nothing is left behind on failure.
 func TestCopyFileAtomic(t *testing.T) {

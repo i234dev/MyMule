@@ -27,7 +27,7 @@ func TestKadCallbackSource(t *testing.T) {
 	}})
 	f := kadFile(m, 1)
 	user := [16]byte{5, 5}
-	s := kad.Source{UserHash: user, Type: 3, BuddyIP: netip.MustParseAddr("11.2.3.4"), BuddyPort: 4672}
+	s := kad.Source{UserHash: user, Type: 3, Buddy: kad.ID{7}, BuddyIP: netip.MustParseAddr("11.2.3.4"), BuddyPort: 4672}
 	m.onKadSource(f.pf.Hash, s)
 	m.onKadSource(f.pf.Hash, s) // twice: once
 	if len(f.sources) != 1 {

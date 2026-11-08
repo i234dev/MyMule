@@ -161,3 +161,23 @@ func TestDirectCallbackInvalid(t *testing.T) {
 		t.Fatalf("%d callbacks after an invalid then a valid request", n)
 	}
 }
+
+// Lookups for buddies (callbacks to sources without their buddy's
+// address) run a few at a time.
+func TestCallbackLookupsLimited(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{TCPPort: func() uint16 { return 4662 }})
+	for i := 10; i < 30; i++ {
+		a.table.Add(contactN(i), false, false, t0)
+	}
+	a.lastContact = fn.now
+	started := 0
+	for i := range maxCallbackLookups + 5 {
+		if a.RequestCallback(netip.Addr{}, 0, ID{byte(i + 1)}, [16]byte{1}) == nil {
+			started++
+		}
+	}
+	if started != maxCallbackLookups {
+		t.Fatalf("%d lookups started", started)
+	}
+}

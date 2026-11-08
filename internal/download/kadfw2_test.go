@@ -132,3 +132,51 @@ func TestBuddyHelloUDPPort(t *testing.T) {
 		}
 	}
 }
+
+// Firewalled Kad sources: a buddy source must give its buddy's address,
+// a file takes a limited number of them, callbacks go out a few per
+// second, and an address named by many sources is asked once a minute.
+func TestKadCallbackLimits(t *testing.T) {
+	var asked []kad.Source
+	m := NewManager(Config{MaxConns: 10, KadCallback: func(s kad.Source, file ed2k.Hash) error {
+		asked = append(asked, s)
+		return nil
+	}})
+	f := kadFile(m, 1)
+	m.onKadSource(f.pf.Hash, kad.Source{UserHash: [16]byte{1}, Type: 3, Buddy: kad.ID{1}})
+	m.onKadSource(f.pf.Hash, kad.Source{UserHash: [16]byte{2}, Type: 5, BuddyIP: netip.MustParseAddr("11.2.3.4"), BuddyPort: 4672})
+	m.onKadSource(f.pf.Hash, kad.Source{UserHash: [16]byte{3}, Type: 6, Crypt: kad.ConnectDirectCallback, IP: netip.MustParseAddr("10.0.0.2"), UDPPort: 4672})
+	if len(f.sources) != 0 {
+		t.Fatalf("%d sources without a usable address", len(f.sources))
+	}
+	victim := netip.MustParseAddr("11.2.3.4")
+	for i := range 250 {
+		m.onKadSource(f.pf.Hash, kad.Source{UserHash: [16]byte{9, byte(i)}, Type: 3, Buddy: kad.ID{byte(i) | 1}, BuddyIP: victim, BuddyPort: 4672})
+	}
+	if len(f.sources) != maxKadFWPerFile {
+		t.Fatalf("%d firewalled sources", len(f.sources))
+	}
+	for range 5 {
+		m.schedule(context.Background())
+	}
+	if len(asked) != 1 {
+		t.Fatalf("%d callbacks to one buddy address", len(asked))
+	}
+	// Sources with different buddies: a few per second.
+	g := kadFile(m, 2)
+	for i := range 20 {
+		m.onKadSource(g.pf.Hash, kad.Source{UserHash: [16]byte{8, byte(i)}, Type: 3, Buddy: kad.ID{byte(i) | 1},
+			BuddyIP: netip.AddrFrom4([4]byte{11, 3, byte(i), 1}), BuddyPort: 4672})
+	}
+	asked = nil
+	m.schedule(context.Background())
+	if len(asked) != kadCallbacksPerSecond {
+		t.Fatalf("%d callbacks in one pass", len(asked))
+	}
+	for range 10 {
+		m.schedule(context.Background())
+	}
+	if len(asked) != 20 {
+		t.Fatalf("%d callbacks after a few passes", len(asked))
+	}
+}

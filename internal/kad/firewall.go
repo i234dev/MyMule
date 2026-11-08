@@ -578,9 +578,23 @@ func (n *Node) RequestCallback(buddyIP netip.Addr, buddyPort uint16, buddyID ID,
 	if _, ok := n.searches[buddyID]; ok {
 		return ErrBusy
 	}
+	running := 0
+	for _, s := range n.searches {
+		if s.typ == searchFindSource {
+			running++
+		}
+	}
+	if running >= maxCallbackLookups {
+		return ErrBusy
+	}
 	n.startSearch(searchFindSource, buddyID, n.now(), func(s *search) { s.files = [][16]byte{file} })
 	return nil
 }
+
+// maxCallbackLookups is how many lookups for buddies run at once: each
+// sends dozens of packets, and sources naming a buddy without its address
+// cost an attacker nothing.
+const maxCallbackLookups = 5
 
 // storeFindSource asks a node near a buddy ID to pass our callback on.
 func (n *Node) storeFindSource(s *search, c Contact) {

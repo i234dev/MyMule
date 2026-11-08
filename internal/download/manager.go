@@ -220,6 +220,10 @@ type Manager struct {
 	inbound   connLimiter  // incoming peer connections
 	callbacks callbackGate // server callback requests we act on
 
+	// kadCalled is when we last asked each address (a buddy, or a type 6
+	// source) for a Kad callback.
+	kadCalled map[netip.Addr]time.Time
+
 	searchMisses   int  // searches in a row the connected server left unanswered
 	silentReported bool // OnSilentServer was called for the connected server
 
@@ -240,7 +244,7 @@ func NewManager(cfg Config) *Manager {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 40
 	}
-	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}}
+	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
 	m.callbacks.allowPrivate = cfg.allowPrivateSources
 	return m
 }
@@ -754,7 +758,11 @@ func (m *Manager) onKadSource(h ed2k.Hash, s kad.Source) {
 		return
 	}
 	if !s.Direct() {
-		typeOK := s.Type == 3 || s.Type == 5 || (s.Type == 6 && s.Crypt&kad.ConnectDirectCallback != 0)
+		// Firewalled sources: through their buddy, whose address they must
+		// give (without it every callback would be a lookup in Kad), or
+		// by a UDP callback to them (type 6, with the option).
+		typeOK := ((s.Type == 3 || s.Type == 5) && kad.GoodAddr(s.BuddyIP, s.BuddyPort) && !s.Buddy.IsZero()) ||
+			(s.Type == 6 && s.Crypt&kad.ConnectDirectCallback != 0 && kad.GoodAddr(s.IP, s.UDPPort))
 		if typeOK && m.cfg.KadCallback != nil && m.addKadCallbackSource(f, s) {
 			m.cfg.Debug("%s: new firewalled source from Kad", f.pf.Name)
 		}
@@ -809,6 +817,20 @@ func (m *Manager) schedule(ctx context.Context) {
 						continue
 					}
 				}
+				// A few per second, and each address (a buddy may be
+				// named by many forged sources) once a minute.
+				if len(kadCallbacks) >= kadCallbacksPerSecond {
+					continue
+				}
+				to := src.kadFW.BuddyIP
+				if src.kadFW.Type == 6 {
+					to = src.kadFW.IP
+				}
+				if at, ok := m.kadCalled[to]; ok && now.Sub(at) < kadCallEvery {
+					src.NextAsk = at.Add(kadCallEvery)
+					continue
+				}
+				m.kadCalled[to] = now
 				kadCallbacks = append(kadCallbacks, kadCB{*src.kadFW, f.pf.Hash})
 				src.callbackAt = now
 				src.NextAsk = now.Add(ReaskInterval)
@@ -840,6 +862,13 @@ func (m *Manager) schedule(ctx context.Context) {
 			src.State = StateConnecting
 			m.active++
 			dial = append(dial, src)
+		}
+	}
+	if len(m.kadCalled) > 256 {
+		for ip, at := range m.kadCalled {
+			if now.Sub(at) >= kadCallEvery {
+				delete(m.kadCalled, ip)
+			}
 		}
 	}
 	m.mu.Unlock()

@@ -313,6 +313,16 @@ func (m *Manager) incomingBuddy(ctx context.Context, c *peer.Conn, h peer.Hello)
 // buddyQueue is how many packets for the node we serve may wait.
 const buddyQueue = 16
 
+// Kad callbacks: at most kadCallbacksPerSecond asked, each address at
+// most every kadCallEvery, and at most maxKadFWPerFile such sources per
+// file (apart from the LowID limit: they cost us a callback each, and a
+// node answering a source search can name hundreds).
+const (
+	kadCallbacksPerSecond = 4
+	kadCallEvery          = time.Minute
+	maxKadFWPerFile       = 30
+)
+
 // kadSourceKey is the key of a source reachable only by a callback.
 func kadSourceKey(user [16]byte) string { return "kad:" + hex.EncodeToString(user[:]) }
 
@@ -325,13 +335,16 @@ func (m *Manager) addKadCallbackSource(f *File, s kad.Source) bool {
 	if _, ok := f.sources[key]; ok {
 		return false
 	}
-	lowIDs := 0
+	lowIDs, kadFW := 0, 0
 	for _, o := range f.sources {
 		if o.LowID != 0 || o.kadFW != nil {
 			lowIDs++
 		}
+		if o.kadFW != nil {
+			kadFW++
+		}
 	}
-	if lowIDs >= MaxLowIDPerFile || len(f.sources) >= MaxSourcesPerFile {
+	if lowIDs >= MaxLowIDPerFile || kadFW >= maxKadFWPerFile || len(f.sources) >= MaxSourcesPerFile {
 		return false
 	}
 	ks := s

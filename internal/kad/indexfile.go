@@ -176,7 +176,7 @@ func (x *index) insertKeyword(e *entry) {
 	if (files == nil && len(x.keywords) >= maxKeys) || len(files) >= maxFilesPerKeyword {
 		return
 	}
-	if len(files[e.source]) >= maxSizesPerFile {
+	if len(files[e.source]) >= maxSizesPerFile || x.ownerFull(e.ip) {
 		return
 	}
 	for _, o := range files[e.source] {
@@ -198,6 +198,8 @@ func (x *index) insertKeyword(e *entry) {
 	x.bytes += e.cost
 	files[e.source] = append(files[e.source], e)
 	x.nKeyword++
+	e.owner = e.ip // the last publisher is all the file says
+	x.own(e.owner, 1)
 	for _, p := range e.publishers {
 		if !p.weak {
 			x.pubSubnets[subnet(p.ip)]++

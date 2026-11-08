@@ -32,6 +32,15 @@ const (
 	maxKeys            = 20000 // keys of each kind, ours
 	maxSizesPerFile    = 4     // entries of one file under one keyword, ours
 
+	// Keyword entries one address, and one /24, may have created: without
+	// them a single node takes every place in a minute (a few publish
+	// packets of 20,000 entries) and honest ones are told we are full.
+	maxEntriesPerIP     = 1000
+	maxEntriesPerSubnet = 2000
+	// evictSample is how many entries are looked at to find one to drop
+	// when the index is full.
+	evictSample = 64
+
 	maxNamesPerEntry      = 100
 	maxPublishersPerEntry = 100
 	maxTagsPerEntry       = 32
@@ -60,6 +69,10 @@ type entry struct {
 	// weak: published without our key (its address only answered a ping,
 	// which any node does): stored, but it votes for nothing.
 	weak bool
+
+	// owner is the address that created a keyword entry (counted for the
+	// limits per address and /24; refreshes by others do not change it).
+	owner netip.Addr
 
 	lname   string    // the name, lowercase (for searches)
 	trustV  float64   // cached trust
@@ -137,6 +150,10 @@ type index struct {
 	// Publishers of keyword entries per /24, for the trust value.
 	pubSubnets map[[3]byte]int
 
+	// Keyword entries per owner address and /24.
+	ownIPs     map[netip.Addr]int
+	ownSubnets map[[3]byte]int
+
 	// Our keywords whose nodes said they are overloaded: not published
 	// again before the time given.
 	load map[ID]time.Time
@@ -148,7 +165,32 @@ func newIndex() *index {
 	return &index{
 		keywords: map[ID]map[ID][]*entry{}, sources: map[ID][]*entry{}, notes: map[ID][]*entry{},
 		pubSubnets: map[[3]byte]int{}, load: map[ID]time.Time{},
+		ownIPs: map[netip.Addr]int{}, ownSubnets: map[[3]byte]int{},
 	}
+}
+
+// own counts (delta 1) or uncounts (-1) a keyword entry for its owner.
+func (x *index) own(ip netip.Addr, delta int) {
+	if !ip.IsValid() {
+		return
+	}
+	if n := x.ownIPs[ip] + delta; n > 0 {
+		x.ownIPs[ip] = n
+	} else {
+		delete(x.ownIPs, ip)
+	}
+	s := subnet(ip)
+	if n := x.ownSubnets[s] + delta; n > 0 {
+		x.ownSubnets[s] = n
+	} else {
+		delete(x.ownSubnets, s)
+	}
+}
+
+// ownerFull reports whether ip, or its /24, has as many keyword entries
+// as it may.
+func (x *index) ownerFull(ip netip.Addr) bool {
+	return x.ownIPs[ip] >= maxEntriesPerIP || x.ownSubnets[subnet(ip)] >= maxEntriesPerSubnet
 }
 
 // keepTags normalises tags for storing: integers as their smallest type;
@@ -192,24 +234,13 @@ func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
 		return false, 0
 	}
 	files := x.keywords[e.key]
-	total := len(files)
-	if files == nil {
-		if len(x.keywords) >= maxKeys {
-			return false, 100
-		}
-	}
-	if total >= maxFilesPerKeyword {
-		return false, 100
-	}
-	list, known := files[e.source]
-	if known && total > maxFilesPerKeyword-5000 {
+	if files == nil && len(x.keywords) >= maxKeys {
 		return false, 100
 	}
 	var old *entry
-	for i, o := range list {
+	for _, o := range files[e.source] {
 		if o.size == e.size {
 			old = o
-			list = append(list[:i:i], list[i+1:]...)
 			break
 		}
 	}
@@ -222,18 +253,42 @@ func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
 			}
 		}
 	}
-	if old == nil && (len(list) >= maxSizesPerFile || x.nKeyword >= maxKeywordEntries) {
-		return false, 100 // full; refreshes of what is there still go in
-	}
-	oldCost := 0
-	if old != nil {
-		oldCost = old.cost
+	if old == nil {
+		if len(files[e.source]) >= maxSizesPerFile || x.ownerFull(e.ip) {
+			return false, 100
+		}
+		e.owner = e.ip
+	} else {
+		e.owner = old.owner
 	}
 	// Merging into old adds at most the new name and one publisher.
 	e.settle()
-	if !x.room(e.cost + publisherCost) {
-		return false, 100
+	for {
+		total := len(files)
+		_, known := files[e.source]
+		full := total >= maxFilesPerKeyword || (known && total > maxFilesPerKeyword-5000)
+		if !full && (old != nil || x.nKeyword < maxKeywordEntries) && x.room(e.cost+publisherCost) {
+			break
+		}
+		// Full. Refreshes of what is there go in while there are bytes for
+		// them; a new entry may take the place of one nobody vouches for.
+		if old != nil || !x.evictFor(e, files, full, now) {
+			return false, 100
+		}
+		files = x.keywords[e.key] // what was dropped may have been in it
 	}
+	list := files[e.source]
+	oldCost := 0
+	if old != nil {
+		oldCost = old.cost
+		for i, o := range list {
+			if o == old {
+				list = append(list[:i:i], list[i+1:]...)
+				break
+			}
+		}
+	}
+	total := len(files)
 	x.merge(e, old, now)
 	e.settle()
 	if files == nil {
@@ -243,12 +298,79 @@ func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
 	x.bytes += e.cost - oldCost
 	if old == nil {
 		x.nKeyword++
+		x.own(e.owner, 1)
 	}
 	files[e.source] = append([]*entry{e}, list...)
 	if total == 0 {
 		return true, 1
 	}
 	return true, byte(total * 100 / maxFilesPerKeyword)
+}
+
+// evictFor drops a keyword entry nobody vouches for (trust under 1: its
+// publishers are all weak, or share their networks with many others), to
+// make room for e, a proven entry from a network that publishes little
+// (so that it would be trusted). With inKeyword, the entry is taken from
+// files (the keyword is full); else from anywhere. Only evictSample
+// entries are looked at, in the maps' random order: entries of a flood
+// are most of a full index, so one is soon found.
+func (x *index) evictFor(e *entry, files map[ID][]*entry, inKeyword bool, now time.Time) bool {
+	if e.weak || x.pubSubnets[subnet(e.ip)] >= 10 {
+		return false
+	}
+	seen := 0
+	try := func(files map[ID][]*entry) bool {
+		for _, list := range files {
+			for _, v := range list {
+				if seen++; seen > evictSample {
+					return false
+				}
+				if x.trust(v, now) < 1 {
+					x.removeKeyword(v)
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if inKeyword {
+		return try(files)
+	}
+	for _, files := range x.keywords {
+		if try(files) {
+			return true
+		}
+		if seen > evictSample {
+			return false
+		}
+	}
+	return false
+}
+
+// removeKeyword drops a keyword entry from the index.
+func (x *index) removeKeyword(v *entry) {
+	files := x.keywords[v.key]
+	list := files[v.source]
+	for i, o := range list {
+		if o == v {
+			list = append(list[:i:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(files, v.source)
+	} else {
+		files[v.source] = list
+	}
+	if len(files) == 0 {
+		delete(x.keywords, v.key)
+	}
+	x.nKeyword--
+	x.bytes -= v.cost
+	for _, p := range v.publishers {
+		x.dropPublisher(p)
+	}
+	x.own(v.owner, -1)
 }
 
 // merge carries the names and publishers of old (the same file, size and
@@ -476,6 +598,7 @@ func (x *index) clean(now time.Time) {
 					for _, p := range e.publishers {
 						x.dropPublisher(p)
 					}
+					x.own(e.owner, -1)
 					continue
 				}
 				// Publishers that stopped republishing.

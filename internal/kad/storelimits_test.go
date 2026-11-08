@@ -2,6 +2,7 @@ package kad
 
 import (
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -273,5 +274,144 @@ func TestOneNamePerPublisher(t *testing.T) {
 	got := x.keywords[KeywordID("orchard")][src][0]
 	if len(got.names) != 1 {
 		t.Fatalf("%d names from one publisher", len(got.names))
+	}
+}
+
+// One address, or one /24, creates a limited number of keyword entries;
+// others still get in.
+func TestKeywordEntriesPerOwner(t *testing.T) {
+	x := newIndex()
+	key := KeywordID("orchard")
+	add := func(ip netip.Addr, i int) bool {
+		e := kwEntry("Quiet Orchard "+strconv.Itoa(i)+".mkv", uint64(1+i), ip)
+		e.key = key
+		ok, _ := x.addKeyword(e, t0)
+		return ok
+	}
+	one := netip.AddrFrom4([4]byte{5, 6, 7, 1})
+	taken := 0
+	for i := range maxEntriesPerIP + 100 {
+		if add(one, i) {
+			taken++
+		}
+	}
+	if taken != maxEntriesPerIP {
+		t.Fatalf("one address created %d entries", taken)
+	}
+	// Its refreshes still go in.
+	first := x.keywords[key]
+	var any *entry
+	for _, l := range first {
+		any = l[0]
+		break
+	}
+	again := kwEntry(any.name(), any.size, one)
+	again.key, again.source = key, any.source
+	if ok, _ := x.addKeyword(again, t0.Add(time.Hour)); !ok {
+		t.Fatal("refresh refused")
+	}
+	// The rest of its /24 together: maxEntriesPerSubnet.
+	for host := byte(2); host < 10; host++ {
+		for i := range maxEntriesPerIP {
+			if add(netip.AddrFrom4([4]byte{5, 6, 7, host}), 10000*int(host)+i) {
+				taken++
+			}
+		}
+	}
+	if taken != maxEntriesPerSubnet {
+		t.Fatalf("one /24 created %d entries", taken)
+	}
+	if !add(netip.AddrFrom4([4]byte{5, 6, 8, 1}), 999999) {
+		t.Fatal("another network refused")
+	}
+	// Expired entries are uncounted.
+	x.clean(t0.Add(keywordLifetime + time.Hour))
+	if len(x.ownIPs) != 0 || len(x.ownSubnets) != 0 || x.nKeyword != 0 {
+		t.Fatalf("after expiry: %d owners, %d entries", len(x.ownIPs), x.nKeyword)
+	}
+}
+
+// A full index makes room for a proven entry from a network that
+// publishes little by dropping one nobody vouches for; weak entries, and
+// entries from a network that publishes much, never push others out.
+func TestFullIndexEvictsUntrusted(t *testing.T) {
+	x := newIndex()
+	key := KeywordID("orchard")
+	n, owner := 0, 0
+	fill := func(key ID, owners int) {
+		for range owners {
+			owner++
+			for h := range maxEntriesPerSubnet / maxEntriesPerIP {
+				ip := netip.AddrFrom4([4]byte{20, byte(owner), 0, byte(h)})
+				for range maxEntriesPerIP {
+					n++
+					e := kwEntry("Flood "+strconv.Itoa(n)+".mkv", uint64(n), ip)
+					e.key = key
+					if ok, _ := x.addKeyword(e, t0); !ok {
+						t.Fatalf("flood entry %d refused", n)
+					}
+				}
+			}
+		}
+	}
+	// One keyword full.
+	fill(key, maxFilesPerKeyword/maxEntriesPerSubnet)
+	if len(x.keywords[key]) != maxFilesPerKeyword {
+		t.Fatalf("%d files", len(x.keywords[key]))
+	}
+	honest := netip.AddrFrom4([4]byte{30, 1, 1, 1})
+	e := kwEntry("Quiet Orchard.mkv", 7, honest)
+	e.key = key
+	if ok, _ := x.addKeyword(e, t0); !ok || len(x.keywords[key]) != maxFilesPerKeyword {
+		t.Fatalf("honest entry in a full keyword: %v, %d files", ok, len(x.keywords[key]))
+	}
+	weak := kwEntry("Quiet Orchard 2.mkv", 8, netip.AddrFrom4([4]byte{30, 2, 1, 1}))
+	weak.key, weak.weak = key, true
+	if ok, _ := x.addKeyword(weak, t0); ok {
+		t.Fatal("weak entry pushed another out")
+	}
+	flooder := kwEntry("Flood again.mkv", 9, netip.AddrFrom4([4]byte{20, 1, 0, 9}))
+	flooder.key = key
+	if ok, _ := x.addKeyword(flooder, t0); ok {
+		t.Fatal("entry from the flooding network pushed another out")
+	}
+	// The whole index full, over other keywords.
+	other := KeywordID("harbor")
+	fill(other, (maxKeywordEntries-maxFilesPerKeyword)/maxEntriesPerSubnet)
+	if x.nKeyword != maxKeywordEntries {
+		t.Fatalf("%d entries", x.nKeyword)
+	}
+	e2 := kwEntry("Blue Harbor.mkv", 7, netip.AddrFrom4([4]byte{31, 1, 1, 1}))
+	e2.key = KeywordID("comet")
+	if ok, _ := x.addKeyword(e2, t0); !ok || x.nKeyword != maxKeywordEntries {
+		t.Fatalf("honest entry in a full index: %v, %d entries", ok, x.nKeyword)
+	}
+	// The counts stay right.
+	owned := 0
+	for _, c := range x.ownIPs {
+		owned += c
+	}
+	if owned != x.nKeyword {
+		t.Fatalf("%d owned, %d entries", owned, x.nKeyword)
+	}
+}
+
+// The entry dropped to make room may be the last of the new entry's own
+// keyword: the new one still lands in the index.
+func TestEvictLastOfKeyword(t *testing.T) {
+	x := newIndex()
+	w := kwEntry("Quiet Orchard.mkv", 7, netip.AddrFrom4([4]byte{40, 1, 1, 1}))
+	w.weak = true
+	if ok, _ := x.addKeyword(w, t0); !ok {
+		t.Fatal("weak entry refused")
+	}
+	x.nKeyword = maxKeywordEntries // full (of what we pretend is there)
+	e := kwEntry("Quiet Orchard.mkv", 8, netip.AddrFrom4([4]byte{41, 1, 1, 1}))
+	if ok, _ := x.addKeyword(e, t0); !ok {
+		t.Fatal("not taken")
+	}
+	got := x.keywords[e.key][e.source]
+	if len(got) != 1 || got[0] != e || x.keywords[w.key][w.source] != nil {
+		t.Fatalf("index: %v", x.keywords[e.key])
 	}
 }

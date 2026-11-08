@@ -483,15 +483,8 @@ func (n *Node) tick(now time.Time) {
 	if len(n.pending) > 0 && now.Second() == 0 {
 		n.prunePending(now)
 	}
-	for ip, until := range n.banned {
-		if !until.After(now) {
-			delete(n.banned, ip)
-		}
-	}
-	for ip, at := range n.directAsked {
-		if now.Sub(at) > directCallbackEvery {
-			delete(n.directAsked, ip)
-		}
+	if now.Sub(n.inCleanup) >= floodCleanup {
+		n.cleanFlood(now)
 	}
 	for ip, r := range n.fwAsked {
 		if now.Sub(r.at) > trackWindow {

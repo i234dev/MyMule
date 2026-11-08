@@ -249,8 +249,11 @@ func TestNodeFloodBan(t *testing.T) {
 	fn := newFakeNet()
 	a := fn.node(t, 1, Config{})
 	x := netip.AddrPortFrom(pubIP(50, false), 4672)
+	keyed := func(d []byte) []byte {
+		return (&Keys{Secret: [32]byte{7}}).EncryptKad(d, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
+	}
 	for range 11 {
-		fn.inject(x, a, rawPacket(OpPing, nil))
+		fn.inject(x, a, keyed(rawPacket(OpPing, nil)))
 	}
 	if got := len(fn.sent[x]); got != 2 {
 		t.Fatalf("%d pongs for 11 pings in a second (2 per minute allowed)", got)
@@ -261,6 +264,15 @@ func TestNodeFloodBan(t *testing.T) {
 	fn.inject(x, a, rawPacket(OpBootstrapReq, nil))
 	if len(fn.sent[x]) != 2 {
 		t.Fatal("banned IP answered")
+	}
+	// A flood without our key (its address may be forged) is refused,
+	// but bans nobody: a forger must not get another node banned.
+	v := netip.AddrPortFrom(pubIP(52, false), 4672)
+	for range 20 {
+		fn.inject(v, a, rawPacket(OpPing, nil))
+	}
+	if _, ok := a.banned[v.Addr()]; ok || len(fn.sent[v]) != 2 {
+		t.Fatalf("unproven flood: banned %v, %d answers", ok, len(fn.sent[v]))
 	}
 	// The allowance comes back with time.
 	y := netip.AddrPortFrom(pubIP(51, false), 4672)
@@ -598,6 +610,54 @@ func TestNodeStateOldFormat(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, stateFile), append(w.B, 0), 0o600)
 	if c := fn.node(t, 3, Config{Dir: dir}); c.ID() == id {
 		t.Fatal("kad.dat with extra bytes taken")
+	}
+}
+
+// The flood state is limited however many addresses send: beyond
+// maxTrackedIPs new addresses are refused (not counted, not answered)
+// until the old ones expire, and the bans and direct callbacks
+// remembered are limited too. Expired state goes within a minute.
+func TestFloodStateLimited(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{})
+	for i := range maxTrackedIPs + 50 {
+		ok := a.allowed(pubIP(100000+i, false), OpBootstrapReq, false, fn.now)
+		if ok != (i < maxTrackedIPs) {
+			t.Fatalf("address %d allowed: %v", i, ok)
+		}
+	}
+	if len(a.inTracked) != maxTrackedIPs {
+		t.Fatalf("%d addresses tracked", len(a.inTracked))
+	}
+	// Known addresses keep their own allowance.
+	if !a.allowed(pubIP(100000, false), OpBootstrapReq, false, fn.now) {
+		t.Fatal("known address refused")
+	}
+	for i := range maxBanned + 10 {
+		ip := pubIP(300000+i, false)
+		a.inTracked[ip] = &floodEntry{ops: []floodCount{{op: OpPing, count: 50, first: fn.now}}, expires: fn.now.Add(time.Hour)}
+		a.allowed(ip, OpPing, true, fn.now)
+	}
+	if len(a.banned) != maxBanned {
+		t.Fatalf("%d banned", len(a.banned))
+	}
+	for i := range maxDirectAsked + 10 {
+		a.directAsked[pubIP(500000+i, false)] = fn.now
+	}
+	// A minute later, what expired is gone; bans last their hour.
+	fn.now = fn.now.Add(2 * time.Minute)
+	a.mu.Lock()
+	a.tick(fn.now)
+	a.mu.Unlock()
+	if len(a.inTracked) > maxBanned+10 || len(a.banned) != maxBanned {
+		t.Fatalf("after a minute: %d tracked, %d banned", len(a.inTracked), len(a.banned))
+	}
+	fn.now = fn.now.Add(banTime)
+	a.mu.Lock()
+	a.tick(fn.now)
+	a.mu.Unlock()
+	if len(a.inTracked) != 0 || len(a.banned) != 0 || len(a.directAsked) != 0 {
+		t.Fatalf("after an hour: %d tracked, %d banned, %d direct", len(a.inTracked), len(a.banned), len(a.directAsked))
 	}
 }
 

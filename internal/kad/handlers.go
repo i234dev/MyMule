@@ -46,7 +46,13 @@ func (n *Node) wasAsked(ip netip.Addr, op byte, now time.Time, keep bool) bool {
 
 // Flood control (eMule's InTrackListIsAllowedPacket): how many requests
 // of each kind one IP may send per minute. Beyond 5 times that, it is
-// banned for an hour.
+// banned for an hour, but only if it proved its address (our key): a
+// forged one must not get someone else banned.
+//
+// Each address seen costs memory, and forged ones cost an attacker
+// nothing, so the state is limited: maxTrackedIPs addresses (beyond that,
+// limited requests from new addresses are refused until old ones expire),
+// maxBanned bans, all cleaned every minute.
 func allowedPerMinute(op byte) int {
 	switch op {
 	case OpBootstrapReq, OpPublishSourceReq, OpPublishNotesReq, OpFirewalledReq, OpFirewalled2Req, OpFindBuddyReq, OpPing:
@@ -65,17 +71,54 @@ func allowedPerMinute(op byte) int {
 	return 0
 }
 
+const (
+	maxTrackedIPs  = 20000
+	maxBanned      = 10000
+	maxDirectAsked = 4096
+	floodCleanup   = time.Minute
+)
+
 type floodEntry struct {
-	ops     map[byte]*floodCount
+	ops     []floodCount
 	expires time.Time
 }
 
 type floodCount struct {
+	op    byte
 	count int
 	first time.Time
 }
 
-func (n *Node) allowed(ip netip.Addr, op byte, now time.Time) bool {
+// cleanFlood drops the flood state that expired.
+func (n *Node) cleanFlood(now time.Time) {
+	n.inCleanup = now
+	for k, e := range n.inTracked {
+		if e.expires.Before(now) {
+			delete(n.inTracked, k)
+		}
+	}
+	for ip, until := range n.banned {
+		if !until.After(now) {
+			delete(n.banned, ip)
+		}
+	}
+	for ip, at := range n.directAsked {
+		if now.Sub(at) > directCallbackEvery {
+			delete(n.directAsked, ip)
+		}
+	}
+}
+
+// isBanned reports whether ip is banned now.
+func (n *Node) isBanned(ip netip.Addr, now time.Time) bool {
+	until, ok := n.banned[ip]
+	return ok && until.After(now)
+}
+
+// allowed counts a request of op from ip and reports whether it may be
+// served. proven: the address is not forged (our key, or a TCP
+// connection).
+func (n *Node) allowed(ip netip.Addr, op byte, proven bool, now time.Time) bool {
 	per := allowedPerMinute(op)
 	if per == 0 {
 		return true
@@ -83,24 +126,30 @@ func (n *Node) allowed(ip netip.Addr, op byte, now time.Time) bool {
 	if op == OpFirewalled2Req {
 		op = OpFirewalledReq // counted together
 	}
-	if now.Sub(n.inCleanup) > 12*time.Minute {
-		n.inCleanup = now
-		for k, e := range n.inTracked {
-			if e.expires.Before(now) {
-				delete(n.inTracked, k)
-			}
-		}
-	}
 	every := time.Minute / time.Duration(per)
 	e := n.inTracked[ip]
 	if e == nil {
-		e = &floodEntry{ops: map[byte]*floodCount{}}
+		if len(n.inTracked) >= maxTrackedIPs {
+			if now.Sub(n.inCleanup) >= time.Second {
+				n.cleanFlood(now)
+			}
+			if len(n.inTracked) >= maxTrackedIPs {
+				return false // no room to count it: refused
+			}
+		}
+		e = &floodEntry{}
 		n.inTracked[ip] = e
 	}
-	fc := e.ops[op]
+	var fc *floodCount
+	for i := range e.ops {
+		if e.ops[i].op == op {
+			fc = &e.ops[i]
+			break
+		}
+	}
 	if fc == nil {
-		fc = &floodCount{first: now}
-		e.ops[op] = fc
+		e.ops = append(e.ops, floodCount{op: op, first: now})
+		fc = &e.ops[len(e.ops)-1]
 	}
 	if fc.count > 0 && now.Sub(fc.first) > every {
 		gone := int(now.Sub(fc.first) / every)
@@ -116,9 +165,11 @@ func (n *Node) allowed(ip netip.Addr, op byte, now time.Time) bool {
 		e.expires = exp
 	}
 	switch {
-	case fc.count > per*5:
-		n.banned[ip] = now.Add(banTime)
-		n.cfg.Log("kad: banned %s for an hour: flooding with opcode 0x%02X", ip, op)
+	case fc.count > per*5 && proven:
+		if _, ok := n.banned[ip]; !ok && len(n.banned) < maxBanned {
+			n.banned[ip] = now.Add(banTime)
+			n.cfg.Log("kad: banned %s for an hour: flooding with opcode 0x%02X", ip, op)
+		}
 		return false
 	case fc.count > per:
 		return false
@@ -200,7 +251,7 @@ func (n *Node) handle(data []byte, from netip.AddrPort, now time.Time) {
 	if !ip.Is4() || from.Port() == 0 {
 		return
 	}
-	if until, ok := n.banned[ip]; ok && until.After(now) {
+	if n.isBanned(ip, now) {
 		return
 	}
 	rcv, err := n.keys.Decrypt(data, ip)
@@ -224,7 +275,7 @@ func (n *Node) handle(data []byte, from netip.AddrPort, now time.Time) {
 		return
 	}
 	n.lastContact = now
-	if !n.allowed(ip, in.op, now) {
+	if !n.allowed(ip, in.op, in.validKey, now) {
 		return
 	}
 	if err := n.dispatch(in, now); err != nil && n.cfg.Log != nil {

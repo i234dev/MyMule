@@ -256,7 +256,7 @@ func (n *Node) TestUDPFor(ip netip.Addr, payload []byte) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	now := n.now()
-	if !GoodAddr(ip, intern) || !n.allowed(ip, OpFWCheckUDPReq, now) {
+	if !GoodAddr(ip, intern) || n.isBanned(ip, now) || !n.allowed(ip, OpFWCheckUDPReq, true, now) {
 		return
 	}
 	known := n.table.GetByAddr(ip, 0) != nil
@@ -515,7 +515,7 @@ func (n *Node) Callback(payload []byte) (ip netip.Addr, tcpPort uint16, file [16
 // onClientUDP handles the eD2K client UDP packets (0xC5) of the buddy
 // system and direct callbacks.
 func (n *Node) onClientUDP(data []byte, from netip.AddrPort, now time.Time) {
-	if len(data) < 2 || !n.allowed(from.Addr(), 0xC5, now) {
+	if len(data) < 2 || !n.allowed(from.Addr(), 0xC5, false, now) {
 		return
 	}
 	op, p := data[1], data[2:]
@@ -547,8 +547,11 @@ func (n *Node) onClientUDP(data []byte, from netip.AddrPort, now time.Time) {
 			return
 		}
 		// Each address once per 3 minutes; the eD2K side's callback gate
-		// limits how many in all (a cap here would let forged requests
-		// lock real ones out).
+		// limits how many in all. The addresses remembered are limited
+		// too (forged ones cost nothing): beyond that, new ones wait.
+		if len(n.directAsked) >= maxDirectAsked {
+			return
+		}
 		n.directAsked[ip] = now
 		connect := n.cfg.ConnectTo
 		n.later(func() { connect(ip, tcp) })

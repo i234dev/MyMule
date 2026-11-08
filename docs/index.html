@@ -111,6 +111,8 @@
     <li>Kad, the network without servers: searches and sources there too, your shared files published, and a full Kad node for others.</li>
     <li>MD4 verification of every 9.28&nbsp;MB part: corrupt parts are downloaded again, and peers that keep sending bad data are dropped.</li>
     <li>Sharing and uploads with a queue, slots taken in turns and a speed limit.</li>
+    <li>eMule's credit system, with secure identification: whoever uploads to you moves up in your queue, and the eMule and aMule users you upload to do the same for you.</li>
+    <li>Protocol obfuscation for connections to users and servers, which hides eMule traffic from internet providers that slow it down.</li>
     <li>Resume after a stop, a crash or a reboot.</li>
     <li>HighID support, server callbacks and Kad buddies to reach firewalled peers.</li>
     <li>Everything other peers and nodes send is checked and bounded.</li>
@@ -185,7 +187,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>What does it not do yet?</summary>
-      <p>Protocol obfuscation (TCP) and the credit system are not implemented yet. Ideas and bug reports are welcome on <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
+      <p>Source exchange between clients, compressed transfers and AICH (recovering a damaged part without downloading all of it again) are not implemented yet. Ideas and bug reports are welcome on <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
     </details>
     <details>
       <summary>Is it free?</summary>

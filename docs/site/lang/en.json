@@ -34,6 +34,8 @@
   "feature_kad": "Kad, the network without servers: searches and sources there too, your shared files published, and a full Kad node for others.",
   "feature_md4": "MD4 verification of every 9.28&nbsp;MB part: corrupt parts are downloaded again, and peers that keep sending bad data are dropped.",
   "feature_upload": "Sharing and uploads with a queue, slots taken in turns and a speed limit.",
+  "feature_credits": "eMule's credit system, with secure identification: whoever uploads to you moves up in your queue, and the eMule and aMule users you upload to do the same for you.",
+  "feature_obfus": "Protocol obfuscation for connections to users and servers, which hides eMule traffic from internet providers that slow it down.",
   "feature_resume": "Resume after a stop, a crash or a reboot.",
   "feature_highid": "HighID support, server callbacks and Kad buddies to reach firewalled peers.",
   "feature_checked": "Everything other peers and nodes send is checked and bounded.",
@@ -69,7 +71,7 @@
   "faq_why_q": "Why another eMule client?",
   "faq_why_a": "MyMule is one small program with no dependencies that runs anywhere, also without a screen: on a NAS, a Raspberry Pi or in Docker, managed from the browser of your phone. It also brings eD2K to Radarr, Sonarr and Prowlarr, and finds movies and series by their title in your language.",
   "faq_missing_q": "What does it not do yet?",
-  "faq_missing_a": "Protocol obfuscation (TCP) and the credit system are not implemented yet. Ideas and bug reports are welcome on <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
+  "faq_missing_a": "Source exchange between clients, compressed transfers and AICH (recovering a damaged part without downloading all of it again) are not implemented yet. Ideas and bug reports are welcome on <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
   "faq_free_q": "Is it free?",
   "faq_free_a": "Yes: it is free software under the GNU GPL v3, with no ads and no account to create. Its source code is on <a href=\"https://github.com/i234dev/MyMule\">GitHub</a>.",
 

@@ -34,6 +34,8 @@
   "feature_kad": "Kad, la rete senza server: ricerche e fonti anche lì, i tuoi file condivisi pubblicati e un nodo Kad completo per gli altri.",
   "feature_md4": "Verifica MD4 di ogni parte da 9,28&nbsp;MB: le parti corrotte vengono scaricate di nuovo, e chi continua a inviare dati errati viene escluso.",
   "feature_upload": "Condivisione e upload con coda, slot assegnati a turno e limite di velocità.",
+  "feature_credits": "Il sistema dei crediti di eMule, con identificazione sicura: chi ti invia file avanza nella tua coda, e gli utenti di eMule e aMule a cui invii file fanno lo stesso con te.",
+  "feature_obfus": "Offuscamento del protocollo nelle connessioni con utenti e server, che nasconde il traffico eMule ai provider che lo rallentano.",
   "feature_resume": "Riprende da dove si era fermato dopo uno stop, un crash o un riavvio.",
   "feature_highid": "HighID, callback del server e buddy Kad per raggiungere gli utenti dietro un firewall.",
   "feature_checked": "Tutto ciò che inviano gli altri utenti e nodi viene controllato e limitato.",
@@ -69,7 +71,7 @@
   "faq_why_q": "Perché un altro client eMule?",
   "faq_why_a": "MyMule è un solo piccolo programma senza dipendenze che funziona ovunque, anche senza schermo: su un NAS, un Raspberry Pi o in Docker, e lo gestisci dal browser del telefono. Inoltre porta eD2K in Radarr, Sonarr e Prowlarr, e trova film e serie per titolo nella tua lingua.",
   "faq_missing_q": "Cosa non fa ancora?",
-  "faq_missing_a": "L’offuscamento del protocollo (TCP) e il sistema dei crediti non sono ancora implementati. Idee e segnalazioni di bug sono benvenute su <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
+  "faq_missing_a": "Lo scambio di fonti tra client, i trasferimenti compressi e l’AICH (recuperare una parte danneggiata senza riscaricarla per intero) non sono ancora implementati. Idee e segnalazioni di bug sono benvenute su <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
   "faq_free_q": "È gratuito?",
   "faq_free_a": "Sì: è software libero sotto GNU GPL v3, senza pubblicità e senza account da creare. Il codice sorgente è su <a href=\"https://github.com/i234dev/MyMule\">GitHub</a>.",
 

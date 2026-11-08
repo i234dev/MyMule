@@ -97,6 +97,8 @@
     <li>Kad, le réseau sans serveurs : recherches et sources là aussi, vos fichiers partagés publiés, et un nœud Kad complet pour les autres.</li>
     <li>Vérification MD4 de chaque partie de 9,28&nbsp;Mo : les parties corrompues sont téléchargées à nouveau, et les pairs qui continuent d’envoyer des données erronées sont écartés.</li>
     <li>Partage et envois avec file d’attente, créneaux attribués à tour de rôle et limite de vitesse.</li>
+    <li>Le système de crédits d’eMule, avec identification sécurisée : qui vous envoie des fichiers avance dans votre file, et les utilisateurs d’eMule et d’aMule à qui vous en envoyez font de même pour vous.</li>
+    <li>Obfuscation du protocole pour les connexions aux utilisateurs et aux serveurs, qui cache le trafic eMule aux fournisseurs d’accès qui le ralentissent.</li>
     <li>Reprise après un arrêt, un plantage ou un redémarrage.</li>
     <li>HighID, rappels par le serveur et buddies Kad pour joindre les pairs derrière un pare-feu.</li>
     <li>Tout ce qu’envoient les autres pairs et nœuds est vérifié et limité.</li>
@@ -171,7 +173,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>Que ne fait-il pas encore ?</summary>
-      <p>L’obfuscation du protocole (TCP) et le système de crédits ne sont pas encore implémentés. Les idées et les rapports de bugs sont les bienvenus sur <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
+      <p>L’échange de sources entre clients, les transferts compressés et l’AICH (récupérer une partie endommagée sans la retélécharger en entier) ne sont pas encore implémentés. Les idées et les rapports de bugs sont les bienvenus sur <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
     </details>
     <details>
       <summary>Est-ce gratuit ?</summary>

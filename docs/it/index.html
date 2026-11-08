@@ -97,6 +97,8 @@
     <li>Kad, la rete senza server: ricerche e fonti anche lì, i tuoi file condivisi pubblicati e un nodo Kad completo per gli altri.</li>
     <li>Verifica MD4 di ogni parte da 9,28&nbsp;MB: le parti corrotte vengono scaricate di nuovo, e chi continua a inviare dati errati viene escluso.</li>
     <li>Condivisione e upload con coda, slot assegnati a turno e limite di velocità.</li>
+    <li>Il sistema dei crediti di eMule, con identificazione sicura: chi ti invia file avanza nella tua coda, e gli utenti di eMule e aMule a cui invii file fanno lo stesso con te.</li>
+    <li>Offuscamento del protocollo nelle connessioni con utenti e server, che nasconde il traffico eMule ai provider che lo rallentano.</li>
     <li>Riprende da dove si era fermato dopo uno stop, un crash o un riavvio.</li>
     <li>HighID, callback del server e buddy Kad per raggiungere gli utenti dietro un firewall.</li>
     <li>Tutto ciò che inviano gli altri utenti e nodi viene controllato e limitato.</li>
@@ -171,7 +173,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>Cosa non fa ancora?</summary>
-      <p>L’offuscamento del protocollo (TCP) e il sistema dei crediti non sono ancora implementati. Idee e segnalazioni di bug sono benvenute su <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
+      <p>Lo scambio di fonti tra client, i trasferimenti compressi e l’AICH (recuperare una parte danneggiata senza riscaricarla per intero) non sono ancora implementati. Idee e segnalazioni di bug sono benvenute su <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
     </details>
     <details>
       <summary>È gratuito?</summary>

@@ -121,6 +121,59 @@ func TestKadConnectBackLimits(t *testing.T) {
 	}
 }
 
+// Firewall checks for others start at most maxConnectBacksPerMin a
+// minute, and never take the places of our own checks.
+func TestKadConnectBackBudgets(t *testing.T) {
+	m := kadManager(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	started := 0
+	for range 200 {
+		if m.KadConnectBack(net.ParseIP("127.0.0.1"), port, ed2k.Hash{}) {
+			started++
+		}
+		if started == maxConnectBacksPerMin {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if started != maxConnectBacksPerMin {
+		t.Fatalf("%d started", started)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for m.connectBacks.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m.KadConnectBack(net.ParseIP("127.0.0.1"), port, ed2k.Hash{}) {
+		t.Fatal("more than the limit in a minute")
+	}
+	// With every place for others taken, our own checks still run.
+	m.connectBacks.Store(maxConnectBacks)
+	defer m.connectBacks.Store(0)
+	ran := make(chan bool, 1)
+	if !m.kadTask("test", func(context.Context) { ran <- true }) {
+		t.Fatal("our own check refused")
+	}
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("our own check did not run")
+	}
+}
+
 // Our hello tells peers our Kad port and version; an incoming ack reaches
 // the Kad side with the peer's address.
 func TestKadHelloAndAck(t *testing.T) {

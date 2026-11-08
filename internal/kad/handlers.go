@@ -813,13 +813,10 @@ func (n *Node) onFirewalledRes(in incoming, now time.Time) error {
 	return nil
 }
 
-// setExtIP takes our IP from a node's answer; a change needs two nodes
-// agreeing.
+// setExtIP takes our IP from a node's answer once two nodes in a row
+// agree (each answers once): the first answer alone, which anyone could
+// send, would make the verify keys others gave us useless.
 func (n *Node) setExtIP(ip netip.Addr) {
-	if !n.extIPLast.IsValid() {
-		n.extIP, n.extIPLast = ip, ip
-		return
-	}
 	if ip == n.extIPLast {
 		n.extIP = ip
 	} else {

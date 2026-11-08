@@ -214,8 +214,14 @@ type Manager struct {
 
 	ctx          context.Context
 	connectBacks atomic.Int32      // Kad firewall checks for other nodes running
+	kadTasks     atomic.Int32      // our own Kad checks running (UDP test)
 	buddyBusy    bool              // a connection to our Kad buddy is up or being made
 	lastVerified map[ed2k.Hash]int // verified part counts, to refresh the server offer
+
+	// connectBack* count the firewall checks for others started in the
+	// current minute.
+	connectBackMinute time.Time
+	connectBackCount  int
 
 	inbound   connLimiter  // incoming peer connections
 	callbacks callbackGate // server callback requests we act on
@@ -1096,8 +1102,14 @@ func (m *Manager) kadPacket(c *peer.Conn, p *proto.Packet) bool {
 }
 
 // maxConnectBacks is how many Kad firewall checks for other nodes run at
-// once.
-const maxConnectBacks = 4
+// once, and maxConnectBacksPerMin how many start per minute (the requests
+// may come from forged addresses, and each costs a connection); our own
+// checks (kadTask) have a budget of their own, so such requests cannot
+// keep our UDP test from running.
+const (
+	maxConnectBacks       = 4
+	maxConnectBacksPerMin = 20
+)
 
 // KadConnectBack connects to a Kad node that asked us to check whether
 // its TCP port is reachable, and tells it we got through. userHash, if not
@@ -1114,10 +1126,18 @@ func (m *Manager) KadConnectBack(ip net.IP, port uint16, userHash ed2k.Hash) boo
 	if ctx == nil || ctx.Err() != nil || m.closing {
 		return false
 	}
+	now := time.Now()
+	if now.Sub(m.connectBackMinute) >= time.Minute {
+		m.connectBackMinute, m.connectBackCount = now, 0
+	}
+	if m.connectBackCount >= maxConnectBacksPerMin {
+		return false
+	}
 	if m.connectBacks.Add(1) > maxConnectBacks {
 		m.connectBacks.Add(-1)
 		return false
 	}
+	m.connectBackCount++
 	// Added under m.mu with closing false: shutdown sets closing under
 	// m.mu before it waits, so it waits for this one too.
 	m.wg.Add(1)

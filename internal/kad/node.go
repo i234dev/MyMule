@@ -337,16 +337,16 @@ func (n *Node) ID() ID { return n.keys.KadID }
 
 func (n *Node) now() time.Time { return n.clock() }
 
-// publicIP is our public IP: as Kad nodes see it, or else as the eD2K side
-// knows it.
+// publicIP is our public IP: as the eD2K server saw it (it connected back
+// to us), or else as Kad nodes agree it is.
 func (n *Node) publicIP() netip.Addr {
-	if n.extIP.IsValid() {
-		return n.extIP
-	}
 	if n.cfg.PublicIP != nil {
 		if ip := n.cfg.PublicIP(); ip.Unmap().Is4() {
 			return ip.Unmap()
 		}
+	}
+	if n.extIP.IsValid() {
+		return n.extIP
 	}
 	return netip.Addr{}
 }

@@ -546,8 +546,12 @@ func TestExternalIPNeedsTwo(t *testing.T) {
 	n := &Node{}
 	a, b := pubIP(1, false), pubIP(2, false)
 	n.setExtIP(a)
+	if n.extIP.IsValid() {
+		t.Fatal("first answer taken alone")
+	}
+	n.setExtIP(a)
 	if n.extIP != a {
-		t.Fatal("first answer not taken")
+		t.Fatal("not taken from two")
 	}
 	n.setExtIP(b)
 	if n.extIP != a {
@@ -556,6 +560,16 @@ func TestExternalIPNeedsTwo(t *testing.T) {
 	n.setExtIP(b)
 	if n.extIP != b {
 		t.Fatal("not changed by two")
+	}
+	// The eD2K server's view comes first.
+	server := pubIP(3, false)
+	n.cfg.PublicIP = func() netip.Addr { return server }
+	if n.publicIP() != server {
+		t.Fatalf("public IP %s", n.publicIP())
+	}
+	n.cfg.PublicIP = func() netip.Addr { return netip.Addr{} }
+	if n.publicIP() != b {
+		t.Fatalf("without the server: %s", n.publicIP())
 	}
 }
 

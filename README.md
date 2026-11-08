@@ -390,8 +390,11 @@ sources and queue places per address, and where MyMule will connect to
 that was already verified is refused, and every finished file is checked
 against its hash once more before it is handed over. Kad packets are
 checked the same way, and what other nodes can make MyMule store, send or
-connect to is limited (in bytes, packets and connections) and needs proof
-of their address. A bug triggered by
+connect to is limited (in bytes, packets and connections, for each
+address and in all). Storing what a node publishes needs proof of its
+address; the few requests that make MyMule send or connect without it
+(firewall checks and callbacks for other nodes, as in eMule) only reach
+public addresses, a few at a time. A bug triggered by
 what a peer sends ends that connection, not the program. Text from the
 network (file names, nicks, messages) is cleaned before it reaches the
 terminal or the log.

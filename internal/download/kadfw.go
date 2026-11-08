@@ -35,13 +35,16 @@ const (
 	buddyIdle         = 25 * time.Minute
 )
 
+// maxKadTasks is how many of our own Kad checks run at once.
+const maxKadTasks = 4
+
 func toAddr(ip net.IP) netip.Addr {
 	a, _ := netip.AddrFromSlice(ip.To4())
 	return a
 }
 
-// kadTask runs f in the background for a Kad check, at most
-// maxConnectBacks at once; false when it will not run.
+// kadTask runs f in the background for one of our Kad checks, at most
+// maxKadTasks at once; false when it will not run.
 func (m *Manager) kadTask(name string, f func(ctx context.Context)) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -49,14 +52,14 @@ func (m *Manager) kadTask(name string, f func(ctx context.Context)) bool {
 	if ctx == nil || ctx.Err() != nil || m.closing {
 		return false
 	}
-	if m.connectBacks.Add(1) > maxConnectBacks {
-		m.connectBacks.Add(-1)
+	if m.kadTasks.Add(1) > maxKadTasks {
+		m.kadTasks.Add(-1)
 		return false
 	}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		defer m.connectBacks.Add(-1)
+		defer m.kadTasks.Add(-1)
 		safe.Catch(m.cfg.Log, name, func() { f(ctx) }, m.locks()...)
 	}()
 	return true

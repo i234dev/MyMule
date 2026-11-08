@@ -241,8 +241,10 @@ func TestRESTGuessingBlocked(t *testing.T) {
 
 // A web page the user opens can make the browser send requests with a
 // made-up key (<img src=...?apikey=x>, a hidden form). Wrong keys sent
-// that way do not count, so the page cannot block the user's own
-// address; the right key (a dashboard link) still works.
+// that way are counted apart, so the page cannot block the user's own
+// address; but anyone can make a request look cross-site, so they stop
+// further cross-site tries once too many (or a short key could be
+// guessed without limit).
 func TestRESTCrossSiteAttemptsDoNotBlock(t *testing.T) {
 	old := authlimit.Default
 	authlimit.Default = authlimit.New(3, time.Minute, time.Minute)
@@ -268,14 +270,17 @@ func TestRESTCrossSiteAttemptsDoNotBlock(t *testing.T) {
 		{"Referer": "https://attacker.example/page.html"},
 		{"Origin": "null"},
 	}
+	if c := get(weakKey, foreign[0]); c != 200 {
+		t.Fatalf("the right key from a link on another site was refused: %d", c)
+	}
 	for i := 0; i < 10; i++ {
 		get("x", foreign[i%len(foreign)])
 	}
 	if c := get(weakKey, nil); c != 200 {
 		t.Fatalf("cross-site attempts blocked the address: %d", c)
 	}
-	if c := get(weakKey, foreign[0]); c != 200 {
-		t.Fatalf("the right key from a link on another site was refused: %d", c)
+	if c := get(weakKey, foreign[0]); c == 200 {
+		t.Fatal("cross-site guessing of a short key is not limited")
 	}
 	if c := get(weakKey, map[string]string{"Sec-Fetch-Site": "same-origin"}); c != 200 {
 		t.Fatalf("same-origin request refused: %d", c)

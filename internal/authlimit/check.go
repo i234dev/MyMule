@@ -32,15 +32,26 @@ func (l *Limiter) Check(r *http.Request, got, key string) bool {
 	return right
 }
 
-// CheckQuiet reports whether got is the right key without counting a
-// wrong one, for requests a browser sent on behalf of another site (see
-// CrossSite): such a page makes up whatever key it likes, and counting
-// it would let any web page block the user's own address. The right key
-// still works (a link with ?apikey= opened from a dashboard), and the
-// address being blocked is respected as usual.
+// CheckQuiet is Check for requests a browser sent on behalf of another
+// site (see CrossSite). Such a page makes up whatever key it likes, so
+// its wrong keys must not block the user's own address; but anyone can
+// make a request look like that, so they cannot go uncounted either (a
+// short key could then be guessed without limit). They are counted
+// apart: too many block only further requests of this kind from the
+// address, and a right strong key still gets through (a link with
+// ?apikey= opened from a dashboard).
 func (l *Limiter) CheckQuiet(r *http.Request, got, key string) bool {
 	right := key != "" && subtle.ConstantTimeCompare([]byte(got), []byte(key)) == 1
-	return right && (len(key) >= StrongKeyLen || l.Allowed(r))
+	if right && len(key) >= StrongKeyLen {
+		return true
+	}
+	if !l.Allowed(r) || !l.crossSite.Allowed(r) {
+		return false
+	}
+	if !right {
+		l.crossSite.Failed(r)
+	}
+	return right
 }
 
 // CrossSite reports whether a browser sent r on behalf of a page from

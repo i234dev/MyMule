@@ -100,7 +100,7 @@ func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pass := r.Form.Get("password")
-	// A form on another web site does not count as a failure.
+	// A form on another web site is counted apart (see CheckQuiet).
 	ok := false
 	if authlimit.CrossSite(r) {
 		ok = authlimit.Default.CheckQuiet(r, pass, a.cfg.Key)

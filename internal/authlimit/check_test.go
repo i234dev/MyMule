@@ -51,3 +51,37 @@ func TestCrossSite(t *testing.T) {
 		}
 	}
 }
+
+// Wrong keys from cross-site requests are counted apart: too many stop
+// further cross-site tries of a short key from the address, but neither
+// the address's other requests nor a right strong key.
+func TestCheckQuietCountedApart(t *testing.T) {
+	strong, weak := "0123456789abcdef0123456789abcdef", "weak-key-123"
+	l := New(3, time.Minute, time.Hour)
+	a := from("198.51.100.7:5000")
+	if !l.CheckQuiet(a, weak, weak) {
+		t.Fatal("right short key refused")
+	}
+	for _, guess := range []string{"x", "y", "z"} {
+		if l.CheckQuiet(a, guess, weak) {
+			t.Fatal("wrong key accepted")
+		}
+	}
+	if l.CheckQuiet(a, weak, weak) {
+		t.Fatal("cross-site guessing not limited: right short key still tried after 3 wrong ones")
+	}
+	if !l.Allowed(a) || !l.Check(a, weak, weak) {
+		t.Fatal("cross-site guesses blocked the address itself")
+	}
+	if !l.CheckQuiet(a, strong, strong) {
+		t.Fatal("right strong key refused")
+	}
+	// A blocked address is respected as before.
+	b := from("198.51.100.8:5000")
+	for _, guess := range []string{"x", "y", "z"} {
+		l.Check(b, guess, weak)
+	}
+	if l.CheckQuiet(b, weak, weak) {
+		t.Fatal("blocked address let through cross-site")
+	}
+}

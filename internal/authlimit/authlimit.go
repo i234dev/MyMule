@@ -27,6 +27,10 @@ type Limiter struct {
 
 	mu    sync.Mutex
 	state map[string]*entry
+
+	// crossSite counts, apart, the wrong keys of requests a browser sent
+	// for another site (see CheckQuiet).
+	crossSite *Limiter
 }
 
 type entry struct {
@@ -36,6 +40,12 @@ type entry struct {
 
 // New returns a limiter with the given policy.
 func New(maxFails int, window, block time.Duration) *Limiter {
+	l := newLimiter(maxFails, window, block)
+	l.crossSite = newLimiter(maxFails, window, block)
+	return l
+}
+
+func newLimiter(maxFails int, window, block time.Duration) *Limiter {
 	return &Limiter{maxFails: maxFails, window: window, block: block, now: time.Now, state: map[string]*entry{}}
 }
 

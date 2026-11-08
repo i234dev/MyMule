@@ -19,6 +19,16 @@ sha() {
 	echo "$h"
 }
 
+# Every checksum first, as plain assignments: a missing one stops here
+# (a failing $(...) inside a here-document would not, and an empty sha256
+# would be published).
+sum_darwin_arm64=$(sha darwin-arm64.tar.gz)
+sum_darwin_amd64=$(sha darwin-amd64.tar.gz)
+sum_linux_arm64=$(sha linux-arm64.tar.gz)
+sum_linux_amd64=$(sha linux-amd64.tar.gz)
+sum_windows_amd64=$(sha windows-amd64.zip)
+sum_windows_arm64=$(sha windows-arm64.zip)
+
 mkdir -p "$out"
 
 # Homebrew. The program keeps its data next to the executable, which
@@ -35,22 +45,22 @@ class Mymule < Formula
   on_macos do
     on_arm do
       url "$base/mymule-$tag-darwin-arm64.tar.gz"
-      sha256 "$(sha darwin-arm64.tar.gz)"
+      sha256 "$sum_darwin_arm64"
     end
     on_intel do
       url "$base/mymule-$tag-darwin-amd64.tar.gz"
-      sha256 "$(sha darwin-amd64.tar.gz)"
+      sha256 "$sum_darwin_amd64"
     end
   end
 
   on_linux do
     on_arm do
       url "$base/mymule-$tag-linux-arm64.tar.gz"
-      sha256 "$(sha linux-arm64.tar.gz)"
+      sha256 "$sum_linux_arm64"
     end
     on_intel do
       url "$base/mymule-$tag-linux-amd64.tar.gz"
-      sha256 "$(sha linux-amd64.tar.gz)"
+      sha256 "$sum_linux_amd64"
     end
   end
 
@@ -97,12 +107,12 @@ cat > "$out/mymule.json" <<JSON
     "architecture": {
         "64bit": {
             "url": "$base/mymule-$tag-windows-amd64.zip",
-            "hash": "$(sha windows-amd64.zip)",
+            "hash": "$sum_windows_amd64",
             "extract_dir": "mymule-$tag-windows-amd64"
         },
         "arm64": {
             "url": "$base/mymule-$tag-windows-arm64.zip",
-            "hash": "$(sha windows-arm64.zip)",
+            "hash": "$sum_windows_arm64",
             "extract_dir": "mymule-$tag-windows-arm64"
         }
     },

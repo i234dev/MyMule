@@ -245,3 +245,80 @@ func TestIDChangeOnce(t *testing.T) {
 		ln.Close()
 	}
 }
+
+// A server sending messages without end makes us log maxServerLogs lines a
+// minute; the rest are counted and said once the minute is over.
+func TestServerLogLimited(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	more := make(chan bool)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		proto.ReadPacket(c)
+		send := func(op byte, w proto.Writer) {
+			c.Write((&proto.Packet{Proto: proto.ProtoEDonkey, Opcode: op, Payload: w.B}).Encode())
+		}
+		var w proto.Writer
+		w.U32(0x02000000)
+		send(proto.OpIDChange, w)
+		for i := range 200 {
+			w = proto.Writer{}
+			w.Str16(fmt.Sprintf("spam %d", i))
+			send(proto.OpServerMessage, w)
+			send(0x7E, proto.Writer{}) // unknown
+		}
+		<-more
+		w = proto.Writer{}
+		w.Str16("after a minute")
+		send(proto.OpServerMessage, w)
+		time.Sleep(time.Second)
+	}()
+	var mu sync.Mutex
+	var logs []string
+	addr := ln.Addr().(*net.TCPAddr)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, Info{IP: addr.IP, Port: uint16(addr.Port)}, Config{Nick: "test", Log: func(f string, a ...any) {
+		mu.Lock()
+		logs = append(logs, fmt.Sprintf(f, a...))
+		mu.Unlock()
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	time.Sleep(500 * time.Millisecond)
+	mu.Lock()
+	n := len(logs)
+	mu.Unlock()
+	if n > maxServerLogs+2 {
+		t.Fatalf("%d lines logged", n)
+	}
+	c.mu.Lock()
+	c.logWindow = c.logWindow.Add(-time.Minute)
+	c.mu.Unlock()
+	more <- true
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		last := strings.Join(logs, "\n")
+		mu.Unlock()
+		if strings.Contains(last, "after a minute") {
+			if !strings.Contains(last, "more lines from it not logged") {
+				t.Fatal("the lines left out are not said")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no line logged after the minute")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

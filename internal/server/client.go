@@ -66,6 +66,11 @@ type Conn struct {
 	// it (said once in the log).
 	idSet, idRefused bool
 
+	// Lines the server made us log in the minute since logWindow, and
+	// those left out.
+	logWindow            time.Time
+	logLines, logDropped int
+
 	// Search replies carry no request id. A search given up on (timeout)
 	// may still be answered later; that answer must not be taken for the
 	// next search's. staleSearch counts such pending answers, until
@@ -249,7 +254,7 @@ func (c *Conn) handle(p *proto.Packet) {
 		c.mu.Lock()
 		c.lastMsg = strings.TrimSpace(msg)
 		c.mu.Unlock()
-		c.cfg.Log("server message: %s", msg)
+		c.logServer("server message: %s", msg)
 	case proto.OpIDChange:
 		id := r.U32()
 		var flags uint32
@@ -279,7 +284,7 @@ func (c *Conn) handle(p *proto.Packet) {
 		if id >= LowIDLimit {
 			kind = "HighID"
 		}
-		c.cfg.Log("got client ID %d (%s), server flags 0x%X", id, kind, flags)
+		c.logServer("got client ID %d (%s), server flags 0x%X", id, kind, flags)
 		select {
 		case <-c.loggedIn:
 		default:
@@ -290,7 +295,7 @@ func (c *Conn) handle(p *proto.Packet) {
 		c.mu.Lock()
 		c.status.Users, c.status.Files = users, files
 		c.mu.Unlock()
-		c.cfg.Log("server status: %d users, %d files", users, files)
+		c.logServer("server status: %d users, %d files", users, files)
 	case proto.OpServerIdent:
 		r.Hash()
 		r.U32()
@@ -303,9 +308,9 @@ func (c *Conn) handle(p *proto.Packet) {
 		c.status.ServerName = name
 		c.status.ServerDesc = desc
 		c.mu.Unlock()
-		c.cfg.Log("server ident: %s (%s)", name, desc)
+		c.logServer("server ident: %s (%s)", name, desc)
 	case proto.OpReject:
-		c.cfg.Log("server rejected our last command")
+		c.logServer("server rejected our last command")
 		c.deliver(p)
 	case proto.OpCallbackRequested:
 		ip, port := IPFromU32(r.U32()), r.U16()
@@ -313,10 +318,10 @@ func (c *Conn) handle(p *proto.Packet) {
 			go c.cfg.OnCallback(ip, port)
 		}
 	case proto.OpCallbackFail:
-		c.cfg.Log("server: callback request failed")
+		c.logServer("server: callback request failed")
 	default:
 		if !c.deliver(p) {
-			c.cfg.Log("unhandled server opcode 0x%02X (%d bytes)", p.Opcode, len(p.Payload))
+			c.logServer("unhandled server opcode 0x%02X (%d bytes)", p.Opcode, len(p.Payload))
 		}
 	}
 }
@@ -667,4 +672,32 @@ func FileTypeFor(name string) string {
 		return TypeCDImage
 	}
 	return ""
+}
+
+// maxServerLogs is how many lines a server may make us log per minute
+// (messages, status, unknown packets...): a server sending them without
+// end must not fill the disk.
+const maxServerLogs = 20
+
+// logServer logs a line caused by what the server sent, within
+// maxServerLogs a minute; the lines left out are counted and said.
+func (c *Conn) logServer(format string, args ...any) {
+	now := time.Now()
+	c.mu.Lock()
+	dropped := 0
+	if now.Sub(c.logWindow) >= time.Minute {
+		dropped = c.logDropped
+		c.logWindow, c.logLines, c.logDropped = now, 0, 0
+	}
+	if c.logLines >= maxServerLogs {
+		c.logDropped++
+		c.mu.Unlock()
+		return
+	}
+	c.logLines++
+	c.mu.Unlock()
+	if dropped > 0 {
+		c.cfg.Log("server: %d more lines from it not logged", dropped)
+	}
+	c.cfg.Log(format, args...)
 }

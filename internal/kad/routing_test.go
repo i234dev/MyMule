@@ -421,3 +421,90 @@ func TestNodesFile(t *testing.T) {
 	}
 	_ = fmt.Sprint()
 }
+
+// A full bin that cannot split takes a verified contact in place of an
+// unverified one (the oldest closest to being dropped); unverified
+// contacts never push others out, and a full bin of verified ones takes
+// nothing.
+func TestFullBinPrefersVerified(t *testing.T) {
+	me := ID{}
+	tb := NewTable(me, t0)
+	// Far contacts (first bit 1) all land in one zone that stops
+	// splitting at level kBase.
+	far := func(i int) Contact {
+		c := contactN(i)
+		c.ID = RandomID()
+		c.ID[0] = 0x80 | 0x40 // the same first bits: one zone
+		c.ID[0] |= 0x30
+		return c
+	}
+	for i := 1; i < 50; i++ {
+		c := far(i)
+		c.Verified = false
+		tb.Add(c, false, false, t0)
+	}
+	z := tb.leafFor(far(0).ID)
+	if len(z.bin) != K || z.canSplit() {
+		t.Fatalf("bin of %d, can split %v", len(z.bin), z.canSplit())
+	}
+	z.bin[3].typ = 4 // being dropped: the first to go
+	victim := z.bin[3].ID
+	u := far(100)
+	u.Verified = false
+	if ok, _ := tb.Add(u, false, false, t0); ok {
+		t.Fatal("unverified contact taken into a full bin")
+	}
+	v := far(101)
+	if ok, ver := tb.Add(v, false, false, t0); !ok || !ver || tb.Get(v.ID) == nil || tb.Get(victim) != nil {
+		t.Fatalf("verified contact: taken %v", ok)
+	}
+	if tb.Len() != K || len(tb.ips) != K {
+		t.Fatalf("%d contacts, %d IPs", tb.Len(), len(tb.ips))
+	}
+	// One that breaks the IP limit is not taken, and nothing is lost.
+	dup := far(102)
+	dup.IP = v.IP
+	before := append([]*Contact(nil), z.bin...)
+	if ok, _ := tb.Add(dup, false, false, t0); ok || len(z.bin) != K {
+		t.Fatal("contact over the IP limit taken")
+	}
+	for i := range before {
+		if z.bin[i] != before[i] {
+			t.Fatal("bin changed by a refused contact")
+		}
+	}
+	if tb.Len() != K || len(tb.ips) != K {
+		t.Fatalf("after a refused contact: %d contacts, %d IPs", tb.Len(), len(tb.ips))
+	}
+	// All verified: nothing more gets in.
+	for _, c := range z.bin {
+		c.Verified = true
+	}
+	if ok, _ := tb.Add(far(103), false, false, t0); ok {
+		t.Fatal("full bin of verified contacts took another")
+	}
+}
+
+// A HELLO without our key does not refresh or move a contact that never
+// proved its address; a proven one may.
+func TestUnprovenHelloDoesNotRefresh(t *testing.T) {
+	tb := NewTable(RandomID(), t0)
+	c := contactN(1)
+	c.Verified = false
+	tb.Add(c, false, false, t0)
+	got := tb.Get(c.ID)
+	got.typ, got.expires = 3, t0.Add(time.Minute)
+	moved := c
+	moved.IP = pubIP(2, false)
+	if ok, ver := tb.Add(moved, true, true, t0.Add(time.Minute)); !ok || ver {
+		t.Fatalf("taken %v, verified %v", ok, ver)
+	}
+	if got.IP != c.IP || got.typ != 3 || !got.expires.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("unproven HELLO changed the contact: %v type %d", got.IP, got.typ)
+	}
+	proven := c
+	proven.Verified = true
+	if ok, ver := tb.Add(proven, true, true, t0.Add(2*time.Minute)); !ok || !ver || got.typ == 3 {
+		t.Fatalf("proven HELLO: taken %v, verified %v, type %d", ok, ver, got.typ)
+	}
+}

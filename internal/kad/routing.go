@@ -396,6 +396,11 @@ func (t *Table) AddUnfiltered(c Contact, update, fromHello bool, now time.Time) 
 				}
 				t.setAlive(z, old, now)
 				return true, old.Verified
+			case !old.Verified && !c.Verified:
+				// Neither the contact nor this packet proved its address: a
+				// forged HELLO must not keep it alive, or move it. It counts
+				// as taken, so the HELLO's sender is asked to prove it.
+				return true, false
 			default:
 				if c.Version < old.Version || !t.changeIP(z, old, c.IP) {
 					return false, old.Verified
@@ -413,10 +418,40 @@ func (t *Table) AddUnfiltered(c Contact, update, fromHello bool, now time.Time) 
 		case z.canSplit():
 			t.split(z, now)
 			z = z.sub[t.me.Xor(c.ID).Bit(z.level)]
+		case nc.Verified:
+			// Full: a verified contact takes the place of one that is not
+			// (else contacts from forged HELLOs could keep real nodes out of
+			// the bins nearest our ID).
+			return t.replaceUnverified(z, nc), true
 		default:
 			return false, false
 		}
 	}
+}
+
+// replaceUnverified puts c in full bin z in place of an unverified
+// contact: the one closest to being dropped, the oldest first. It reports
+// whether it did (the limits per IP and /24 still apply).
+func (t *Table) replaceUnverified(z *zone, c *Contact) bool {
+	victim := -1
+	for i, o := range z.bin {
+		if !o.Verified && (victim < 0 || o.typ > z.bin[victim].typ) {
+			victim = i
+		}
+	}
+	if victim < 0 {
+		return false
+	}
+	gone := z.bin[victim]
+	t.binRemove(z, gone)
+	if t.binAdd(z, c) {
+		return true
+	}
+	// c does not fit after all: gone goes back where it was.
+	z.bin = append(z.bin[:victim], append([]*Contact{gone}, z.bin[victim:]...)...)
+	t.track(gone.IP, 1)
+	t.count++
+	return false
 }
 
 func (t *Table) setAlive(z *zone, c *Contact, now time.Time) {

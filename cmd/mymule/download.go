@@ -118,6 +118,7 @@ func cmdDownload(args []string) error {
 	}()
 
 	err = m.Run(ctx)
+	m.saveCredits()
 	show()
 	if err == context.Canceled {
 		fmt.Fprintln(os.Stderr, "stopped; progress saved. Run 'mymule download' to resume.")

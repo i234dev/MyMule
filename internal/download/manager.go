@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	credits "mymule/internal/credit"
 	"mymule/internal/ed2k"
 	"mymule/internal/kad"
 	"mymule/internal/netutil"
@@ -51,8 +52,11 @@ type Config struct {
 	Servers func() []server.Info
 	// Library and Upload enable sharing: partial and finished downloads
 	// are shared, offered to the server and served to peers.
-	Library    *share.Library
-	Upload     *upload.Manager
+	Library *share.Library
+	Upload  *upload.Manager
+	// Credits, when set, runs eMule's secure identification with every
+	// peer and counts what each one uploads to us.
+	Credits    *credits.Store
 	Log        func(format string, args ...any) // important events
 	Debug      func(format string, args ...any) // per-peer chatter
 	Trace      bool                             // log every peer packet via Debug
@@ -206,6 +210,7 @@ type Manager struct {
 	reconnect bool
 	active    int
 	conns     map[*peer.Conn]*File // live peer connections, and the file they serve (once known)
+	idents    map[*peer.Conn]*credits.Ident
 	wg        sync.WaitGroup
 	port      uint16
 
@@ -250,7 +255,7 @@ func NewManager(cfg Config) *Manager {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 40
 	}
-	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
+	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, idents: map[*peer.Conn]*credits.Ident{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
 	m.callbacks.allowPrivate = cfg.allowPrivateSources
 	return m
 }
@@ -1034,7 +1039,51 @@ func (m *Manager) trackConn(c *peer.Conn, add bool) {
 		}
 	} else {
 		delete(m.conns, c)
+		delete(m.idents, c)
 	}
+}
+
+// startIdent begins the secure identification on a connection whose
+// hello exchange is done.
+func (m *Manager) startIdent(c *peer.Conn, h peer.Hello) {
+	if m.cfg.Credits == nil {
+		return
+	}
+	id := m.cfg.Credits.NewIdent(h, c.RemoteIP(), m.identIP, func(op byte, payload []byte) error {
+		return c.Send(proto.ProtoEMule, op, payload)
+	})
+	m.mu.Lock()
+	if _, ok := m.conns[c]; ok {
+		m.idents[c] = id
+	}
+	m.mu.Unlock()
+	id.Start()
+}
+
+// identPacket handles the secure identification packets; it reports
+// whether p was one.
+func (m *Manager) identPacket(c *peer.Conn, p *proto.Packet) (bool, error) {
+	m.mu.Lock()
+	id := m.idents[c]
+	m.mu.Unlock()
+	if id == nil {
+		return false, nil
+	}
+	return id.Handle(p)
+}
+
+// identIP is our public address for version 2 signatures: as the server
+// sees it (HighID), or as Kad nodes do; nil when unknown.
+func (m *Manager) identIP() net.IP {
+	if a := m.PublicIP(); a.Is4() {
+		return net.IP(a.AsSlice())
+	}
+	if m.cfg.KadStatus != nil {
+		if a := m.cfg.KadStatus().ExternalIP.Unmap(); a.Is4() && kad.GoodAddr(a, 1) {
+			return net.IP(a.AsSlice())
+		}
+	}
+	return nil
 }
 
 // bindConn records which file a connection is serving, so pausing or

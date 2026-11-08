@@ -45,6 +45,9 @@ const (
 	OpCompressedPart    = 0x40
 	OpQueueRanking      = 0x60
 	OpRequestSources    = 0x81
+	OpPublicKey         = 0x85 // secure identification: <len 1><key>
+	OpSignature         = 0x86 // <len 1><signature>[<IP kind 1>]
+	OpSecIdentState     = 0x87 // <what we need 1><challenge 4>
 	OpCompressedPartI64 = 0xA1
 	OpSendingPartI64    = 0xA2
 	OpRequestPartsI64   = 0xA3
@@ -71,11 +74,12 @@ const (
 	edonkeyVersion = 0x3C
 	emuleVersion   = 0<<17 | 50<<10 | 0<<7
 
-	// Misc options 1: we support unicode and do not let others browse
-	// our shared files. Everything else (compression, source exchange,
-	// secure ident, extended requests) is 0 = unsupported, so peers
-	// stick to the plain protocol subset we implement.
-	miscOpts1 = 1<<28 | 1<<2
+	// Misc options 1: we support unicode, secure identification (both
+	// versions, bits 16-19) and do not let others browse our shared
+	// files. Everything else (compression, source exchange, extended
+	// requests) is 0 = unsupported, so peers stick to the plain protocol
+	// subset we implement.
+	miscOpts1 = 1<<28 | 3<<16 | 1<<2
 	// Misc options 2: large file (>4 GB) support.
 	miscOpts2 = 1 << 4
 )
@@ -95,6 +99,10 @@ func (h Hello) Name() string { return netutil.CleanText(h.Tags.Str(CTName), 64) 
 
 // KadVersion is the Kad version the peer says it speaks (0 = none).
 func (h Hello) KadVersion() byte { return byte(h.Tags.Int(CTEMuleMiscOpts2) & 0x0F) }
+
+// SecIdent is the secure identification the peer supports: bit 0
+// version 1, bit 1 version 2 (0 = none).
+func (h Hello) SecIdent() byte { return byte(h.Tags.Int(CTEMuleMiscOpts1)>>16) & 0x0F }
 
 // KadPort is the peer's Kad UDP port (0 = none).
 func (h Hello) KadPort() uint16 { return uint16(h.Tags.Int(CTEMuleUDPPorts) >> 16) }

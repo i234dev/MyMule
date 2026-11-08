@@ -51,6 +51,12 @@ Python, cron, home automation).
 - Sharing and uploads: shared folders, completed downloads and the verified
   parts of partial downloads; upload queue, slots taken in turns (10 MB
   or 15 minutes each), speed limit
+- eMule's credit system: peers that uploaded to you move up in your upload
+  queue, and MyMule proves who it is (secure identification) so that the
+  eMule and aMule users you upload to do the same for you. Credits only go
+  to peers that prove their identity; they are kept in `credits.dat`, and
+  your key in `cryptkey.dat` (keep it: with a new one, peers no longer
+  recognize you)
 - Resume after a stop, a crash or a reboot
 - HighID support (listen port) and server callbacks to reach firewalled peers
 - Runs as a background daemon, controlled with short commands
@@ -68,7 +74,7 @@ Python, cron, home automation).
 - Built to face hostile peers and servers: everything they send is
   checked and bounded (see [Security](#security))
 
-Not implemented yet: protocol obfuscation (TCP), credits.
+Not implemented yet: protocol obfuscation (TCP).
 
 ## Install
 

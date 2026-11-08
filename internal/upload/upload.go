@@ -38,9 +38,14 @@ type Config struct {
 	// Dial connects to a queued HighID peer whose turn has come. The
 	// connection must perform the hello handshake and then report it
 	// through Connected.
-	Dial  func(ip net.IP, port uint16)
-	Log   func(format string, args ...any)
-	Debug func(format string, args ...any)
+	Dial func(ip net.IP, port uint16)
+	// Ratio, when set, gives a peer's credit ratio (1 to 10): its waiting
+	// time counts that many times in the queue, as in eMule.
+	Ratio func(userHash ed2k.Hash, ip net.IP) float64
+	// Uploaded, when set, is told every n bytes sent to a peer.
+	Uploaded func(userHash ed2k.Hash, ip net.IP, n int64)
+	Log      func(format string, args ...any)
+	Debug    func(format string, args ...any)
 }
 
 type client struct {
@@ -54,6 +59,7 @@ type client struct {
 	conn     *peer.Conn
 
 	queuedAt, lastAsk time.Time
+	seq               uint64 // order of arrival in the queue, for ties
 	uploading         bool
 	awaiting          time.Time // dialed for its slot; give up after this
 	lastReq           time.Time // last request we sent data for
@@ -74,7 +80,8 @@ type Manager struct {
 
 	mu      sync.Mutex
 	clients map[clientID]*client // by user hash and IP
-	queue   []*client            // waiting, in order
+	queue   []*client            // waiting, in no particular order (see orderLocked)
+	seq     uint64
 	byConn  map[*peer.Conn]*client
 
 	total      atomic.Int64
@@ -302,9 +309,9 @@ func (m *Manager) onStartUpload(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.
 			m.mu.Unlock()
 			return nil // queue full: eMule stays silent too
 		}
-		cl = &client{userHash: h.UserHash, ip: ip, queuedAt: time.Now(), speedTime: time.Now()}
+		cl = &client{userHash: h.UserHash, ip: ip, speedTime: time.Now()}
 		m.clients[idOf(h.UserHash, ip)] = cl
-		m.queue = append(m.queue, cl)
+		m.enqueueLocked(cl)
 		m.cfg.Debug("upload queue: added %s (%s)", h.Name(), ip)
 	}
 	m.updateIdentity(cl, h, ip)
@@ -429,6 +436,9 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 				return err
 			}
 			m.total.Add(n)
+			if m.cfg.Uploaded != nil {
+				m.cfg.Uploaded(cl.userHash, cl.ip, n)
+			}
 			m.mu.Lock()
 			cl.sent += n
 			cl.totalSent += n
@@ -498,7 +508,7 @@ func (m *Manager) othersWaitingLocked(cl *client) bool {
 }
 
 func (m *Manager) firstWaitingLocked() *client {
-	for _, cl := range m.queue {
+	for _, cl := range m.orderLocked() {
 		if !cl.uploading && cl.awaiting.IsZero() {
 			return cl
 		}
@@ -506,13 +516,55 @@ func (m *Manager) firstWaitingLocked() *client {
 	return nil
 }
 
-func (m *Manager) rankLocked(cl *client) int {
-	for i, q := range m.queue {
-		if q == cl {
-			return i + 1
+// orderLocked returns the queue in the order slots are given: by score,
+// the time waited multiplied by the credit ratio, as in eMule. With equal
+// ratios that is the order of arrival.
+func (m *Manager) orderLocked() []*client {
+	now := time.Now()
+	ratio := m.ratiosLocked()
+	q := append([]*client(nil), m.queue...)
+	sort.SliceStable(q, func(i, j int) bool { return before(q[i], q[j], ratio, now) })
+	return q
+}
+
+func (m *Manager) ratiosLocked() map[*client]float64 {
+	r := make(map[*client]float64, len(m.queue))
+	for _, cl := range m.queue {
+		r[cl] = 1
+		if m.cfg.Ratio != nil {
+			r[cl] = m.cfg.Ratio(cl.userHash, cl.ip)
 		}
 	}
-	return 0
+	return r
+}
+
+func before(a, b *client, ratio map[*client]float64, now time.Time) bool {
+	ra, rb := ratio[a], ratio[b]
+	if ra != rb {
+		sa, sb := now.Sub(a.queuedAt).Seconds()*ra, now.Sub(b.queuedAt).Seconds()*rb
+		if sa != sb {
+			return sa > sb
+		}
+	}
+	if !a.queuedAt.Equal(b.queuedAt) {
+		return a.queuedAt.Before(b.queuedAt)
+	}
+	return a.seq < b.seq
+}
+
+func (m *Manager) rankLocked(cl *client) int {
+	now := time.Now()
+	ratio := m.ratiosLocked()
+	if _, ok := ratio[cl]; !ok {
+		return 0
+	}
+	rank := 1
+	for _, q := range m.queue {
+		if q != cl && before(q, cl, ratio, now) {
+			rank++
+		}
+	}
+	return rank
 }
 
 func (m *Manager) startSlotLocked(cl *client) {
@@ -537,11 +589,19 @@ func (m *Manager) enqueueLocked(cl *client) {
 			return
 		}
 	}
-	cl.queuedAt = time.Now()
+	m.stampLocked(cl)
 	m.queue = append(m.queue, cl)
 }
 
-// requeueLocked moves a queued client to the end of the queue.
+// stampLocked puts cl's waiting time back to zero.
+func (m *Manager) stampLocked(cl *client) {
+	cl.queuedAt = time.Now()
+	m.seq++
+	cl.seq = m.seq
+}
+
+// requeueLocked moves a queued client to the end of the queue: its
+// waiting starts again.
 func (m *Manager) requeueLocked(cl *client) {
 	for i, q := range m.queue {
 		if q == cl {
@@ -549,6 +609,7 @@ func (m *Manager) requeueLocked(cl *client) {
 			break
 		}
 	}
+	m.stampLocked(cl)
 	m.queue = append(m.queue, cl)
 }
 
@@ -626,7 +687,7 @@ func (m *Manager) tick() {
 	}
 	for m.freeSlotsLocked() > 0 {
 		var next *client
-		for _, cl := range m.queue {
+		for _, cl := range m.orderLocked() {
 			// Not a turn just ended: its "out of parts" and a new accept
 			// go out from separate goroutines and could arrive swapped,
 			// leaving the peer queued while we count it as uploading.

@@ -138,6 +138,7 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 	if m.cfg.OnPeerHello != nil {
 		m.cfg.OnPeerHello(c.RemoteIP(), hello)
 	}
+	m.startIdent(c, hello)
 	if src == nil && !outbound && m.incomingBuddy(ctx, c, hello) {
 		return // the firewalled Kad node we are the buddy of
 	}
@@ -265,6 +266,12 @@ func (m *Manager) serveUploads(ctx context.Context, c *peer.Conn, hello peer.Hel
 		if m.kadPacket(c, p) {
 			continue
 		}
+		if ok, err := m.identPacket(c, p); ok {
+			if err != nil {
+				return
+			}
+			continue
+		}
 		if up != nil {
 			if _, err := up.Handle(c, hello, c.RemoteIP(), p); err != nil {
 				return
@@ -376,6 +383,9 @@ func (s *session) handle(p *proto.Packet) error {
 	}
 	if s.m.kadPacket(s.c, p) {
 		return nil
+	}
+	if ok, err := s.m.identPacket(s.c, p); ok {
+		return err
 	}
 	// Requests for our files go to the upload side.
 	if up := s.m.cfg.Upload; up != nil {
@@ -577,6 +587,9 @@ func (s *session) store(off int64, data []byte) error {
 		s.deadline = limit
 	}
 	s.f.bytes.Add(n)
+	if cr := s.m.cfg.Credits; cr != nil {
+		cr.Downloaded(s.hello.UserHash, s.c.RemoteIP(), n)
+	}
 	s.m.mu.Lock()
 	s.src.Bytes += n
 	s.m.mu.Unlock()

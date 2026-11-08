@@ -22,6 +22,7 @@ import (
 	"mymule/internal/arr"
 	"mymule/internal/authlimit"
 	"mymule/internal/config"
+	"mymule/internal/credit"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
@@ -77,6 +78,7 @@ type engine struct {
 	prefs *prefs.Store   // preferences edited in the web interface
 	items *library.Store // downloads that are movies or episodes
 	kad   *kadEngine     // nil when Kad is off
+	cred  *credit.Store  // credits and our secure identification key
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -203,7 +205,11 @@ func (e *engine) start(ctx context.Context) {
 	if e.kad != nil {
 		e.kad.run(ctx, e.ListenPortWanted())
 	}
+	go e.cred.Run(ctx)
 }
+
+// saveCredits writes the credits when the engine stops.
+func (e *engine) saveCredits() { e.cred.Save() }
 
 func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, error) {
 	uh, err := config.UserHash()
@@ -221,6 +227,15 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		up  *upload.Manager
 		eng = &engine{}
 	)
+	dataDir, err := config.Dir()
+	if err != nil {
+		return nil, err
+	}
+	cred, err := credit.Open(dataDir, logf)
+	if err != nil {
+		return nil, err
+	}
+	cred.Debug = debug
 	if settings.Sharing {
 		var dirs []string
 		if settings.ShareDownloads {
@@ -239,6 +254,8 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 			LimitKBps: settings.UploadLimit,
 			Library:   lib,
 			Dial:      func(ip net.IP, port uint16) { m.DialForUpload(ip, port) },
+			Ratio:     cred.Ratio,
+			Uploaded:  cred.Uploaded,
 			Log:       logf,
 			Debug:     debug,
 		})
@@ -281,20 +298,14 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		},
 		Library: lib,
 		Upload:  up,
+		Credits: cred,
 	}
 	var kadEng *kadEngine
 	if withKad {
 		kadEng = setupKad(&dc, &m, lib, uh)
 	}
 	m = download.NewManager(dc)
-	dataDir, err := config.Dir()
-	if err != nil {
-		if kadEng != nil {
-			kadEng.close()
-		}
-		return nil, err
-	}
-	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng,
+	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)
@@ -364,6 +375,7 @@ func cmdDaemon(args []string) error {
 	}
 
 	err = m.Run(ctx)
+	m.saveCredits()
 	if m.kad != nil {
 		m.kad.wait() // it saves its nodes and what others published to us
 	}

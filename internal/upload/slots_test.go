@@ -183,3 +183,36 @@ func TestSecondConnectionKeepsUpload(t *testing.T) {
 		t.Error("slot ended when the download connection B closed, though the upload runs on A")
 	}
 }
+
+// A peer with credits (ratio above 1) passes peers that have waited
+// longer, by as much as its ratio; with equal ratios the order of
+// arrival holds.
+func TestCreditsOrderQueue(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.cfg.Slots = 0
+	ratio := map[byte]float64{3: 10}
+	m.cfg.Ratio = func(h ed2k.Hash, _ net.IP) float64 {
+		if r, ok := ratio[h[0]]; ok {
+			return r
+		}
+		return 1
+	}
+	m.mu.Lock()
+	var cls []*client
+	for i, wait := range []time.Duration{50 * time.Minute, 40 * time.Minute, 6 * time.Minute} {
+		cl := &client{userHash: ed2k.Hash{byte(i + 1)}, ip: net.IPv4(198, 51, 100, byte(i+1)), lastAsk: time.Now()}
+		m.clients[idOf(cl.userHash, cl.ip)] = cl
+		m.enqueueLocked(cl)
+		cl.queuedAt = time.Now().Add(-wait)
+		cls = append(cls, cl)
+	}
+	// Scores: 50, 40 and 6*10 = 60 minutes.
+	if m.firstWaitingLocked() != cls[2] || m.rankLocked(cls[2]) != 1 || m.rankLocked(cls[0]) != 2 || m.rankLocked(cls[1]) != 3 {
+		t.Fatalf("order: first %v, ranks %d %d %d", m.firstWaitingLocked().userHash[0], m.rankLocked(cls[0]), m.rankLocked(cls[1]), m.rankLocked(cls[2]))
+	}
+	ratio[3] = 1
+	if m.firstWaitingLocked() != cls[0] || m.rankLocked(cls[2]) != 3 {
+		t.Fatal("without credits the order of arrival does not hold")
+	}
+	m.mu.Unlock()
+}

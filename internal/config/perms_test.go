@@ -23,17 +23,18 @@ func TestPrivateFilePermissions(t *testing.T) {
 	}
 
 	// Files left world-readable by an older version are fixed on start.
-	for _, name := range []string{"known.json", "mymule.log"} {
+	loose := []string{"known.json", "mymule.log", "cryptkey.dat", "credits.dat", "kad.dat"}
+	for _, name := range loose {
 		os.WriteFile(filepath.Join(home, name), []byte("{}"), 0o644)
 	}
-	for _, name := range []string{SettingsFile, "known.json", "mymule.log"} {
+	for _, name := range append([]string{SettingsFile}, loose...) {
 		os.Chmod(filepath.Join(home, name), 0o644) // keep the content, loosen the mode
 	}
 	os.WriteFile(filepath.Join(home, "server.met"), []byte("x"), 0o644) // public data
 	if _, err := LoadSettings(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{SettingsFile, "known.json", "mymule.log"} {
+	for _, name := range append([]string{SettingsFile}, loose...) {
 		if st, _ := os.Stat(filepath.Join(home, name)); st.Mode().Perm() != 0o600 {
 			t.Errorf("%s is %v after start, want 0600", name, st.Mode().Perm())
 		}

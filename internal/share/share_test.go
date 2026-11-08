@@ -185,6 +185,11 @@ func TestOwnFilesNeverShared(t *testing.T) {
 	put(filepath.Join(temp, "leftover.mkv"), "temporary copy")
 	put(filepath.Join(downloads, "finished.mkv"), "finished video")
 	put(filepath.Join(other, "MyMule.conf"), "a copy of the settings")
+	// The keys and credits, seen through a link to the data folder (which
+	// Protect, comparing paths, would not see).
+	put(filepath.Join(other, "cryptkey.dat"), "private key")
+	put(filepath.Join(other, "credits.dat"), "credits")
+	put(filepath.Join(other, "kad.dat"), "kad secret")
 	put(filepath.Join(other, "doc.txt"), "shared on purpose")
 
 	l := NewLibrary([]string{data, downloads, other}, filepath.Join(data, "known.json"), nil)

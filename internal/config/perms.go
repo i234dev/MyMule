@@ -8,10 +8,13 @@ import (
 )
 
 // PrivateFiles are MyMule's own files in the data folder. They hold the
-// api_key, the user hash, the paths of everything shared, and the log;
-// other users of the machine must not read them.
+// api_key, the user hash, our private keys (cryptkey.dat for credits,
+// kad.dat for Kad), the credits of other users, what Kad nodes published
+// to us, the paths of everything shared, and the log: other users of the
+// machine must not read them, and they are never shared.
 var PrivateFiles = []string{SettingsFile, "api.json", "userhash.dat", "known.json",
-	"preferences.json", "library.json", "arr.json", "mymule.log", "mymule.lock", "web_sessions.json"}
+	"preferences.json", "library.json", "arr.json", "mymule.log", "mymule.lock", "web_sessions.json",
+	"cryptkey.dat", "credits.dat", "kad.dat", "kadindex.dat"}
 
 // TightenPermissions makes the private files in dir readable by their
 // owner only. Older versions created them readable by everyone; new

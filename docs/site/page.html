@@ -41,7 +41,7 @@
       if (langs.indexOf(c) >= 0) pick = c;
     }
   }
-  if (pick && pick !== 'en' && langs.indexOf(pick) >= 0) location.replace(pick + '/' + location.hash);
+  if (pick && pick !== 'en' && langs.indexOf(pick) >= 0) location.replace(pick + '/' + (location.protocol === 'file:' ? 'index.html' : '') + location.hash);
 })();
 </script>
 {{- end}}

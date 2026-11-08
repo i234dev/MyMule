@@ -14,6 +14,16 @@
     });
   });
 
+  // Opened from disk (file://), a link to a folder shows the folder, not
+  // its page: point the links between the pages at index.html. On the web
+  // the server does that, and the addresses stay short.
+  if (location.protocol === 'file:') {
+    document.querySelectorAll('a[href]').forEach(function (a) {
+      var h = a.getAttribute('href');
+      if (!/^[a-z]+:/i.test(h) && /\/$/.test(h)) a.setAttribute('href', h + 'index.html');
+    });
+  }
+
   // Install tabs.
   var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
   function show(tab, focus) {

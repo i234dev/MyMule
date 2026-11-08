@@ -27,9 +27,17 @@ func (n *Node) storing() bool { return n.udpReachable() }
 // nodes publish without our key (they know us from another node's
 // answer), so such publishes wait: we ping their address, and keep them
 // once it answers from there.
+//
+// What waits is limited for each address (one full publish packet) and in
+// all, in entries and in bytes: forged addresses cost an attacker nothing,
+// so only a total keeps them from filling our memory. When it is full,
+// unproven publishes are refused until some are proven or expire; proven
+// ones (with our key) are stored at once and never wait.
 const (
-	maxPendingPerIP = 4 * filesPerPublish // a few publish packets
+	maxPendingPerIP = filesPerPublish
 	maxPendingIPs   = 2000
+	maxPendingItems = 5000
+	maxPendingBytes = 4 << 20
 	// pendingWait is how long a publish waits for the ping's answer, which
 	// comes within seconds.
 	pendingWait = 30 * time.Second
@@ -46,6 +54,7 @@ const (
 type pendingPub struct {
 	at    time.Time
 	items []pendingItem
+	bytes int // what its items cost
 	// needKey: our ping went obfuscated with the key the publisher gave
 	// (so it carried ours): only an answer with our key counts, which a
 	// forger cannot make.
@@ -65,8 +74,19 @@ func (n *Node) add(in incoming, kind pendingKind, e *entry, now time.Time) (bool
 		return n.addNow(kind, e, now)
 	}
 	ip := in.from.Addr()
+	e.settle()
+	if n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes {
+		n.prunePending(now)
+		if n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes {
+			return false, 0
+		}
+	}
 	p := n.pending[ip]
-	if p == nil || now.Sub(p.at) > pendingWait {
+	if p != nil && now.Sub(p.at) > pendingWait {
+		n.dropPending(ip)
+		p = nil
+	}
+	if p == nil {
 		if len(n.pending) >= maxPendingIPs {
 			n.prunePending(now)
 			if len(n.pending) >= maxPendingIPs {
@@ -84,7 +104,22 @@ func (n *Node) add(in incoming, kind pendingKind, e *entry, now time.Time) (bool
 		return false, 0
 	}
 	p.items = append(p.items, pendingItem{kind, e})
+	p.bytes += e.cost
+	n.pendingItems++
+	n.pendingBytes += e.cost
 	return true, 1
+}
+
+// dropPending forgets what ip published and waits.
+func (n *Node) dropPending(ip netip.Addr) *pendingPub {
+	p := n.pending[ip]
+	if p == nil {
+		return nil
+	}
+	delete(n.pending, ip)
+	n.pendingItems -= len(p.items)
+	n.pendingBytes -= p.bytes
+	return p
 }
 
 func (n *Node) dropOldestPending() {
@@ -95,7 +130,7 @@ func (n *Node) dropOldestPending() {
 			oldest, at = ip, p.at
 		}
 	}
-	delete(n.pending, oldest)
+	n.dropPending(oldest)
 }
 
 func (n *Node) addNow(kind pendingKind, e *entry, now time.Time) (bool, byte) {
@@ -111,11 +146,10 @@ func (n *Node) addNow(kind pendingKind, e *entry, now time.Time) (bool, byte) {
 
 // proved stores what ip published, now that it answered our ping.
 func (n *Node) proved(ip netip.Addr, now time.Time) {
-	p := n.pending[ip]
+	p := n.dropPending(ip)
 	if p == nil {
 		return
 	}
-	delete(n.pending, ip)
 	if now.Sub(p.at) > pendingWait {
 		return
 	}
@@ -128,7 +162,7 @@ func (n *Node) proved(ip netip.Addr, now time.Time) {
 func (n *Node) prunePending(now time.Time) {
 	for ip, p := range n.pending {
 		if now.Sub(p.at) > pendingWait {
-			delete(n.pending, ip)
+			n.dropPending(ip)
 		}
 	}
 }

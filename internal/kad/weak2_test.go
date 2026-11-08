@@ -2,6 +2,8 @@ package kad
 
 import (
 	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +38,11 @@ func TestUnprovenPacketWaitsWhole(t *testing.T) {
 	if load >= overloadedLoad {
 		t.Fatalf("answered with load %d", load)
 	}
+	// One packet's worth waits per address, no more: a second is refused.
+	fn.inject(x, a, rawPacket(OpPublishKeyReq, w.B))
+	if n := len(a.pending[x.Addr()].items); n != filesPerPublish {
+		t.Fatalf("%d waiting after a second packet", n)
+	}
 }
 
 // A full table of waiting publishes makes room for new ones.
@@ -53,6 +60,91 @@ func TestPendingTableFull(t *testing.T) {
 	}
 	if a.pending[pubIP(10000, false)] != nil {
 		t.Fatal("not the oldest that made room")
+	}
+}
+
+// What waits is limited in all, in entries and bytes, whatever the
+// number of addresses: forged ones cost nothing. Full, new publishes are
+// refused (not stored, not pinged); expired ones make room again, and
+// proven publishes still go in at once.
+func TestPendingBudget(t *testing.T) {
+	key := KeywordID("orchard")
+	fn, a, b := storeNode(t, key)
+	big := func(ip netip.Addr, i int) *entry {
+		e := &entry{key: key, source: RandomID(), ip: ip, size: uint64(1 + i), expires: fn.now.Add(time.Hour)}
+		e.names = []fileName{{name: strings.Repeat("n", maxNameBytes), popularity: 1}}
+		var tags []proto.Tag
+		for j := range maxTagsPerEntry {
+			tags = append(tags, proto.Tag{Name: "t" + strconv.Itoa(j), Type: proto.TagString, Str: strings.Repeat("v", 20)})
+		}
+		e.tags = keepTags(tags)
+		return e
+	}
+	taken := 0
+	for i := range maxPendingIPs {
+		from := netip.AddrPortFrom(pubIP(20000+i, false), 4672)
+		for j := range maxPendingPerIP {
+			if ok, _ := a.add(incoming{from: from}, pendKeyword, big(from.Addr(), j), fn.now); ok {
+				taken++
+			}
+		}
+	}
+	if a.pendingItems > maxPendingItems || a.pendingBytes > maxPendingBytes || a.pendingItems != taken {
+		t.Fatalf("%d entries, %d bytes waiting (%d taken)", a.pendingItems, a.pendingBytes, taken)
+	}
+	if taken == 0 || taken >= maxPendingIPs*maxPendingPerIP {
+		t.Fatalf("%d taken", taken)
+	}
+	sum, items := 0, 0
+	for _, p := range a.pending {
+		sum += p.bytes
+		items += len(p.items)
+	}
+	if sum != a.pendingBytes || items != a.pendingItems {
+		t.Fatalf("totals %d/%d, counted %d/%d", a.pendingBytes, a.pendingItems, sum, items)
+	}
+	// Full: a new address is neither stored nor pinged.
+	late := netip.AddrPortFrom(pubIP(9, false), 4672)
+	if ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), fn.now); ok || a.pending[late.Addr()] != nil || len(fn.sent[late]) != 0 {
+		t.Fatal("publish taken while full")
+	}
+	// Proven publishes are not held back.
+	if ok, _ := a.add(incoming{from: addrOf(b), validKey: true}, pendKeyword, kwEntry("Quiet Orchard.mkv", 7, addrOf(b).Addr()), fn.now); !ok {
+		t.Fatal("proven publish refused")
+	}
+	// Once the waiting ones expire, there is room again, and the totals
+	// go back to nothing.
+	fn.now = fn.now.Add(pendingWait + time.Second)
+	if ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), fn.now); !ok {
+		t.Fatal("no room after expiry")
+	}
+	a.prunePending(fn.now.Add(pendingWait + time.Second))
+	if a.pendingItems != 0 || a.pendingBytes != 0 || len(a.pending) != 0 {
+		t.Fatalf("left: %d entries, %d bytes", a.pendingItems, a.pendingBytes)
+	}
+}
+
+// A proven address takes what waits for it off the totals.
+func TestPendingBudgetProved(t *testing.T) {
+	key := KeywordID("orchard")
+	fn, a, _ := storeNode(t, key)
+	x := netip.AddrPortFrom(pubIP(91, false), 4672)
+	for i := range 3 {
+		a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", uint64(1+i), x.Addr()), fn.now)
+	}
+	if a.pendingItems != 3 || a.pendingBytes <= 0 {
+		t.Fatalf("%d entries, %d bytes", a.pendingItems, a.pendingBytes)
+	}
+	a.proved(x.Addr(), fn.now)
+	if a.pendingItems != 0 || a.pendingBytes != 0 {
+		t.Fatalf("after proof: %d entries, %d bytes", a.pendingItems, a.pendingBytes)
+	}
+	// One that waited too long is dropped, not kept, when its address
+	// publishes again.
+	a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", 1, x.Addr()), fn.now)
+	a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", 2, x.Addr()), fn.now.Add(pendingWait+time.Second))
+	if a.pendingItems != 1 || len(a.pending[x.Addr()].items) != 1 {
+		t.Fatalf("%d entries waiting", a.pendingItems)
 	}
 }
 

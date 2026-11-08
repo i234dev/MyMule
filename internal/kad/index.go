@@ -90,15 +90,25 @@ func (e *entry) name() string {
 	return out
 }
 
+// Memory an entry takes, roughly (64-bit): the struct and what points to
+// it, and each publisher, name and tag. The limits on the index's bytes
+// count what it really holds with these.
+const (
+	entryCost     = 300
+	publisherCost = 56
+	nameCost      = 24
+	tagCost       = 88
+)
+
 // settle recomputes what derives from the names and tags.
 func (e *entry) settle() {
 	e.lname = strings.ToLower(e.name())
-	c := 160 + 24*len(e.publishers)
+	c := entryCost + len(e.lname) + publisherCost*len(e.publishers)
 	for _, n := range e.names {
-		c += 32 + len(n.name)
+		c += nameCost + len(n.name)
 	}
 	for _, t := range e.tags {
-		c += 48 + len(t.Name) + len(t.Str) + len(t.Bytes)
+		c += tagCost + len(t.Name) + len(t.Str) + len(t.Bytes)
 	}
 	e.cost = c
 }
@@ -221,7 +231,7 @@ func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
 	}
 	// Merging into old adds at most the new name and one publisher.
 	e.settle()
-	if !x.room(e.cost + 24) {
+	if !x.room(e.cost + publisherCost) {
 		return false, 100
 	}
 	x.merge(e, old, now)

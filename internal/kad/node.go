@@ -69,6 +69,9 @@ type Node struct {
 	pending  map[netip.Addr]*pendingPub
 	pub      publishState // what we publish
 
+	// pendingItems and pendingBytes are what waits in pending in all.
+	pendingItems, pendingBytes int
+
 	outTracked []tracked // requests we sent, to accept answers
 	inTracked  map[netip.Addr]*floodEntry
 	inCleanup  time.Time

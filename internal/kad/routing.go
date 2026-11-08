@@ -51,6 +51,7 @@ type Contact struct {
 	expires       time.Time
 	lastTypeSet   time.Time
 	helloReceived bool
+	helloAsked    time.Time // when we last sent it a HELLO to verify it
 }
 
 // Type is the contact's liveness class: 0 (best) to 4 (being dropped).
@@ -486,10 +487,33 @@ func (t *Table) Verify(id ID, ip netip.Addr) bool {
 	return true
 }
 
-// SetAllVerified marks every contact as verified (a nodes.dat from a
-// version that did not save the flag).
-func (t *Table) SetAllVerified() {
-	t.walk(func(c *Contact) bool { c.Verified = true; return true })
+// VerifiedLen returns how many contacts are verified.
+func (t *Table) VerifiedLen() int {
+	n := 0
+	t.walk(func(c *Contact) bool {
+		if c.Verified {
+			n++
+		}
+		return true
+	})
+	return n
+}
+
+// ToVerify returns up to n unverified contacts that were not sent a HELLO
+// in the last 10 minutes, and notes that they are now.
+func (t *Table) ToVerify(n int, now time.Time) []Contact {
+	var out []Contact
+	t.walk(func(c *Contact) bool {
+		if len(out) == n {
+			return false
+		}
+		if !c.Verified && c.Version >= 2 && (c.helloAsked.IsZero() || now.Sub(c.helloAsked) > 10*time.Minute) {
+			c.helloAsked = now
+			out = append(out, *c)
+		}
+		return true
+	})
+	return out
 }
 
 // Acceptable reports whether a contact learned from another node's answer

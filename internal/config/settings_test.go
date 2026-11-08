@@ -207,4 +207,15 @@ func TestKadSettings(t *testing.T) {
 	if _, err := parseSettings("kad_nodes_url =\n", &s); err != nil || s.KadNodesURL != "" {
 		t.Fatalf("empty URL: %v %q", err, s.KadNodesURL)
 	}
+	// The default of earlier versions, plain HTTP, is read as HTTPS; any
+	// other URL is kept as written.
+	if !strings.HasPrefix(DefaultKadNodesURL, "https://") {
+		t.Fatalf("default %q", DefaultKadNodesURL)
+	}
+	if _, err := parseSettings("kad_nodes_url = "+oldKadNodesURL+"\n", &s); err != nil || s.KadNodesURL != DefaultKadNodesURL {
+		t.Fatalf("old default: %v %q", err, s.KadNodesURL)
+	}
+	if _, err := parseSettings("kad_nodes_url = http://example.org/nodes.dat\n", &s); err != nil || s.KadNodesURL != "http://example.org/nodes.dat" {
+		t.Fatalf("other URL: %v %q", err, s.KadNodesURL)
+	}
 }

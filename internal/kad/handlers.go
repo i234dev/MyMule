@@ -233,6 +233,10 @@ func (n *Node) sendLegacyChallenge(addr netip.AddrPort, contact ID, now time.Tim
 	n.addChallenge(challenge{ip: addr.Addr(), op: OpReq, contact: contact, challenge: chal, at: now})
 }
 
+// bootstrapAnswer is how many contacts we give a node that bootstraps
+// from us (eMule gives 20).
+const bootstrapAnswer = 20
+
 // errBad marks a malformed or unrequested packet.
 var errBad = errors.New("kad: bad packet")
 
@@ -370,7 +374,13 @@ func writeContact(w *proto.Writer, c Contact) {
 }
 
 func (n *Node) onBootstrapReq(in incoming) error {
-	cs := n.table.BootstrapContacts(20)
+	// Verified contacts only: we do not pass on nodes nobody vouched for.
+	var cs []Contact
+	for _, c := range n.table.BootstrapContacts(200) {
+		if c.Verified && len(cs) < bootstrapAnswer {
+			cs = append(cs, c)
+		}
+	}
 	var w proto.Writer
 	WriteID(&w, n.keys.KadID)
 	w.U16(n.cfg.TCPPort())
@@ -395,13 +405,15 @@ func (n *Node) onBootstrapRes(in incoming, now time.Time) error {
 	if r.Err() != nil || r.Len() != count*25 {
 		return errBad
 	}
-	assumeVerified := n.table.Len() == 0
 	if len(n.bootstrapList) == 0 {
 		n.table.Add(sender, true, false, now)
 	}
+	// The contacts it names are not verified, even when they are all we
+	// know: one node must not fill our table with its own. HELLOs verify
+	// them (tick).
 	for range count {
 		c := readContact(r)
-		c.Verified = assumeVerified
+		c.Verified = false
 		n.table.Add(c, false, false, now)
 	}
 	return nil

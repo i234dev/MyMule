@@ -88,8 +88,12 @@ func Defaults() Settings {
 }
 
 // DefaultKadNodesURL is where a first nodes.dat comes from (the one eMule
-// offers).
-const DefaultKadNodesURL = "http://upd.emule-security.org/nodes.dat"
+// offers), over HTTPS: the file decides which nodes we first talk to.
+const DefaultKadNodesURL = "https://upd.emule-security.org/nodes.dat"
+
+// oldKadNodesURL is the default of earlier versions, written into their
+// mymule.conf: read as the HTTPS one.
+const oldKadNodesURL = "http://upd.emule-security.org/nodes.dat"
 
 // NewAPIKey returns a random key for the HTTP API.
 func NewAPIKey() string {
@@ -294,6 +298,9 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 					return present, fmt.Errorf("line %d: kad_nodes_url must be an http:// or https:// URL, or empty", line)
 				}
+			}
+			if val == oldKadNodesURL {
+				val = DefaultKadNodesURL
 			}
 			s.KadNodesURL = val
 		case "server":

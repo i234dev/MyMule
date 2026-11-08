@@ -760,3 +760,114 @@ func TestSearchResponseFilters(t *testing.T) {
 		t.Fatalf("%d contacts followed", len(s.possible))
 	}
 }
+
+// v1nodes is a nodes.dat of version 1: no verified flags.
+func v1nodes(cs []Contact) []byte {
+	var w proto.Writer
+	w.U32(0)
+	w.U32(1)
+	w.U32(uint32(len(cs)))
+	for _, c := range cs {
+		writeContact(&w, c)
+	}
+	return w.B
+}
+
+// The contacts of a nodes.dat without verified flags (one downloaded),
+// and those a bootstrap answer names, are not verified: they are not used
+// in lookups or given to others until a HELLO answered with our key
+// verifies them, and while few are verified a few are sent one each
+// second.
+func TestOutsideContactsNotVerified(t *testing.T) {
+	fn := newFakeNet()
+	a, b := fn.node(t, 1, Config{}), fn.node(t, 2, Config{})
+	cs := []Contact{contactOf(b)}
+	for i := 10; i < 40; i++ {
+		cs = append(cs, contactN(i))
+	}
+	if _, err := a.AddNodes(v1nodes(cs)); err != nil {
+		t.Fatal(err)
+	}
+	if a.table.Len() != len(cs) || a.table.VerifiedLen() != 0 {
+		t.Fatalf("%d contacts, %d verified", a.table.Len(), a.table.VerifiedLen())
+	}
+	if got := a.table.Closest(b.ID(), 3, 50); len(got) != 0 {
+		t.Fatalf("%d unverified contacts offered for lookups", len(got))
+	}
+	// A node bootstrapping from us gets none of them.
+	x := netip.AddrPortFrom(pubIP(80, false), 4672)
+	fn.inject(x, a, rawPacket(OpBootstrapReq, nil))
+	answered := false
+	for _, d := range fn.sent[x] {
+		p, _ := DecodePacket(d)
+		if p.Opcode == OpBootstrapRes {
+			answered = true
+			r := proto.NewReader(p.Payload)
+			ReadID(r)
+			r.U16()
+			r.U8()
+			if n := r.U16(); n != 0 {
+				t.Fatalf("%d unverified contacts given away", n)
+			}
+		}
+	}
+	if !answered {
+		t.Fatal("bootstrap not answered")
+	}
+	// HELLOs: a few per second, each contact once per 10 minutes.
+	sentBy := func() int {
+		n := 0
+		for _, q := range fn.queue {
+			if q.from == addrOf(a) {
+				n++
+			}
+		}
+		return n
+	}
+	fn.queue = nil
+	a.mu.Lock()
+	a.tick(fn.now)
+	a.mu.Unlock()
+	if n := sentBy(); n < verifyPerSecond {
+		t.Fatalf("%d packets on the first tick", n)
+	}
+	asked := 0
+	for range 20 {
+		fn.queue = nil
+		fn.now = fn.now.Add(time.Second)
+		a.mu.Lock()
+		a.tick(fn.now)
+		a.mu.Unlock()
+		asked += sentBy()
+	}
+	if asked > len(cs)+10 { // each once, plus the zones' own checks
+		t.Fatalf("%d packets in 20 seconds", asked)
+	}
+	// b answers with our key: verified.
+	fn.queue = nil
+	a.mu.Lock()
+	a.table.Get(b.ID()).helloAsked = time.Time{}
+	for _, c := range a.table.ToVerify(100, fn.now) {
+		if c.ID == b.ID() {
+			a.sendHello(OpHelloReq, c.Addr(), c.Version, 0, c.ID, false)
+		}
+	}
+	a.mu.Unlock()
+	fn.pump()
+	if c := locked(a, func() *Contact { return a.table.Get(b.ID()) }); c == nil || !c.Verified {
+		t.Fatal("not verified by its answer")
+	}
+	// A bootstrap answer to an empty table vouches for nothing either.
+	d := fn.node(t, 3, Config{})
+	for i := 50; i < 70; i++ {
+		b.table.Add(contactN(i), false, false, t0)
+	}
+	d.Bootstrap(addrOf(b))
+	fn.pump()
+	if n := locked(d, func() int { return d.table.Len() }); n < 10 {
+		t.Fatalf("%d contacts from the bootstrap", n)
+	}
+	if v := locked(d, func() int { return d.table.VerifiedLen() }); v > 1 {
+		t.Fatalf("%d verified after a bootstrap (only its sender may be)", v)
+	}
+}

@@ -130,6 +130,9 @@ const (
 	firewallChecks     = 4
 	externalPortAskIPs = 3
 	banTime            = time.Hour
+	// minVerified and verifyPerSecond: see tick.
+	minVerified     = 20
+	verifyPerSecond = 3
 )
 
 const stateFile = "kad.dat"
@@ -260,8 +263,13 @@ func (n *Node) addNodes(f NodesFile) int {
 		if c.Version <= 1 || !GoodAddr(c.IP, c.UDPPort) || (c.UDPPort == 53 && c.Version <= 5) {
 			continue
 		}
+		// A nodes.dat without the flag (an old one, or one downloaded)
+		// vouches for nothing: whoever wrote it, or sits on the way it was
+		// downloaded, could fill it with its own nodes. Its contacts are
+		// verified by a HELLO answered with our key before we use them or
+		// give them to others.
 		if !f.HasVerified {
-			c.Verified = true
+			c.Verified = false
 		}
 		if ok, _ := n.table.AddUnfiltered(c, false, false, now); ok {
 			added++
@@ -440,6 +448,14 @@ func (n *Node) tick(now time.Time) {
 	}
 	for _, target := range timers.Lookup {
 		n.startSearch(searchNode, target, now, nil)
+	}
+	// While few contacts are verified (a fresh start, or a nodes.dat that
+	// vouched for none), a few others are sent a HELLO every second: their
+	// answers with our key verify them, and lookups can use them.
+	if n.table.VerifiedLen() < minVerified {
+		for _, c := range n.table.ToVerify(verifyPerSecond, now) {
+			n.sendHello(OpHelloReq, c.Addr(), c.Version, c.Key.For(n.publicIP()), c.ID, false)
+		}
 	}
 	if !n.udp.running && n.udp.start.IsZero() && n.connected(now) {
 		n.startUDPTest(now) // first contact: find out whether UDP reaches us

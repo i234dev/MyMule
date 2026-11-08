@@ -91,7 +91,7 @@ On first run MyMule creates `mymule.conf` next to the executable:
 port = 4662            # TCP port for peers; forward it in your router for HighID
 kad = true             # Kad network (no servers needed): true or false
 kad_port = 4672        # UDP port for Kad; forward it in your router (UDP) too
-kad_nodes_url = http://upd.emule-security.org/nodes.dat  # first Kad nodes; empty = only from other clients
+kad_nodes_url = https://upd.emule-security.org/nodes.dat  # first Kad nodes; empty = only from other clients
 server =               # ip:port, or empty to choose automatically
 nick = MyMule
 temp_dir = temp        # partial downloads (relative or absolute path)
@@ -143,8 +143,10 @@ MyMule joins it as a full node, as eMule does:
   their searches.
 
 The first time, MyMule gets a list of Kad nodes from `kad_nodes_url`
-(the address eMule offers); later it remembers them in `nodes.dat`. With
-`kad_nodes_url` empty it starts from the eMule clients it meets instead.
+(the address eMule offers, over HTTPS); later it remembers them in
+`nodes.dat`. With `kad_nodes_url` empty it starts from the eMule clients
+it meets instead. Nodes from a downloaded list are only used, or passed
+on to others, once they answer MyMule with its key.
 
 Forward the Kad UDP port (`kad_port`, 4672 by default) in your router,
 as well as the TCP port. Without them Kad still works, behind a firewall:

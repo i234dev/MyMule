@@ -41,9 +41,10 @@ body {
 }
 a { color: var(--accent); }
 .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px; }
-header { padding: 64px 0 32px; }
-h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 16px; }
-h1 .logo { width: 1.1em; height: 1.1em; border-radius: 22%; }
+.top { padding: 24px 0 0; }
+.top img { display: block; height: 40px; width: auto; }
+header { padding: 48px 0 32px; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
 .lead { font-size: 1.2rem; color: var(--muted); max-width: 640px; margin: 0 0 28px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 12px; }
 .btn {
@@ -81,8 +82,16 @@ footer p { margin: 6px 0; }
 </head>
 <body>
 <div class="wrap">
+  <nav class="top">
+    <a href="./">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wordmark-dark.svg">
+        <img src="wordmark.svg" alt="MyMule" width="196" height="40">
+      </picture>
+    </a>
+  </nav>
   <header>
-    <h1><img src="favicon.svg" alt="" width="56" height="56" class="logo">MyMule</h1>
+    <h1>MyMule</h1>
     <p class="lead">A light client for the eMule network, eD2K and Kad, written in Go. One small binary with no dependencies, for Windows, Linux, macOS, FreeBSD, ARM boards and NAS devices, using about 15&nbsp;MB of RAM.</p>
     <div class="buttons">
       <a class="btn primary" href="https://github.com/i234dev/MyMule/releases/latest">Download</a>

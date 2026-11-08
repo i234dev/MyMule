@@ -76,6 +76,25 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", m
 .note {
   border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); margin: 24px 0;
 }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.tabs button {
+  font: inherit; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+}
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel h3 { margin: 24px 0 6px; font-size: 1.05rem; }
+.js .panel h3 { display: none; }
+.panel p { margin: 8px 0; }
+.cmd { position: relative; }
+.cmd pre { padding-right: 76px; }
+.copy {
+  position: absolute; top: 8px; right: 8px; font: inherit; font-size: 0.8rem; cursor: pointer;
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted);
+}
+.copy:hover { color: var(--text); }
 footer { border-top: 1px solid var(--line); margin-top: 64px; padding: 24px 0 48px; color: var(--muted); font-size: 0.9rem; }
 footer p { margin: 6px 0; }
 </style>
@@ -94,7 +113,7 @@ footer p { margin: 6px 0; }
     <h1>MyMule</h1>
     <p class="lead">A light client for the eMule network, eD2K and Kad, written in Go. One small binary with no dependencies, for Windows, Linux, macOS, FreeBSD, ARM boards and NAS devices, using about 15&nbsp;MB of RAM.</p>
     <div class="buttons">
-      <a class="btn primary" href="https://github.com/i234dev/MyMule/releases/latest">Download</a>
+      <a class="btn primary" href="#install">Install</a>
       <a class="btn secondary" href="https://github.com/i234dev/MyMule">Source on GitHub</a>
       <a class="btn secondary" href="https://github.com/i234dev/MyMule#readme">Documentation</a>
     </div>
@@ -141,14 +160,49 @@ footer p { margin: 6px 0; }
     <li>Everything other peers and nodes send is checked and bounded.</li>
   </ul>
 
+  <h2 id="install">Install</h2>
+  <div class="tabs" role="tablist" hidden>
+    <button role="tab" id="tab-docker" aria-controls="docker" aria-selected="true">Docker</button>
+    <button role="tab" id="tab-brew" aria-controls="brew" aria-selected="false">macOS and Linux</button>
+    <button role="tab" id="tab-scoop" aria-controls="scoop" aria-selected="false">Windows</button>
+    <button role="tab" id="tab-download" aria-controls="download" aria-selected="false">Download</button>
+  </div>
+
+  <section class="panel" id="docker" role="tabpanel" aria-labelledby="tab-docker">
+    <h3>Docker</h3>
+    <p>Any system with <a href="https://www.docker.com/products/docker-desktop/">Docker</a>, including NAS devices and Raspberry Pi (amd64, arm64 and armv7). In an empty folder:</p>
+  <div class="cmd"><pre><code>docker run -d --name mymule --restart unless-stopped -e PUID=1000 -e PGID=1000 -v ./config:/config -v ./downloads:/downloads -p 4662:4662/tcp -p 4672:4672/udp -p 4711:4711/tcp ghcr.io/i234dev/mymule:latest</code></pre></div>
+    <p>Then open <code>http://localhost:4711</code> and log in with the <code>api_key</code> from <code>config/mymule.conf</code>. Prefer Compose? Use the ready-made <a href="https://github.com/i234dev/MyMule/blob/master/docker-compose.yml">docker-compose.yml</a> and run <code>docker compose up -d</code>. More in the <a href="https://github.com/i234dev/MyMule#docker">Docker guide</a>.</p>
+  </section>
+
+  <section class="panel" id="brew" role="tabpanel" aria-labelledby="tab-brew">
+    <h3>macOS and Linux</h3>
+    <p>With <a href="https://brew.sh">Homebrew</a>:</p>
+    <div class="cmd"><pre><code>brew install i234dev/tap/mymule</code></pre></div>
+    <p>Settings and downloads are kept in <code>~/MyMule</code>. Update with <code>brew upgrade mymule</code>.</p>
+  </section>
+
+  <section class="panel" id="scoop" role="tabpanel" aria-labelledby="tab-scoop">
+    <h3>Windows</h3>
+    <p>With <a href="https://scoop.sh">Scoop</a>:</p>
+    <div class="cmd"><pre><code>scoop bucket add mymule https://github.com/i234dev/scoop-bucket
+scoop install mymule</code></pre></div>
+    <p>Settings and downloads are kept in <code>%USERPROFILE%\scoop\persist\mymule</code>. Update with <code>scoop update mymule</code>.</p>
+  </section>
+
+  <section class="panel" id="download" role="tabpanel" aria-labelledby="tab-download">
+    <h3>Download</h3>
+    <p>Windows, Linux, macOS and FreeBSD, for Intel/AMD and ARM: get the archive for your system from <a href="https://github.com/i234dev/MyMule/releases/latest">Releases</a> and unpack it anywhere. MyMule is portable: its settings and downloads live next to the program.</p>
+  </section>
+
   <h2>Quick start</h2>
-  <p>Download the archive for your system from <a href="https://github.com/i234dev/MyMule/releases/latest">Releases</a>, unpack it and run:</p>
-<pre><code>mymule servers update        # fetch a server list
-mymule start                 # start the engine in the background
+  <p>Without Docker, start it and use it from the terminal:</p>
+<pre><code>mymule start                 # start the engine in the background
 mymule search -links ubuntu  # search; -links prints ed2k:// links
 mymule add "ed2k://|file|...|/"
 mymule top                   # live view (q to quit)
 mymule stop</code></pre>
+  <p>The web interface is off by default outside Docker: set <code>web_ui = true</code> in <code>mymule.conf</code>, restart MyMule and open <code>http://127.0.0.1:4711</code>.</p>
   <p>Every release comes with a <code>SHA256SUMS</code> file and a signed build provenance attestation. See the <a href="https://github.com/i234dev/MyMule#readme">README</a> for configuration, the web interface, running on a server or NAS, and security; <a href="https://github.com/i234dev/MyMule/blob/master/docs/API.md">the API</a> and <a href="https://github.com/i234dev/MyMule/blob/master/docs/ARR.md">the *arr guide</a> have their own pages.</p>
 
   <p class="note">Only use MyMule for content you are allowed to download and share. eD2K is a public network: other users see your IP address and the files you share. Please read the <a href="https://github.com/i234dev/MyMule#terms-of-use-and-disclaimer">terms of use and disclaimer</a> before using it.</p>
@@ -158,5 +212,50 @@ mymule stop</code></pre>
     <p>It is an independent project, not affiliated with or endorsed by the eMule project.</p>
   </footer>
 </div>
+<script>
+// Tabs for the install options, and copy buttons. Without JavaScript all
+// the options are shown one after the other.
+(function () {
+  var doc = document.documentElement;
+  doc.classList.add('js');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function show(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on);
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (focus) tab.focus();
+  }
+  if (tabs.length) {
+    document.querySelector('.tabs').hidden = false;
+    var ua = navigator.userAgent;
+    var first = /Windows/.test(ua) ? 'tab-scoop' : /Mac OS X|Linux/.test(ua) && !/Android/.test(ua) ? 'tab-brew' : 'tab-docker';
+    show(document.getElementById(first));
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { show(t); });
+      t.addEventListener('keydown', function (e) {
+        var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (d) show(tabs[(i + d + tabs.length) % tabs.length], true);
+      });
+    });
+  }
+  if (!navigator.clipboard) return;
+  document.querySelectorAll('.cmd').forEach(function (box) {
+    var b = document.createElement('button');
+    b.className = 'copy';
+    b.type = 'button';
+    b.textContent = 'Copy';
+    b.addEventListener('click', function () {
+      navigator.clipboard.writeText(box.querySelector('code').textContent).then(function () {
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy'; }, 1500);
+      });
+    });
+    box.appendChild(b);
+  });
+})();
+</script>
 </body>
 </html>

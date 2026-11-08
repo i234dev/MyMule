@@ -3,9 +3,11 @@ package kad
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rc4"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"net/netip"
@@ -136,7 +138,10 @@ var (
 )
 
 func testKeys(seed byte) *Keys {
-	k := &Keys{UDPKey: 0x01020304 * uint32(seed)}
+	k := &Keys{}
+	for i := range k.Secret {
+		k.Secret[i] = seed ^ byte(i)
+	}
 	for i := range k.KadID {
 		k.KadID[i] = seed + byte(i)
 		k.UserHash[i] = seed*3 + byte(i)
@@ -160,13 +165,22 @@ func TestVerifyKey(t *testing.T) {
 	if other.VerifyKey(ipA) == a {
 		t.Fatal("another secret gives the same key")
 	}
-	// eMule's formula: MD5 of [ip bytes][secret, little-endian], its four
-	// 32-bit words XORed, mod 0xFFFFFFFE, plus 1.
-	sum := md5.Sum([]byte{10, 1, 2, 3, 4, 3, 2, 1})
-	want := (binary.LittleEndian.Uint32(sum[0:])^binary.LittleEndian.Uint32(sum[4:])^
-		binary.LittleEndian.Uint32(sum[8:])^binary.LittleEndian.Uint32(sum[12:]))%0xFFFFFFFE + 1
+	// HMAC-SHA256 of the IP's bytes with the secret, its first 32 bits
+	// (little-endian) mod 0xFFFFFFFE, plus 1.
+	m := hmac.New(sha256.New, k.Secret[:])
+	m.Write([]byte{10, 1, 2, 3})
+	want := binary.LittleEndian.Uint32(m.Sum(nil))%0xFFFFFFFE + 1
 	if a != want {
 		t.Fatalf("VerifyKey = %08X, want %08X", a, want)
+	}
+	// Every bit of the secret counts.
+	flipped := *k
+	flipped.Secret[31] ^= 1
+	if flipped.VerifyKey(ipA) == a {
+		t.Fatal("the end of the secret does not count")
+	}
+	if k.VerifyKey(netip.MustParseAddr("2001:db8::1")) != 0 {
+		t.Fatal("IPv6 address got a key")
 	}
 }
 

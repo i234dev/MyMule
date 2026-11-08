@@ -3,7 +3,6 @@ package kad
 import (
 	"context"
 	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -176,35 +175,44 @@ func New(cfg Config) (*Node, error) {
 	return n, nil
 }
 
-// loadState reads kad.dat: [u32 1][ID][u32 verify key secret], making a
-// new identity when there is none.
+// loadState reads kad.dat: [u32 2][ID][32-byte verify key secret],
+// making a new identity when there is none. A file of the first format
+// ([u32 1][ID][u32 secret]) keeps its ID and gets a new secret: the old
+// one was too short.
 func (n *Node) loadState() error {
 	path := filepath.Join(n.cfg.Dir, stateFile)
 	b, err := os.ReadFile(path)
-	if err == nil {
+	switch {
+	case err == nil:
 		r := proto.NewReader(b)
-		if r.U32() == 1 {
-			id := ReadID(r)
-			key := r.U32()
-			if r.Err() == nil && !id.IsZero() && key != 0 {
-				n.keys.KadID, n.keys.UDPKey = id, key
+		ver := r.U32()
+		id := ReadID(r)
+		switch {
+		case ver == 2 && len(b) == 4+IDLen+32 && r.Err() == nil && !id.IsZero():
+			n.keys.KadID = id
+			copy(n.keys.Secret[:], r.Bytes(32))
+			if n.keys.Secret != ([32]byte{}) {
 				return nil
 			}
+		case ver == 1 && len(b) == 4+IDLen+4 && r.Err() == nil && !id.IsZero():
+			n.keys.KadID = id
 		}
-		n.cfg.Log("kad: %s unreadable, starting with a new Kad ID", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
+		if n.keys.KadID.IsZero() {
+			n.cfg.Log("kad: %s unreadable, starting with a new Kad ID", path)
+		}
+	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
-	n.keys.KadID = RandomID()
-	for n.keys.UDPKey == 0 {
-		var k [4]byte
-		rand.Read(k[:])
-		n.keys.UDPKey = binary.LittleEndian.Uint32(k[:])
+	if n.keys.KadID.IsZero() {
+		n.keys.KadID = RandomID()
+	}
+	for n.keys.Secret == ([32]byte{}) {
+		rand.Read(n.keys.Secret[:])
 	}
 	var w proto.Writer
-	w.U32(1)
+	w.U32(2)
 	WriteID(&w, n.keys.KadID)
-	w.U32(n.keys.UDPKey)
+	w.Bytes(n.keys.Secret[:])
 	return fsutil.WriteFile(path, w.B, 0o600)
 }
 

@@ -695,7 +695,7 @@ func TestStoreHostile(t *testing.T) {
 		from := netip.AddrPortFrom(pubIP(2000+i%500, false), uint16(1+i))
 		d := rawPacket(ops[i%len(ops)], buf[:n])
 		if i%2 == 1 { // proven: the sender has our key
-			d = (&Keys{UDPKey: 1}).EncryptKad(d, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(from.Addr()))
+			d = (&Keys{Secret: [32]byte{1}}).EncryptKad(d, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(from.Addr()))
 		}
 		fn.queue = append(fn.queue, dgram{from, addrOf(a), d})
 		fn.pump()

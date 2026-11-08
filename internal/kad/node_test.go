@@ -550,8 +550,11 @@ func TestNodeStatePersists(t *testing.T) {
 	fn := newFakeNet()
 	a := fn.node(t, 1, Config{Dir: dir})
 	b := fn.node(t, 2, Config{Dir: dir})
-	if a.ID() != b.ID() || a.keys.UDPKey != b.keys.UDPKey || a.keys.UDPKey == 0 {
+	if a.ID() != b.ID() || a.keys.Secret != b.keys.Secret || a.keys.Secret == ([32]byte{}) {
 		t.Fatal("identity not kept")
+	}
+	if fi, err := os.Stat(filepath.Join(dir, stateFile)); err != nil || fi.Size() != 4+IDLen+32 {
+		t.Fatalf("kad.dat: %v", err)
 	}
 	os.WriteFile(filepath.Join(dir, stateFile), []byte{1, 0, 0, 0, 5}, 0o600)
 	var logged bool
@@ -569,6 +572,32 @@ func TestNodeStatePersists(t *testing.T) {
 	d := fn.node(t, 4, Config{Dir: dir})
 	if d.table.Len() < 25 {
 		t.Fatalf("%d contacts read back", d.table.Len())
+	}
+}
+
+// A kad.dat of the first format (a 32-bit secret) keeps its Kad ID and
+// gets a new, long secret, saved at once.
+func TestNodeStateOldFormat(t *testing.T) {
+	dir := t.TempDir()
+	id, _ := ParseID("0123456789ABCDEF0123456789ABCDEF")
+	var w proto.Writer
+	w.U32(1)
+	WriteID(&w, id)
+	w.U32(0x12345678)
+	os.WriteFile(filepath.Join(dir, stateFile), w.B, 0o600)
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{Dir: dir})
+	if a.ID() != id || a.keys.Secret == ([32]byte{}) {
+		t.Fatalf("ID %s, secret %x", a.ID(), a.keys.Secret)
+	}
+	b := fn.node(t, 2, Config{Dir: dir})
+	if b.ID() != id || b.keys.Secret != a.keys.Secret {
+		t.Fatal("upgraded kad.dat not saved")
+	}
+	// The same bytes with a wrong length are not taken as either format.
+	os.WriteFile(filepath.Join(dir, stateFile), append(w.B, 0), 0o600)
+	if c := fn.node(t, 3, Config{Dir: dir}); c.ID() == id {
+		t.Fatal("kad.dat with extra bytes taken")
 	}
 }
 

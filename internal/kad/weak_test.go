@@ -86,7 +86,7 @@ func TestPendingNeedsKeyedPong(t *testing.T) {
 		t.Fatal("publish pong taken as an external port answer")
 	}
 	a.outTracked = append(a.outTracked, tracked{ip: x.Addr(), op: OpPing, at: fn.now}) // also asked for our port
-	keyed := (&Keys{UDPKey: 5}).EncryptKad(rawPacket(OpPong, pong.B), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
+	keyed := (&Keys{Secret: [32]byte{5}}).EncryptKad(rawPacket(OpPong, pong.B), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
 	fn.inject(x, a, keyed)
 	if len(a.index.sources[file]) != 1 {
 		t.Fatal("not stored on a pong with our key")

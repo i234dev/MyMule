@@ -1,9 +1,11 @@
 package kad
 
 import (
+	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rc4"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"net/netip"
@@ -24,6 +26,8 @@ import (
 // Verify keys stop forged source addresses: each node gives every other
 // node a key derived from a secret and that node's IP. A datagram that
 // carries it back must come from that IP, since only that IP received it.
+// How the key is derived is each node's own business (the others only
+// send it back), so ours need not be eMule's.
 const (
 	cryptHeaderLen  = 8
 	magicSyncClient = 0x395F2EC1
@@ -34,7 +38,8 @@ const (
 type Keys struct {
 	KadID    ID       // our Kad ID
 	UserHash [16]byte // our eD2K user hash
-	UDPKey   uint32   // secret behind our verify keys; kept across restarts
+	// Secret is behind our verify keys; kept across restarts.
+	Secret [32]byte
 }
 
 // as4 returns ip's 4 bytes, and false when it is not an IPv4 address
@@ -50,17 +55,20 @@ func as4(ip netip.Addr) ([4]byte, bool) {
 // VerifyKey is the key we give the node at ip: it sends it back in
 // obfuscated datagrams to show they come from that IP. Never 0; 0 for an
 // address that is not IPv4.
+//
+// It is an HMAC-SHA256 of the IP with a 256-bit secret. eMule's own
+// formula hides a 32-bit secret: a node could find it from the one key we
+// give it (2^32 tries) and then make the key of any address, forging its
+// source address at will.
 func (k *Keys) VerifyKey(ip netip.Addr) uint32 {
-	var buf [8]byte
 	a, ok := as4(ip)
 	if !ok {
 		return 0
 	}
-	copy(buf[:4], a[:])
-	binary.LittleEndian.PutUint32(buf[4:], k.UDPKey)
-	sum := md5.Sum(buf[:])
-	v := binary.LittleEndian.Uint32(sum[0:]) ^ binary.LittleEndian.Uint32(sum[4:]) ^
-		binary.LittleEndian.Uint32(sum[8:]) ^ binary.LittleEndian.Uint32(sum[12:])
+	m := hmac.New(sha256.New, k.Secret[:])
+	m.Write(a[:])
+	var sum [sha256.Size]byte
+	v := binary.LittleEndian.Uint32(m.Sum(sum[:0]))
 	return v%0xFFFFFFFE + 1
 }
 

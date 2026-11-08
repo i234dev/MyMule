@@ -51,7 +51,7 @@ func TestUDPTestOpen(t *testing.T) {
 	// A plain answer (forgeable) or one from elsewhere does nothing.
 	fn.inject(addrOf(b), a, fwUDP(0, 4672))
 	x := netip.AddrPortFrom(pubIP(66, false), 4672)
-	fn.inject(x, a, (&Keys{UDPKey: 3}).EncryptKad(fwUDP(0, 4672), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr())))
+	fn.inject(x, a, (&Keys{Secret: [32]byte{3}}).EncryptKad(fwUDP(0, 4672), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr())))
 	if a.udp.verified {
 		t.Fatal("verified by an answer that proves nothing")
 	}
@@ -85,7 +85,7 @@ func TestUDPTestFirewalled(t *testing.T) {
 		if code == 0 {
 			port = 9
 		}
-		fn.inject(c.Addr(), a, (&Keys{UDPKey: 3}).EncryptKad(fwUDP(code, port), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(c.IP)))
+		fn.inject(c.Addr(), a, (&Keys{Secret: [32]byte{3}}).EncryptKad(fwUDP(code, port), addrOf(a).Addr(), ID{}, a.keys.VerifyKey(c.IP)))
 	}
 	if a.udp.verified {
 		t.Fatal("open without a good answer")

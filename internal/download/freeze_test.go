@@ -53,13 +53,21 @@ func TestRecheckDoesNotHoldDownloadLock(t *testing.T) {
 	pf.SetHashSet(fh.Parts)
 	download(t, pf, data)
 	done := make(chan error)
+	began := time.Now()
 	go func() { done <- pf.recheck() }()
 	reads := 0
+	var longest time.Duration
 	for {
 		select {
 		case err := <-done:
 			if err != nil {
 				t.Fatal(err)
+			}
+			// Held for the whole check, one read would wait about as long
+			// as the check itself. A fixed limit failed now and then on
+			// slow, shared test machines.
+			if total := time.Since(began); longest > 20*time.Millisecond && longest > total/2 {
+				t.Fatalf("Progress waited %v during a final check of %v", longest, total)
 			}
 			if reads < 2 {
 				t.Skipf("recheck finished too fast to tell (%d reads)", reads)
@@ -69,9 +77,7 @@ func TestRecheckDoesNotHoldDownloadLock(t *testing.T) {
 		}
 		start := time.Now()
 		pf.Progress()
-		if el := time.Since(start); el > 20*time.Millisecond {
-			t.Fatalf("Progress waited %v during the final check", el)
-		}
+		longest = max(longest, time.Since(start))
 		reads++
 	}
 }

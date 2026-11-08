@@ -3,7 +3,10 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,5 +175,73 @@ func TestServerMetKeepsCapabilities(t *testing.T) {
 	o := out[0]
 	if o.UDPFlags != in[0].UDPFlags || o.Version != 0x11 || o.MaxUsers != 500 || o.Preference != 1 || o.ObfuTCPPort != 4663 {
 		t.Fatalf("got %+v", o)
+	}
+}
+
+// Our client ID is set once per connection: later changes are ignored,
+// except a LowID becoming a HighID.
+func TestIDChangeOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ids  []uint32
+		want uint32
+	}{
+		{"high then other high", []uint32{0x02000000, 0x05060708}, 0x02000000},
+		{"high then low", []uint32{0x02000000, 5}, 0x02000000},
+		{"low then high", []uint32{5, 0x02000000}, 0x02000000},
+		{"low then other low", []uint32{5, 6}, 5},
+	} {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sent := make(chan struct{})
+		go func() {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+			proto.ReadPacket(c)
+			for _, id := range tc.ids {
+				var w proto.Writer
+				w.U32(id)
+				c.Write((&proto.Packet{Proto: proto.ProtoEDonkey, Opcode: proto.OpIDChange, Payload: w.B}).Encode())
+			}
+			var w proto.Writer
+			w.Str16("done")
+			c.Write((&proto.Packet{Proto: proto.ProtoEDonkey, Opcode: proto.OpServerMessage, Payload: w.B}).Encode())
+			close(sent)
+			time.Sleep(time.Second)
+		}()
+		addr := ln.Addr().(*net.TCPAddr)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var logs []string
+		var mu sync.Mutex
+		c, err := Dial(ctx, Info{IP: addr.IP, Port: uint16(addr.Port)}, Config{Nick: "test", Log: func(f string, a ...any) {
+			mu.Lock()
+			logs = append(logs, fmt.Sprintf(f, a...))
+			mu.Unlock()
+		}})
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-sent
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			mu.Lock()
+			done := len(logs) > 0 && strings.Contains(logs[len(logs)-1], "done")
+			mu.Unlock()
+			if done || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := c.Status().ClientID; got != tc.want {
+			t.Errorf("%s: ID %d, want %d", tc.name, got, tc.want)
+		}
+		c.Close()
+		ln.Close()
 	}
 }

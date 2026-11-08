@@ -445,6 +445,9 @@ func (m *Manager) PublicIP() netip.Addr {
 		return netip.Addr{}
 	}
 	a, _ := netip.AddrFromSlice(server.IPFromU32(st.ClientID).To4())
+	if !kad.GoodAddr(a, 1) {
+		return netip.Addr{} // a private or reserved "public" IP is no IP
+	}
 	return a
 }
 

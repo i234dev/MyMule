@@ -62,6 +62,9 @@ type Conn struct {
 	status  Status
 	lastMsg string // last server message, used to explain login failures
 	waiters []*waiter
+	// idSet: the server gave us an ID; idRefused: it then tried to change
+	// it (said once in the log).
+	idSet, idRefused bool
 
 	// Search replies carry no request id. A search given up on (timeout)
 	// may still be answered later; that answer must not be taken for the
@@ -254,6 +257,20 @@ func (c *Conn) handle(p *proto.Packet) {
 			flags = r.U32()
 		}
 		c.mu.Lock()
+		// Our ID (our public IP when HighID) is set once per connection;
+		// only a LowID may become a HighID (the server checked our port).
+		// A server changing it at will would make others' Kad keys for us
+		// useless, or give us someone else's address as ours.
+		if c.idSet && id != c.status.ClientID && !(c.status.ClientID < LowIDLimit && id >= LowIDLimit) {
+			log := !c.idRefused
+			c.idRefused = true
+			c.mu.Unlock()
+			if log {
+				c.cfg.Log("server tried to change our client ID from %d to %d; ignored", c.status.ClientID, id)
+			}
+			break
+		}
+		c.idSet = true
 		c.status.ClientID = id
 		c.status.HighID = id >= LowIDLimit
 		c.status.TCPFlags = flags

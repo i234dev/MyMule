@@ -321,14 +321,16 @@ func (s *session) avail() []bool {
 }
 
 // identities are the names a ban of this peer also covers (see
-// PartFile.BanIdentities): its address and its user hash.
+// PartFile.BanIdentities): its address. Not its user hash: a peer says
+// what it is, and nothing proves it, so a peer giving the hash of an
+// honest source and then sending corrupt parts would get that source
+// banned.
 func (s *session) identities() []string {
 	ids := []string{s.owner}
 	if ip := s.c.RemoteIP(); ip != nil {
 		ids = append(ids, "ip:"+ip.String())
-	}
-	if !s.hello.UserHash.IsZero() {
-		ids = append(ids, "user:"+s.hello.UserHash.String())
+	} else if host, _, err := net.SplitHostPort(s.owner); err == nil && net.ParseIP(host) != nil {
+		ids = append(ids, "ip:"+net.ParseIP(host).String())
 	}
 	return ids
 }

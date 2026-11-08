@@ -20,15 +20,19 @@ FROM alpine:3.22
 # su-exec: drop from root to PUID/PGID; tzdata: TZ for log times;
 # ca-certificates: HTTPS (TMDB, Wikidata, server and Kad node lists).
 RUN apk add --no-cache su-exec tzdata ca-certificates
-COPY --from=build /out/mymule /usr/local/bin/mymule
+# mymule is a wrapper: as root (docker exec), it runs the program as
+# PUID:PGID, so /config never gets files owned by root.
+COPY --from=build /out/mymule /usr/local/bin/mymule.bin
+COPY --chmod=755 docker/mymule.sh /usr/local/bin/mymule
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Data (mymule.conf with the api_key, identity, server list, log) lives
 # in /config; finished files in /downloads, partial ones in
 # /downloads/incomplete, so finishing a file is a rename, not a copy.
 # The web interface is on, and the API listens on every interface of the
-# container: publish port 4711 only to your own network, never to the
-# Internet. Any setting can be changed with MYMULE_<SETTING> variables.
+# container: publish port 4711 on 127.0.0.1 or your LAN address only (as
+# docker-compose.yml does), never on every address of a computer that is
+# on the Internet: Docker's published ports bypass ufw and firewalld. Any setting can be changed with MYMULE_<SETTING> variables.
 ENV MYMULE_HOME=/config \
     MYMULE_DOWNLOAD_DIR=/downloads \
     MYMULE_TEMP_DIR=/downloads/incomplete \
@@ -44,7 +48,7 @@ VOLUME ["/config", "/downloads"]
 EXPOSE 4662/tcp 4672/udp 4711/tcp
 
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-    CMD su-exec "$PUID:$PGID" mymule status >/dev/null 2>&1 || mymule status >/dev/null 2>&1 || exit 1
+    CMD mymule status >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["mymule", "daemon"]

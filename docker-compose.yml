@@ -4,6 +4,12 @@
 #
 # then open http://localhost:4711 and log in with the api_key from
 # ./config/mymule.conf. Update with: docker compose pull && docker compose up -d
+#
+# The web interface and API (port 4711) are published on this computer
+# only. To reach them from other devices on your network, put this
+# computer's LAN address before the port, e.g. "<LAN-IP>:4711:4711/tcp".
+# Never publish 4711 on every address of a computer that is on the
+# Internet (a VPS): Docker's published ports bypass ufw and firewalld.
 
 services:
   mymule:
@@ -25,4 +31,4 @@ services:
     ports:
       - "4662:4662/tcp"        # peers: forward it in your router for HighID
       - "4672:4672/udp"        # Kad: forward it in your router too
-      - "4711:4711/tcp"        # web interface and API: never forward it in your router
+      - "127.0.0.1:4711:4711/tcp" # web interface and API: this computer only (see above)

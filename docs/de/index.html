@@ -115,7 +115,7 @@
   <section class="panel" id="docker" role="tabpanel" aria-labelledby="tab-docker">
     <h3>Docker</h3>
     <p>Jedes System mit <a href="https://www.docker.com/products/docker-desktop/">Docker</a>, auch NAS und Raspberry Pi (amd64, arm64 und armv7). In einem leeren Ordner:</p>
-    <div class="cmd"><pre><code>docker run -d --name mymule --restart unless-stopped -e PUID=1000 -e PGID=1000 -v ./config:/config -v ./downloads:/downloads -p 4662:4662/tcp -p 4672:4672/udp -p 4711:4711/tcp ghcr.io/i234dev/mymule:latest</code></pre></div>
+    <div class="cmd"><pre><code>docker run -d --name mymule --restart unless-stopped -e PUID=1000 -e PGID=1000 -v ./config:/config -v ./downloads:/downloads -p 4662:4662/tcp -p 4672:4672/udp -p 127.0.0.1:4711:4711/tcp ghcr.io/i234dev/mymule:latest</code></pre></div>
     <p>Öffne dann <code>http://localhost:4711</code> und melde dich mit dem <code>api_key</code> aus <code>config/mymule.conf</code> an. Lieber Compose? Nimm die fertige <a href="https://github.com/i234dev/MyMule/blob/master/docker-compose.yml">docker-compose.yml</a> und führe <code>docker compose up -d</code> aus. Mehr in der <a href="https://github.com/i234dev/MyMule#docker">Docker-Anleitung</a> (auf Englisch).</p>
   </section>
 

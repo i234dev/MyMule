@@ -14,10 +14,6 @@ as_user() {
 	exec "$@"
 }
 
-if [ "${1:-}" = healthcheck ]; then
-	as_user mymule status >/dev/null
-fi
-
 if [ "$(id -u)" = 0 ]; then
 	case "$uid:$gid" in
 	*[!0-9:]* | :* | *:) echo "PUID and PGID must be numbers (got '$uid:$gid')" >&2; exit 1 ;;

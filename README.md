@@ -130,7 +130,7 @@ files go to `downloads/`, partial ones to `downloads/incomplete/`.
 Without Compose, the same in one command:
 
 ```sh
-docker run -d --name mymule --restart unless-stopped   -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC   -v ./config:/config -v ./downloads:/downloads   -p 4662:4662/tcp -p 4672:4672/udp -p 4711:4711/tcp   ghcr.io/i234dev/mymule:latest
+docker run -d --name mymule --restart unless-stopped   -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC   -v ./config:/config -v ./downloads:/downloads   -p 4662:4662/tcp -p 4672:4672/udp -p 127.0.0.1:4711:4711/tcp   ghcr.io/i234dev/mymule:latest
 ```
 
 - **Which user**: MyMule never runs as root. `PUID` and `PGID` are the user
@@ -142,10 +142,17 @@ docker run -d --name mymule --restart unless-stopped   -e PUID=1000 -e PGID=1000
   turns on the web interface and listens on the container's network
   (`MYMULE_WEB_UI=true`, `MYMULE_API_LISTEN=0.0.0.0:4711`).
 - **Commands**: `docker exec mymule mymule status`, `docker logs mymule`
-  for the log.
+  for the log. Commands run as the `PUID` user even from `docker exec`.
 - **HighID**: forward ports 4662 (TCP) and 4672 (UDP) in your router to
-  the computer running Docker. **Never forward port 4711**: it is the web
-  interface and the API, meant for your own network.
+  the computer running Docker.
+- **Web interface from other devices**: port 4711 (the web interface and
+  the API) is published on `127.0.0.1` only. To open it from your phone
+  or another computer, publish it on this computer's LAN address instead
+  (`<LAN-IP>:4711:4711/tcp`). Never publish it on every address
+  (`4711:4711`) of a computer that is on the Internet, such as a VPS:
+  Docker's published ports bypass ufw and firewalld, so the API would be
+  open to anyone, with only the `api_key` in the way. **Never forward
+  port 4711** in your router either.
 - **Update**: `docker compose pull && docker compose up -d`. Each release
   is also tagged by version (`:X.Y.Z` and `:X.Y`) if you prefer to
   choose when to update.

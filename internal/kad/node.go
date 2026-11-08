@@ -72,6 +72,10 @@ type Node struct {
 	// pendingItems and pendingBytes are what waits in pending in all.
 	pendingItems, pendingBytes int
 
+	// Keyword searches answered in the second kwSecond.
+	kwSecond   time.Time
+	kwSearches int
+
 	outTracked []tracked // requests we sent, to accept answers
 	inTracked  map[netip.Addr]*floodEntry
 	inCleanup  time.Time

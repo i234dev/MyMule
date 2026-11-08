@@ -415,3 +415,86 @@ func TestEvictLastOfKeyword(t *testing.T) {
 		t.Fatalf("index: %v", x.keywords[e.key])
 	}
 }
+
+// A search with a large tree over a large keyword stops after
+// searchWork: asked for results far down the list, it gives none. The
+// files' order is kept between searches and follows new files.
+func TestKeywordSearchWork(t *testing.T) {
+	x := newIndex()
+	key := KeywordID("orchard")
+	for i := range 20000 {
+		e := kwEntry(strings.Repeat("quiet orchard ", 18)+strconv.Itoa(i)+".mkv", uint64(1+i), pubIP(i, false))
+		e.key = key
+		x.addKeyword(e, t0)
+	}
+	// ORs, as deep as allowed, of strings that never match, and last one
+	// that always does.
+	var w proto.Writer
+	for range maxTreeDepth - 1 {
+		w.U8(seBool)
+		w.U8(1)
+		w.U8(seString)
+		w.U16(5)
+		w.Bytes([]byte("zzzzz"))
+	}
+	w.U8(seString)
+	w.U16(5)
+	w.Bytes([]byte("quiet"))
+	tr := tree(t, w.B)
+	if res := x.keywordResults(key, tr, 0, 50, t0); len(res) != 50 {
+		t.Fatalf("%d results at the start", len(res))
+	}
+	if res := x.keywordResults(key, tr, 19000, 300, t0); len(res) != 0 {
+		t.Fatalf("%d results past the work limit", len(res))
+	}
+	var work int
+	tr.matchesWork(x.keywords[key][x.sorted[key][0]][0], &work)
+	if work*len(x.sorted[key]) <= searchWork {
+		t.Fatalf("the test does not reach the limit (%d per entry)", work)
+	}
+	// Without a tree every entry is looked at.
+	if res := x.keywordResults(key, nil, 0, 300, t0); len(res) != 300 {
+		t.Fatalf("%d results without a tree", len(res))
+	}
+	ids := x.sorted[key]
+	if len(ids) != 20000 {
+		t.Fatalf("order not kept: %d", len(ids))
+	}
+	e := kwEntry("Blue Harbor.mkv", 5, pubIP(1, true))
+	e.key = key
+	x.addKeyword(e, t0)
+	if _, ok := x.sorted[key]; ok {
+		t.Fatal("order kept after a new file")
+	}
+	x.keywordResults(key, nil, 0, 300, t0)
+	if len(x.sorted[key]) != 20001 {
+		t.Fatalf("%d files in order", len(x.sorted[key]))
+	}
+}
+
+// Keyword searches answered per second are limited, whoever asks.
+func TestKeywordSearchesPerSecond(t *testing.T) {
+	key := KeywordID("orchard")
+	fn, a, _ := storeNode(t, key)
+	a.index.addKeyword(kwEntry("Quiet Orchard.mkv", 7, pubIP(3, false)), fn.now)
+	var w proto.Writer
+	WriteID(&w, key)
+	w.U16(0)
+	answered := 0
+	for i := range maxKeywordSearches + 5 {
+		x := netip.AddrPortFrom(pubIP(600+i, false), 4672)
+		fn.inject(x, a, rawPacket(OpSearchKeyReq, w.B))
+		if len(fn.sent[x]) > 0 {
+			answered++
+		}
+	}
+	if answered != maxKeywordSearches {
+		t.Fatalf("%d answered in one second", answered)
+	}
+	fn.now = fn.now.Add(time.Second)
+	x := netip.AddrPortFrom(pubIP(700, false), 4672)
+	fn.inject(x, a, rawPacket(OpSearchKeyReq, w.B))
+	if len(fn.sent[x]) == 0 {
+		t.Fatal("not answered a second later")
+	}
+}

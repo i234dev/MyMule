@@ -154,6 +154,10 @@ type index struct {
 	ownIPs     map[netip.Addr]int
 	ownSubnets map[[3]byte]int
 
+	// sorted holds the files of a keyword in the order searches take them,
+	// until the keyword's files change.
+	sorted map[ID][]ID
+
 	// Our keywords whose nodes said they are overloaded: not published
 	// again before the time given.
 	load map[ID]time.Time
@@ -166,6 +170,7 @@ func newIndex() *index {
 		keywords: map[ID]map[ID][]*entry{}, sources: map[ID][]*entry{}, notes: map[ID][]*entry{},
 		pubSubnets: map[[3]byte]int{}, load: map[ID]time.Time{},
 		ownIPs: map[netip.Addr]int{}, ownSubnets: map[[3]byte]int{},
+		sorted: map[ID][]ID{},
 	}
 }
 
@@ -300,6 +305,9 @@ func (x *index) addKeyword(e *entry, now time.Time) (bool, byte) {
 		x.nKeyword++
 		x.own(e.owner, 1)
 	}
+	if _, ok := files[e.source]; !ok {
+		delete(x.sorted, e.key)
+	}
 	files[e.source] = append([]*entry{e}, list...)
 	if total == 0 {
 		return true, 1
@@ -359,6 +367,7 @@ func (x *index) removeKeyword(v *entry) {
 	}
 	if len(list) == 0 {
 		delete(files, v.source)
+		delete(x.sorted, v.key)
 	} else {
 		files[v.source] = list
 	}
@@ -610,6 +619,7 @@ func (x *index) clean(now time.Time) {
 			}
 			if len(kept) == 0 {
 				delete(files, file)
+				delete(x.sorted, key)
 			} else {
 				files[file] = kept
 			}
@@ -645,20 +655,38 @@ func (x *index) clean(now time.Time) {
 	}
 }
 
+// searchWork is how much work one keyword search may take: about one unit
+// per entry looked at, plus one per term of the search tree and per 64
+// bytes of name it is checked against. It stops a search with a large
+// tree over a large keyword (up to 50,000 entries, 64 terms) from holding
+// the node's lock for a second; ordinary searches look at every entry.
+const searchWork = 200000
+
 // keywordResults returns the entries of a keyword that fit the tree,
 // trusted ones first, skipping start of them, at most max. Entries are
 // taken in a fixed order (by file, then size), so pages do not overlap.
 func (x *index) keywordResults(key ID, tree *term, start, max int, now time.Time) []*entry {
 	files := x.keywords[key]
-	ids := make([]ID, 0, len(files))
-	for id := range files {
-		ids = append(ids, id)
+	ids, ok := x.sorted[key]
+	if !ok || len(ids) != len(files) {
+		ids = make([]ID, 0, len(files))
+		for id := range files {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return bytes.Compare(ids[i][:], ids[j][:]) < 0 })
+		if len(files) > 0 {
+			x.sorted[key] = ids
+		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return bytes.Compare(ids[i][:], ids[j][:]) < 0 })
+	work := 0
 	want := start + max
 	var trusted, other []*entry
 	for _, id := range ids {
+		if work >= searchWork {
+			break
+		}
 		for _, e := range files[id] {
+			work++
 			if e.expires.Before(now) {
 				continue
 			}
@@ -666,7 +694,7 @@ func (x *index) keywordResults(key ID, tree *term, start, max int, now time.Time
 			if !trustedOne && len(other) >= want {
 				continue // enough of those already
 			}
-			if tree != nil && !tree.matches(e) {
+			if tree != nil && !tree.matchesWork(e, &work) {
 				continue
 			}
 			if trustedOne {

@@ -142,13 +142,21 @@ func tagName(t proto.Tag) string {
 
 // matches reports whether a keyword entry fits the tree.
 func (t *term) matches(e *entry) bool {
+	var work int
+	return t.matchesWork(e, &work)
+}
+
+// matchesWork is matches, adding the work done to *work: one unit per
+// term, plus one per 64 bytes of name.
+func (t *term) matchesWork(e *entry, work *int) bool {
+	*work += 1 + len(e.lname)/64
 	switch t.kind {
 	case termAnd:
-		return t.left.matches(e) && t.right.matches(e)
+		return t.left.matchesWork(e, work) && t.right.matchesWork(e, work)
 	case termOr:
-		return t.left.matches(e) || t.right.matches(e)
+		return t.left.matchesWork(e, work) || t.right.matchesWork(e, work)
 	case termNot:
-		return t.left.matches(e) && !t.right.matches(e)
+		return t.left.matchesWork(e, work) && !t.right.matchesWork(e, work)
 	case termString:
 		if len(t.words) == 0 {
 			return false

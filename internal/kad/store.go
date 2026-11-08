@@ -400,7 +400,19 @@ func (n *Node) sendResults(in incoming, target ID, entries []*entry, withPublish
 	}
 }
 
+// maxKeywordSearches is how many keyword searches we answer per second,
+// from everyone: each may take some milliseconds, and the limit per
+// address does nothing against many (or forged) addresses.
+const maxKeywordSearches = 10
+
 func (n *Node) onSearchKeyReq(in incoming, now time.Time) error {
+	if sec := now.Truncate(time.Second); !sec.Equal(n.kwSecond) {
+		n.kwSecond, n.kwSearches = sec, 0
+	}
+	if n.kwSearches >= maxKeywordSearches {
+		return nil
+	}
+	n.kwSearches++
 	r := proto.NewReader(in.payload)
 	target := ReadID(r)
 	start := r.U16()

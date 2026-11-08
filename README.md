@@ -1,8 +1,9 @@
 # MyMule
 
-A client for the eD2K network (the eMule network), written in Go. One small
-binary with no dependencies that runs anywhere (Windows, Linux, macOS,
-FreeBSD, ARM boards and NAS devices) and uses about 15 MB of RAM.
+A client for the eMule networks, eD2K (servers) and Kad (serverless),
+written in Go. One small binary with no dependencies that runs anywhere
+(Windows, Linux, macOS, FreeBSD, ARM boards and NAS devices) and uses
+about 15 MB of RAM.
 
 Use it the way that suits you:
 
@@ -417,7 +418,7 @@ signed build provenance attestation, which ties each file to this
 repository and the exact commit it was built from. With the GitHub CLI:
 
 ```sh
-gh attestation verify mymule-v0.9.3-linux-amd64.tar.gz --repo i234dev/MyMule
+gh attestation verify mymule-v0.9.6-linux-amd64.tar.gz --repo i234dev/MyMule
 ```
 
 The Windows and macOS binaries are not signed with a commercial

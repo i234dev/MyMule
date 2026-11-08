@@ -88,6 +88,52 @@ Quote ed2k links: they contain `|`, which shells treat as a pipe.
 
 Run `mymule help` for every command and `mymule <command> -h` for its flags.
 
+The daemon also fetches a server list by itself when it knows none, so
+`servers update` is only needed to refresh it.
+
+## Docker
+
+An image for Linux (amd64, arm64 and armv7, so also Raspberry Pi and most
+NAS devices) is published with every release. With Docker installed
+([Docker Desktop](https://www.docker.com/products/docker-desktop/) on
+Windows and macOS), save [docker-compose.yml](docker-compose.yml) in an
+empty folder and run there:
+
+```sh
+docker compose up -d
+```
+
+Then open <http://localhost:4711> and log in with the `api_key` from
+`config/mymule.conf` (created in that folder on the first start). Finished
+files go to `downloads/`, partial ones to `downloads/incomplete/`.
+
+Without Compose, the same in one command:
+
+```sh
+docker run -d --name mymule --restart unless-stopped   -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC   -v ./config:/config -v ./downloads:/downloads   -p 4662:4662/tcp -p 4672:4672/udp -p 4711:4711/tcp   ghcr.io/i234dev/mymule:latest
+```
+
+- **Which user**: MyMule never runs as root. `PUID` and `PGID` are the user
+  and group that own the files (on Linux, run `id` to see yours; on
+  Windows and macOS the defaults are fine).
+- **Settings**: edit `config/mymule.conf`, or set any setting as an
+  environment variable `MYMULE_<SETTING>`, e.g. `MYMULE_ARR_SUPPORT=true`
+  or `MYMULE_SEARCH_LANGUAGES=es`. Variables win over the file. The image
+  turns on the web interface and listens on the container's network
+  (`MYMULE_WEB_UI=true`, `MYMULE_API_LISTEN=0.0.0.0:4711`).
+- **Commands**: `docker exec mymule mymule status`, `docker logs mymule`
+  for the log.
+- **HighID**: forward ports 4662 (TCP) and 4672 (UDP) in your router to
+  the computer running Docker. **Never forward port 4711**: it is the web
+  interface and the API, meant for your own network.
+- **Update**: `docker compose pull && docker compose up -d`. Each release
+  is also tagged by version (`:X.Y.Z` and `:X.Y`) if you prefer to
+  choose when to update.
+- **Radarr, Sonarr...**: set `MYMULE_ARR_SUPPORT=true`; MyMule reports
+  downloads as `/downloads/...`, so mount the same folder in the apps as
+  `/downloads` too (or add a Remote Path Mapping). See
+  [docs/ARR.md](docs/ARR.md).
+
 ## Configuration
 
 On first run MyMule creates `mymule.conf` next to the executable:

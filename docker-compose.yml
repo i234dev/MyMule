@@ -1,0 +1,28 @@
+# MyMule with Docker Compose. In this folder run:
+#
+#   docker compose up -d
+#
+# then open http://localhost:4711 and log in with the api_key from
+# ./config/mymule.conf. Update with: docker compose pull && docker compose up -d
+
+services:
+  mymule:
+    image: ghcr.io/i234dev/mymule:latest
+    container_name: mymule
+    restart: unless-stopped
+    environment:
+      - PUID=1000            # user and group that own the files (Linux: run `id`)
+      - PGID=1000
+      - TZ=Etc/UTC           # your time zone, e.g. Europe/Madrid
+      # Any setting of mymule.conf, as MYMULE_<SETTING>. For example:
+      # - MYMULE_NICK=MyMule
+      # - MYMULE_ARR_SUPPORT=true        # Radarr, Sonarr, Prowlarr (docs/ARR.md)
+      # - MYMULE_SEARCH_LANGUAGES=es
+      # - MYMULE_UPLOAD_LIMIT=500        # KB/s
+    volumes:
+      - ./config:/config       # settings, api_key, log
+      - ./downloads:/downloads # finished files; partial ones in downloads/incomplete
+    ports:
+      - "4662:4662/tcp"        # peers: forward it in your router for HighID
+      - "4672:4672/udp"        # Kad: forward it in your router too
+      - "4711:4711/tcp"        # web interface and API: never forward it in your router

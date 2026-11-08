@@ -27,6 +27,10 @@ Then choose where the API listens:
 - Apps in **Docker** or on **another computer**: set
   `api_listen = 0.0.0.0:4711`, so it listens on your local network. Only do
   this on a network you trust, and never forward port 4711 in your router.
+- MyMule itself in **Docker** (the official image): nothing to change,
+  it already listens on `0.0.0.0:4711` inside the container. Turn the
+  *arr support on with `MYMULE_ARR_SUPPORT=true` and use
+  `docker exec mymule grep api_key /config/mymule.conf` to see the key.
 
 Restart the daemon (`mymule stop`, `mymule start`) and copy `api_key` from
 `mymule.conf`. In the steps below, `<mymule-host>` is:

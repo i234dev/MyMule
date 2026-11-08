@@ -1,0 +1,7 @@
+# Only the sources are needed to build the image.
+*
+!go.mod
+!go.sum
+!cmd
+!internal
+!docker

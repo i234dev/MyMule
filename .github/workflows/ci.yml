@@ -2,8 +2,10 @@ name: CI
 
 # Every push and pull request: tests on Windows, Linux and macOS, a check
 # for known vulnerabilities, then binaries for every platform attached to
-# the run (Actions tab). Pushing a tag vX.Y.Z also publishes a GitHub
-# Release with those binaries and a signed build provenance attestation.
+# the run (Actions tab) and a test build of the container image. Pushing a
+# tag vX.Y.Z also publishes a GitHub Release with those binaries and a
+# signed build provenance attestation, and the container image on
+# ghcr.io (linux/amd64, arm64 and arm/v7), signed the same way.
 #
 # Actions are pinned to a commit (the version is in the comment): a tag can
 # be moved to other code, a commit cannot.
@@ -177,3 +179,67 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "MyMule $GITHUB_REF_NAME" \
             --generate-notes $prerelease
+
+  # The container image (Dockerfile). Every run builds it for every
+  # platform, so a broken Dockerfile shows up before a release; a tag also
+  # publishes it as ghcr.io/OWNER/mymule:X.Y.Z, :X.Y and :latest (not
+  # :latest for pre-releases such as v1.0.0-beta1).
+  docker:
+    name: Container image
+    needs: [test, vulncheck]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write     # push to ghcr.io
+      id-token: write     # sign the attestation
+      attestations: write
+    env:
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Only the last stage (apk add) runs under emulation; Go
+      # cross-compiles natively.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to ghcr.io
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mymule
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,enable=${{ env.PUBLISH != 'true' }}
+
+      - name: Build${{ env.PUBLISH == 'true' && ' and push' || '' }}
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Check with: gh attestation verify oci://ghcr.io/OWNER/mymule:TAG --repo OWNER/REPO
+      - name: Attest build provenance
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/mymule
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

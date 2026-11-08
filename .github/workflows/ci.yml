@@ -180,6 +180,50 @@ jobs:
             --title "MyMule $GITHUB_REF_NAME" \
             --generate-notes $prerelease
 
+  # Homebrew (macOS, Linux) and Scoop (Windows) install from two small
+  # repositories, OWNER/homebrew-tap and OWNER/scoop-bucket. After a
+  # release (not a pre-release) the formula and the manifest are written
+  # from its SHA256SUMS and pushed there. That needs the PACKAGES_TOKEN
+  # secret: a fine-grained token with "Contents: read and write" on those
+  # two repositories only. Without it this step does nothing.
+  packages:
+    name: Homebrew and Scoop
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Update the Homebrew tap and the Scoop bucket
+        env:
+          TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::PACKAGES_TOKEN is not set: Homebrew and Scoop were not updated"
+            exit 0
+          fi
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -D dist
+          sh .github/packaging/render.sh "$GITHUB_REF_NAME" dist/SHA256SUMS "$GITHUB_REPOSITORY" out
+
+          publish() { # repo, file, path in the repo
+            dir="work-$1"
+            git clone -q --depth 1 "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/$1.git" "$dir"
+            mkdir -p "$dir/$(dirname "$3")"
+            cp "$2" "$dir/$3"
+            git -C "$dir" add -A
+            if git -C "$dir" diff --cached --quiet; then
+              echo "$1: already up to date"
+              return
+            fi
+            git -C "$dir" -c user.name="github-actions[bot]"               -c user.email="41898282+github-actions[bot]@users.noreply.github.com"               commit -q -m "mymule $GITHUB_REF_NAME"
+            git -C "$dir" push -q
+            echo "$1: updated to $GITHUB_REF_NAME"
+          }
+          publish homebrew-tap out/mymule.rb Formula/mymule.rb
+          publish scoop-bucket out/mymule.json bucket/mymule.json
+
   # The container image (Dockerfile). Every run builds it for every
   # platform, so a broken Dockerfile shows up before a release; a tag also
   # publishes it as ghcr.io/OWNER/mymule:X.Y.Z, :X.Y and :latest (not

@@ -70,10 +70,22 @@ Python, cron, home automation).
 
 Not implemented yet: protocol obfuscation (TCP), credits.
 
+## Install
+
+| System | How |
+|---|---|
+| Any, with Docker (also NAS, Raspberry Pi) | see [Docker](#docker) |
+| macOS, Linux | `brew install i234dev/tap/mymule` ([Homebrew](https://brew.sh)) |
+| Windows | `scoop bucket add mymule https://github.com/i234dev/scoop-bucket` then `scoop install mymule` ([Scoop](https://scoop.sh)) |
+| Any | download the archive for your system from [Releases](../../releases) and unpack it |
+
+Installed with Homebrew, MyMule keeps its settings and downloads in
+`~/MyMule`; with Scoop, in `%USERPROFILE%\scoop\persist\mymule`. Both keep
+them across upgrades (`brew upgrade mymule`, `scoop update mymule`).
+
 ## Quick start
 
-Download the archive for your system from
-[Releases](../../releases), unpack it and run:
+Then run:
 
 ```sh
 mymule servers update        # fetch a server list

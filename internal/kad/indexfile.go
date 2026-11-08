@@ -46,9 +46,17 @@ func writeEntry(w *proto.Writer, e *entry, keyword bool) {
 		}
 	}
 	WriteTags(w, e.tags)
+	if e.weak {
+		w.U8(1)
+	} else {
+		w.U8(0)
+	}
 }
 
-func readEntry(r *proto.Reader, keyword bool) (*entry, error) {
+// readEntry reads an entry of a file of version ver; version 1 did not
+// keep the weak flag: its sources are taken as weak (their proof is
+// unknown).
+func readEntry(r *proto.Reader, keyword bool, ver uint32) (*entry, error) {
 	e := &entry{key: ReadID(r), source: ReadID(r)}
 	var a [4]byte
 	copy(a[:], r.Bytes(4))
@@ -82,13 +90,18 @@ func readEntry(r *proto.Reader, keyword bool) (*entry, error) {
 		return nil, err
 	}
 	e.tags = keepTags(tags)
+	if ver >= 2 {
+		e.weak = r.U8() != 0
+	} else {
+		e.weak = !keyword
+	}
 	return e, r.Err()
 }
 
 // encode writes the index for kadindex.dat.
 func (x *index) encode(me ID, now time.Time) []byte {
 	var w proto.Writer
-	w.U32(1)
+	w.U32(2)
 	WriteID(&w, me)
 	var kw []*entry
 	for _, files := range x.keywords {
@@ -123,7 +136,8 @@ func (x *index) decode(b []byte, me ID, now time.Time) error {
 		return errors.New("kadindex.dat too big")
 	}
 	r := proto.NewReader(b)
-	if r.U32() != 1 {
+	ver := r.U32()
+	if ver != 1 && ver != 2 {
 		return errors.New("unknown kadindex.dat version")
 	}
 	sameID := ReadID(r) == me
@@ -132,7 +146,7 @@ func (x *index) decode(b []byte, me ID, now time.Time) error {
 		return errors.New("kadindex.dat truncated")
 	}
 	for range n {
-		e, err := readEntry(r, true)
+		e, err := readEntry(r, true, ver)
 		if err != nil {
 			return err
 		}
@@ -145,7 +159,7 @@ func (x *index) decode(b []byte, me ID, now time.Time) error {
 		return errors.New("kadindex.dat truncated")
 	}
 	for range n {
-		e, err := readEntry(r, false)
+		e, err := readEntry(r, false, ver)
 		if err != nil {
 			return err
 		}

@@ -234,8 +234,13 @@ func (n *Node) sendLegacyChallenge(addr netip.AddrPort, contact ID, now time.Tim
 }
 
 // bootstrapAnswer is how many contacts we give a node that bootstraps
-// from us (eMule gives 20).
-const bootstrapAnswer = 20
+// from us (eMule gives 20); half that to one that did not prove its
+// address: a small forged request must not make us send a lot to
+// someone else.
+const (
+	bootstrapAnswer        = 20
+	bootstrapAnswerUnknown = 10
+)
 
 // errBad marks a malformed or unrequested packet.
 var errBad = errors.New("kad: bad packet")
@@ -278,13 +283,27 @@ func (n *Node) handle(data []byte, from netip.AddrPort, now time.Time) {
 	if from.Port() == 53 && in.senderKey.Key == 0 {
 		return
 	}
-	n.lastContact = now
 	if !n.allowed(ip, in.op, in.validKey, now) {
 		return
 	}
-	if err := n.dispatch(in, now); err != nil && n.cfg.Log != nil {
-		_ = err // malformed packets are common on a public network: dropped quietly
+	err = n.dispatch(in, now) // malformed packets are common on a public network: dropped quietly
+	// We are connected while nodes answer us, or send with our key: not
+	// because anyone sends anything (a junk packet now and then would
+	// keep a node that needs to bootstrap from doing it).
+	if in.validKey || (err == nil && isAnswer(in.op)) {
+		n.lastContact = now
 	}
+}
+
+// isAnswer reports whether op answers one of our requests (whose
+// handlers refuse those we did not send).
+func isAnswer(op byte) bool {
+	switch op {
+	case OpBootstrapRes, OpHelloRes, OpRes, OpSearchRes, OpSearchResV1, OpPublishRes, OpPublishResV1,
+		OpPong, OpFindBuddyRes, OpFirewalledRes:
+		return true
+	}
+	return false
 }
 
 func (n *Node) dispatch(in incoming, now time.Time) error {
@@ -375,9 +394,13 @@ func writeContact(w *proto.Writer, c Contact) {
 
 func (n *Node) onBootstrapReq(in incoming) error {
 	// Verified contacts only: we do not pass on nodes nobody vouched for.
+	want := bootstrapAnswer
+	if !in.validKey {
+		want = bootstrapAnswerUnknown
+	}
 	var cs []Contact
 	for _, c := range n.table.BootstrapContacts(200) {
-		if c.Verified && len(cs) < bootstrapAnswer {
+		if c.Verified && len(cs) < want {
 			cs = append(cs, c)
 		}
 	}
@@ -566,6 +589,9 @@ func (n *Node) onReq(in incoming) error {
 	if r.Err() != nil || typ == 0 {
 		return errBad
 	}
+	// eMule asks for 2 (find value), 4 (store) or 11 (find node): no more
+	// than 11, though the field allows 31.
+	typ = min(typ, findNode)
 	if check != n.keys.KadID {
 		return nil // meant for another node
 	}

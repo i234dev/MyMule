@@ -82,6 +82,7 @@ type buddyLink struct {
 	userHash  [16]byte
 	id        ID // the ID it looked for us with (served side)
 	connected bool
+	proven    bool      // its request had our key (served side, pending)
 	until     time.Time // to connect (served side, pending)
 	send      func(op byte, payload []byte) bool
 }
@@ -339,16 +340,35 @@ func (n *Node) onFindBuddyReq(in incoming, now time.Time) error {
 		return nil
 	}
 	// Several may wait to connect (one forged request must not keep the
-	// place from real ones); the first that connects is served.
+	// place from real ones); the first that connects is served. Requests
+	// without our key (they may be forged) take half the places at most;
+	// one with it takes the place of the oldest of those when full.
+	unproven := 0
+	var oldest netip.Addr
 	for ip, b := range n.buddyOffers {
 		if now.After(b.until) {
 			delete(n.buddyOffers, ip)
+			continue
+		}
+		if !b.proven {
+			unproven++
+			if !oldest.IsValid() || b.until.Before(n.buddyOffers[oldest].until) {
+				oldest = ip
+			}
 		}
 	}
-	if len(n.buddyOffers) >= maxBuddyOffers {
-		return nil
+	if _, again := n.buddyOffers[in.from.Addr()]; !again {
+		switch {
+		case !in.validKey && unproven >= maxBuddyOffers/2:
+			return nil
+		case len(n.buddyOffers) >= maxBuddyOffers:
+			if !in.validKey || !oldest.IsValid() {
+				return nil
+			}
+			delete(n.buddyOffers, oldest)
+		}
 	}
-	n.buddyOffers[in.from.Addr()] = &buddyLink{ip: in.from.Addr(), kadPort: in.from.Port(), tcpPort: tcp, userHash: user, id: id, until: now.Add(buddyWait)}
+	n.buddyOffers[in.from.Addr()] = &buddyLink{ip: in.from.Addr(), kadPort: in.from.Port(), tcpPort: tcp, userHash: user, id: id, proven: in.validKey, until: now.Add(buddyWait)}
 	var w proto.Writer
 	WriteID(&w, id)
 	WriteID(&w, ID(n.keys.UserHash))

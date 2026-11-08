@@ -203,8 +203,8 @@ func readEntryTags(r *proto.Reader, e *entry, set func(t proto.Tag) (keep bool))
 }
 
 func (n *Node) onPublishKeyReq(in incoming, now time.Time) error {
-	if !n.storing() {
-		return nil
+	if !n.storing() || !GoodAddr(in.from.Addr(), in.from.Port()) {
+		return nil // nor from addresses others could not reach
 	}
 	r := proto.NewReader(in.payload)
 	key := ReadID(r)
@@ -242,8 +242,8 @@ func (n *Node) onPublishKeyReq(in incoming, now time.Time) error {
 }
 
 func (n *Node) onPublishSourceReq(in incoming, now time.Time) error {
-	if !n.storing() {
-		return nil
+	if !n.storing() || !GoodAddr(in.from.Addr(), in.from.Port()) {
+		return nil // nor from addresses others could not reach
 	}
 	r := proto.NewReader(in.payload)
 	file := ReadID(r)
@@ -309,8 +309,8 @@ func (n *Node) onPublishSourceReq(in incoming, now time.Time) error {
 }
 
 func (n *Node) onPublishNotesReq(in incoming, now time.Time) error {
-	if !n.storing() {
-		return nil
+	if !n.storing() || !GoodAddr(in.from.Addr(), in.from.Port()) {
+		return nil // nor from addresses others could not reach
 	}
 	r := proto.NewReader(in.payload)
 	file := ReadID(r)
@@ -442,7 +442,21 @@ func (n *Node) onSearchSourceReq(in incoming, now time.Time) error {
 		return errBad
 	}
 	n.index.clean(now)
-	res := listResults(n.index.sources[target], size, start, maxResults, now)
+	// Sources published without our key (weak) after the proven ones:
+	// their address only answered a ping, and the port is theirs to say.
+	list := n.index.sources[target]
+	ordered := make([]*entry, 0, len(list))
+	for _, e := range list {
+		if !e.weak {
+			ordered = append(ordered, e)
+		}
+	}
+	for _, e := range list {
+		if e.weak {
+			ordered = append(ordered, e)
+		}
+	}
+	res := listResults(ordered, size, start, maxResults, now)
 	n.sendResults(in, target, res, false)
 	return nil
 }

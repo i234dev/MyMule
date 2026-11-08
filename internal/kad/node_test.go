@@ -137,8 +137,10 @@ func TestNodeBootstrap(t *testing.T) {
 	}
 	a.Bootstrap(addrOf(b))
 	fn.pump()
+	// A plain request (no key: its address is unproven) gets 10
+	// contacts, and its sender.
 	n := locked(a, func() int { return a.table.Len() })
-	if n < 21 || locked(a, func() *Contact { return a.table.Get(b.ID()) }) == nil {
+	if n != bootstrapAnswerUnknown+1 || locked(a, func() *Contact { return a.table.Get(b.ID()) }) == nil {
 		t.Fatalf("%d contacts after bootstrap", n)
 	}
 	// An answer nobody asked for is ignored.

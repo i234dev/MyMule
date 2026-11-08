@@ -9,6 +9,7 @@
 package credit
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -33,6 +34,11 @@ const (
 	// longest ago makes room.
 	maxRecords = 50000
 	saveEvery  = 13 * time.Minute
+	// identTTL is how long a proof of identity from an address lasts: a
+	// peer is asked again on every connection (it reconnects every 20
+	// minutes or so while it waits), so another computer behind the same
+	// address cannot live on an old proof.
+	identTTL = 2 * time.Hour
 
 	fileMagic = "MMCR"
 	fileVer   = 1
@@ -43,7 +49,11 @@ type record struct {
 	seen     int64  // unix time
 	key      []byte
 	identIP  string // where it proved its identity this run; "" = not
+	identAt  int64  // when (unix time)
 }
+
+// earned reports whether a peer has credits: the records worth keeping.
+func (r *record) earned() bool { return r.up > 0 || r.down > 0 }
 
 // Store holds our key and the credits of the peers we know.
 type Store struct {
@@ -130,47 +140,91 @@ func (s *Store) KeyOf(h ed2k.Hash) []byte {
 	return nil
 }
 
+// boundKey returns the key h must prove its identity with: the one that
+// earned its credits. A hash without credits is bound to no key (whoever
+// proved it first does not keep it from its owner), so its key is asked
+// for again.
+func (s *Store) boundKey(h ed2k.Hash) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.recs[h]; r != nil && r.earned() {
+		return r.key
+	}
+	return nil
+}
+
 // Identified reports whether the peer h proved its identity from ip in
 // this run.
 func (s *Store) Identified(h ed2k.Hash, ip net.IP) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := s.recs[h]
-	return r != nil && r.identIP != "" && r.identIP == ip.String()
+	return s.identifiedLocked(h, ip) != nil
 }
 
-// verified records that h, from ip, signed our challenge with key.
-func (s *Store) verified(h ed2k.Hash, ip net.IP, key []byte) {
+// verified records that h, from ip, signed our challenge with key. A
+// different key than the one stored only takes its place while the hash
+// has no credits: whoever proved a hash first does not keep it from its
+// owner for nothing.
+func (s *Store) verified(h ed2k.Hash, ip net.IP, key []byte) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.recs[h]
-	if r == nil {
+	switch {
+	case r == nil:
 		if len(s.recs) >= maxRecords {
 			s.evictLocked()
 		}
 		r = &record{key: append([]byte(nil), key...)}
 		s.recs[h] = r
+	case !bytes.Equal(r.key, key):
+		if r.earned() {
+			return false
+		}
+		r.key = append([]byte(nil), key...)
 	}
 	r.identIP = ip.String()
-	r.seen = s.now().Unix()
+	r.identAt = s.now().Unix()
+	r.seen = r.identAt
 	s.dirty = true
+	return true
 }
 
+// failed records that a peer from ip did not prove to be h: a proof h
+// gave from that address no longer counts (another computer behind the
+// same address may be using it).
+func (s *Store) failed(h ed2k.Hash, ip net.IP) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.recs[h]; r != nil && r.identIP == ip.String() {
+		r.identIP = ""
+	}
+}
+
+// evictLocked makes room: the peer seen longest ago among those without
+// credits, so that made-up identities (which cost nothing) never push out
+// what honest peers earned; only when all have credits, the oldest.
 func (s *Store) evictLocked() {
-	var old ed2k.Hash
-	var oldest int64 = math.MaxInt64
+	var old, oldEarned ed2k.Hash
+	oldest, oldestEarned := int64(math.MaxInt64), int64(math.MaxInt64)
 	for h, r := range s.recs {
-		if r.seen < oldest {
+		switch {
+		case !r.earned() && r.seen < oldest:
 			old, oldest = h, r.seen
+		case r.earned() && r.seen < oldestEarned:
+			oldEarned, oldestEarned = h, r.seen
 		}
+	}
+	if oldest == math.MaxInt64 {
+		old = oldEarned
 	}
 	delete(s.recs, old)
 }
 
-// identifiedLocked returns h's record if it proved its identity from ip.
+// identifiedLocked returns h's record if it proved its identity from ip
+// in the last identTTL.
 func (s *Store) identifiedLocked(h ed2k.Hash, ip net.IP) *record {
 	r := s.recs[h]
-	if r == nil || r.identIP == "" || r.identIP != ip.String() {
+	if r == nil || r.identIP == "" || r.identIP != ip.String() || s.now().Unix()-r.identAt > int64(identTTL/time.Second) {
 		return nil
 	}
 	return r
@@ -298,11 +352,22 @@ func (s *Store) Save() error {
 }
 
 // File: "MMCR", version, count, then per peer: hash, uploaded,
-// downloaded, last seen, key length, key. Little-endian.
+// downloaded, last seen, key length, key. Little-endian. Only peers with
+// credits are kept: an identity alone costs nothing to make, and must not
+// fill the file (or bind a hash to a key across restarts).
 func (s *Store) encodeLocked() []byte {
 	b := append([]byte(fileMagic), fileVer)
-	b = binary.LittleEndian.AppendUint32(b, uint32(len(s.recs)))
+	n := 0
+	for _, r := range s.recs {
+		if r.earned() {
+			n++
+		}
+	}
+	b = binary.LittleEndian.AppendUint32(b, uint32(n))
 	for h, r := range s.recs {
+		if !r.earned() {
+			continue
+		}
 		b = append(b, h[:]...)
 		b = binary.LittleEndian.AppendUint64(b, r.up)
 		b = binary.LittleEndian.AppendUint64(b, r.down)

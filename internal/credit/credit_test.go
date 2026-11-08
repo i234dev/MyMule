@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
+	"encoding/binary"
 	"net"
 	"os"
 	"path/filepath"
@@ -145,7 +146,7 @@ func connect(t *testing.T, a, b *end, ha, hb ed2k.Hash, secA, secB byte, ipA, ip
 func TestIdentBothWays(t *testing.T) {
 	ha, hb := ed2k.Hash{1}, ed2k.Hash{2}
 	ipA, ipB := net.IPv4(11, 0, 0, 1), net.IPv4(11, 0, 0, 2)
-	for _, sec := range [][2]byte{{3, 3}, {2, 2}, {3, 2}, {1, 3}} {
+	for _, sec := range [][2]byte{{3, 3}, {2, 2}, {3, 2}} {
 		a, b := newEnd(t), newEnd(t)
 		connect(t, a, b, ha, hb, sec[0], sec[1], ipA, ipB)
 		if !a.st.Identified(hb, ipB) || !b.st.Identified(ha, ipA) {
@@ -158,11 +159,14 @@ func TestIdentBothWays(t *testing.T) {
 			t.Fatalf("%v: not identified with the stored key", sec)
 		}
 	}
-	// Without support on one side, nothing is said.
-	a, b := newEnd(t), newEnd(t)
-	connect(t, a, b, ha, hb, 0, 3, ipA, ipB)
-	if b.st.Identified(ha, ipA) || a.st.Identified(hb, ipB) {
-		t.Fatal("identified without support")
+	// Without support on one side, or with version 1 only (signatures
+	// without an address), nothing is said.
+	for _, sec := range []byte{0, 1} {
+		a, b := newEnd(t), newEnd(t)
+		connect(t, a, b, ha, hb, sec, 3, ipA, ipB)
+		if b.st.Identified(ha, ipA) || a.st.Identified(hb, ipB) {
+			t.Fatalf("identified with support %d", sec)
+		}
 	}
 }
 
@@ -250,5 +254,164 @@ func TestStoreBounded(t *testing.T) {
 	}
 	if st.Len() != maxRecords {
 		t.Fatal(st.Len())
+	}
+}
+
+// sigFrom makes the signature end e would send for challenge c of store
+// s, of the given form: kind 0 = version 1 (no address).
+func sigFrom(e *end, s *Store, c uint32, kind byte, ip net.IP) []byte {
+	msg := binary.LittleEndian.AppendUint32(append([]byte(nil), s.PublicKey()...), c)
+	if kind != 0 {
+		msg = append(append(msg, ip.To4()...), kind)
+	}
+	sig := e.st.key.sign(msg)
+	out := append([]byte{byte(len(sig))}, sig...)
+	if kind != 0 {
+		out = append(out, kind)
+	}
+	return out
+}
+
+// Only version 2 signatures over this connection's addresses prove an
+// identity: a version 1 one, or one over no address, could be someone
+// else's passed on. A good one does.
+func TestIdentSignatureForms(t *testing.T) {
+	ha := ed2k.Hash{1}
+	ipA, ipB := net.IPv4(11, 0, 0, 1), net.IPv4(11, 0, 0, 2)
+	for _, tc := range []struct {
+		name string
+		kind byte
+		ip   net.IP
+		ok   bool
+	}{
+		{"version 1", 0, nil, false},
+		{"no address", ipNone, net.IPv4zero, false},
+		{"another address", ipLocal, net.IPv4(11, 0, 0, 9), false},
+		{"its address", ipLocal, ipA, true},
+		{"our address", ipRemote, ipB, true},
+	} {
+		a, b := newEnd(t), newEnd(t)
+		id := b.st.NewIdent(hello(ha, 3), ipA, func() net.IP { return ipB }, func(byte, []byte) error { return nil })
+		id.Start()
+		pub := a.st.PublicKey()
+		id.Handle(&proto.Packet{Proto: proto.ProtoEMule, Opcode: peer.OpPublicKey, Payload: append([]byte{byte(len(pub))}, pub...)})
+		id.Handle(&proto.Packet{Proto: proto.ProtoEMule, Opcode: peer.OpSignature, Payload: sigFrom(a, b.st, id.challenge, tc.kind, tc.ip)})
+		if got := b.st.Identified(ha, ipA); got != tc.ok {
+			t.Errorf("%s: identified %v", tc.name, got)
+		}
+	}
+}
+
+// A proof of identity lasts identTTL; a failed proof from the same
+// address voids it at once (another computer behind it).
+func TestIdentExpiresAndFails(t *testing.T) {
+	ha, hb := ed2k.Hash{1}, ed2k.Hash{2}
+	ipA, ipB := net.IPv4(11, 0, 0, 1), net.IPv4(11, 0, 0, 2)
+	a, b := newEnd(t), newEnd(t)
+	now := time.Now()
+	b.st.now = func() time.Time { return now }
+	connect(t, a, b, ha, hb, 3, 3, ipA, ipB)
+	if !b.st.Identified(ha, ipA) {
+		t.Fatal("not identified")
+	}
+	now = now.Add(identTTL + time.Minute)
+	if b.st.Identified(ha, ipA) || b.st.Ratio(ha, ipA) != 1 {
+		t.Fatal("proof outlived identTTL")
+	}
+	// Asked again on the next connection: proven again.
+	connect(t, &end{st: a.st}, &end{st: b.st}, ha, hb, 3, 3, ipA, ipB)
+	if !b.st.Identified(ha, ipA) {
+		t.Fatal("not proven again")
+	}
+	// Another computer at the same address, same hash, other key: fails,
+	// and the proof from that address is void.
+	b.st.Downloaded(ha, ipA, 5<<20)
+	x := newEnd(t)
+	connect(t, x, &end{st: b.st}, ha, hb, 3, 3, ipA, ipB)
+	if b.st.Identified(ha, ipA) {
+		t.Fatal("a failed proof left the old one standing")
+	}
+}
+
+// A hash that earned no credits yet is not held by the first key that
+// proved it: its owner can prove it with its own. One with credits is.
+func TestIdentKeyOfHashWithoutCredits(t *testing.T) {
+	ha, hb := ed2k.Hash{1}, ed2k.Hash{2}
+	ipA, ipB, ipX := net.IPv4(11, 0, 0, 1), net.IPv4(11, 0, 0, 2), net.IPv4(11, 0, 0, 3)
+	squatter, owner, b := newEnd(t), newEnd(t), newEnd(t)
+	connect(t, squatter, b, ha, hb, 3, 3, ipX, ipB)
+	if !b.st.Identified(ha, ipX) {
+		t.Fatal("first proof refused")
+	}
+	connect(t, owner, &end{st: b.st}, ha, hb, 3, 3, ipA, ipB)
+	if !b.st.Identified(ha, ipA) || !bytes.Equal(b.st.KeyOf(ha), owner.st.PublicKey()) {
+		t.Fatal("the owner could not take back a hash with no credits")
+	}
+	b.st.Downloaded(ha, ipA, 5<<20)
+	connect(t, &end{st: squatter.st}, &end{st: b.st}, ha, hb, 3, 3, ipX, ipB)
+	if b.st.Identified(ha, ipX) || !bytes.Equal(b.st.KeyOf(ha), owner.st.PublicKey()) {
+		t.Fatal("a hash with credits taken over by another key")
+	}
+}
+
+// Made-up identities (which cost nothing) never push out credits, and are
+// not saved.
+func TestStoreKeepsEarnedCredits(t *testing.T) {
+	dir := t.TempDir()
+	st, _ := Open(dir, t.Logf)
+	ip := net.IPv4(11, 0, 0, 1)
+	honest := ed2k.Hash{0xAA}
+	st.verified(honest, ip, []byte("k"))
+	st.Downloaded(honest, ip, 3<<20)
+	st.recs[honest].seen = time.Now().Add(-100 * 24 * time.Hour).Unix() // seen long ago
+	for i := range maxRecords + 50 {
+		var h ed2k.Hash
+		h[0], h[1], h[2], h[3] = 1, byte(i), byte(i>>8), byte(i>>16)
+		st.verified(h, ip, []byte("k"))
+	}
+	if st.Len() != maxRecords {
+		t.Fatal(st.Len())
+	}
+	if c, ok := st.Get(honest, ip); !ok || c.Downloaded != 3<<20 {
+		t.Fatal("credits pushed out by made-up identities")
+	}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	st2, _ := Open(dir, t.Logf)
+	if st2.Len() != 1 {
+		t.Fatalf("%d records saved, want only the one with credits", st2.Len())
+	}
+}
+
+// A peer that does not know its own public address (LowID) signs over
+// ours as it sees it, and is identified.
+func TestIdentSignerWithoutItsAddress(t *testing.T) {
+	ha := ed2k.Hash{1}
+	ipA, ipB := net.IPv4(11, 0, 0, 1), net.IPv4(11, 0, 0, 2)
+	a, b := newEnd(t), newEnd(t)
+	var toA, toB []*proto.Packet
+	q := func(l *[]*proto.Packet) func(byte, []byte) error {
+		return func(op byte, p []byte) error {
+			*l = append(*l, &proto.Packet{Proto: proto.ProtoEMule, Opcode: op, Payload: p})
+			return nil
+		}
+	}
+	ida := a.st.NewIdent(hello(ed2k.Hash{2}, 3), ipB, nil, q(&toB)) // a does not know its address
+	idb := b.st.NewIdent(hello(ha, 3), ipA, func() net.IP { return ipB }, q(&toA))
+	ida.Start()
+	idb.Start()
+	for range 6 {
+		x, y := toA, toB
+		toA, toB = nil, nil
+		for _, p := range x {
+			ida.Handle(p)
+		}
+		for _, p := range y {
+			idb.Handle(p)
+		}
+	}
+	if !b.st.Identified(ha, ipA) {
+		t.Fatal("not identified by a signature over our address")
 	}
 }

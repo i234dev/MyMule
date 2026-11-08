@@ -272,6 +272,14 @@ func (c *Conn) RemoteIP() net.IP {
 	return nil
 }
 
+// LocalIP is our address on this connection (IPv4), or nil.
+func (c *Conn) LocalIP() net.IP {
+	if a, ok := c.nc.LocalAddr().(*net.TCPAddr); ok {
+		return a.IP.To4()
+	}
+	return nil
+}
+
 func (c *Conn) Close() error { return c.nc.Close() }
 
 // Send writes a packet with a 30 s write deadline.

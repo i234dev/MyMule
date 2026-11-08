@@ -1,7 +1,6 @@
 package credit
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"net"
@@ -57,13 +56,16 @@ func (s *Store) NewIdent(h peer.Hello, ip net.IP, ourIP func() net.IP, send func
 	if ourIP == nil {
 		ourIP = func() net.IP { return nil }
 	}
-	return &Ident{s: s, hash: h.UserHash, ip: ip.To4(), support: h.SecIdent(), send: send, ourIP: ourIP, key: s.KeyOf(h.UserHash)}
+	return &Ident{s: s, hash: h.UserHash, ip: ip.To4(), support: h.SecIdent(), send: send, ourIP: ourIP, key: s.boundKey(h.UserHash)}
 }
 
-// Start asks the peer to prove its identity, if it supports it and has
-// not done so from this address yet.
+// Start asks the peer to prove its identity, on every connection (a proof
+// lasts identTTL), if it supports signatures of version 2. Version 1
+// signatures cover no address: anyone between us and a peer could pass
+// our challenge on to it and its signature back to us, and be taken for
+// it. Every eMule since 2006 does version 2.
 func (id *Ident) Start() error {
-	if id.support&3 == 0 || id.ip == nil || id.s.Identified(id.hash, id.ip) {
+	if id.support&2 == 0 || id.ip == nil {
 		return nil
 	}
 	need := byte(needSignature)
@@ -97,7 +99,7 @@ func (id *Ident) Handle(p *proto.Packet) (bool, error) {
 }
 
 func (id *Ident) onState(b []byte) error {
-	if len(b) != 5 || id.support&3 == 0 {
+	if len(b) != 5 || id.support&2 == 0 {
 		return nil
 	}
 	id.theirNeed = b[0]
@@ -116,7 +118,7 @@ func (id *Ident) onState(b []byte) error {
 }
 
 func (id *Ident) onKey(b []byte) error {
-	if len(b) < 2 || int(b[0]) != len(b)-1 || id.key != nil || id.support&3 == 0 {
+	if len(b) < 2 || int(b[0]) != len(b)-1 || id.key != nil || id.support&2 == 0 {
 		return nil // a key we already have cannot be replaced
 	}
 	if _, err := parsePublicKey(b[1:]); err != nil {
@@ -136,17 +138,15 @@ func (id *Ident) sign() error {
 		return nil
 	}
 	msg := append(append([]byte(nil), id.key...), id.theirChallenge...)
-	// eMule signs with version 1 when the peer supports it.
-	v2 := id.support&1 == 0
-	var kind byte
-	if v2 {
-		kind = ipRemote
-		ip := id.ip
-		if our := id.ourIP(); our.To4() != nil {
-			kind, ip = ipLocal, our.To4()
-		}
-		msg = append(append(msg, ip...), kind)
+	// Version 2 only, with an address in it (eMule would use version 1
+	// when the peer supports it; a signature without an address can be
+	// passed on by whoever sits between us and someone else).
+	kind := byte(ipRemote)
+	ip := id.ip
+	if our := id.ourIP(); our.To4() != nil {
+		kind, ip = ipLocal, our.To4()
 	}
+	msg = append(append(msg, ip...), kind)
 	sig := id.s.key.sign(msg)
 	if sig == nil {
 		return nil
@@ -154,55 +154,46 @@ func (id *Ident) sign() error {
 	id.signed++
 	id.theirNeed = needNothing
 	out := append([]byte{byte(len(sig))}, sig...)
-	if v2 {
-		out = append(out, kind)
-	}
-	return id.send(peer.OpSignature, out)
+	return id.send(peer.OpSignature, append(out, kind))
 }
 
 func (id *Ident) onSignature(b []byte) {
 	if len(b) < 2 || id.verified || id.challenge == 0 || id.key == nil {
 		return
 	}
-	var kind byte
-	switch {
-	case int(b[0]) == len(b)-1:
-	case int(b[0]) == len(b)-2 && id.support&2 != 0:
-		kind = b[len(b)-1]
-	default:
+	// Version 2 only, with an address that ties it to this connection:
+	// the peer's own (as we see it), or ours (as it sees us). A version 1
+	// signature, or one over no address, could be someone else's passed
+	// on.
+	if int(b[0]) != len(b)-2 || id.support&2 == 0 {
 		return
 	}
+	kind := b[len(b)-1]
 	id.verified = true // one try per connection: each check costs CPU
 	k, err := parsePublicKey(id.key)
 	if err != nil {
 		return
 	}
-	msg := binary.LittleEndian.AppendUint32(append([]byte(nil), id.s.PublicKey()...), id.challenge)
-	if kind != 0 {
-		var ip net.IP
-		switch kind {
-		case ipLocal:
-			ip = id.ip
-		case ipRemote:
-			ip = id.ourIP().To4()
-		case ipNone:
-			ip = net.IPv4zero.To4()
-		}
-		if ip == nil {
-			return
-		}
-		msg = append(append(msg, ip...), kind)
+	var ip net.IP
+	switch kind {
+	case ipLocal:
+		ip = id.ip
+	case ipRemote:
+		ip = id.ourIP().To4()
 	}
-	// A key received on this connection becomes the peer's for good; a
-	// stored one must be the one used.
-	if !k.verify(msg, b[1:1+int(b[0])]) {
+	if ip == nil {
+		id.s.failed(id.hash, id.ip)
+		return
+	}
+	msg := binary.LittleEndian.AppendUint32(append([]byte(nil), id.s.PublicKey()...), id.challenge)
+	msg = append(append(msg, ip...), kind)
+	if !k.verify(msg, b[1:1+int(b[0])]) || !id.s.verified(id.hash, id.ip, id.key) {
+		// Not the peer it says it is (or not with the key that earned the
+		// hash its credits): an earlier proof from this address is void.
+		id.s.failed(id.hash, id.ip)
 		id.s.Debug("credits: %s (%s) failed to prove its identity", id.hash, id.ip)
 		return
 	}
-	if stored := id.s.KeyOf(id.hash); stored != nil && !bytes.Equal(stored, id.key) {
-		return
-	}
-	id.s.verified(id.hash, id.ip, id.key)
 	id.s.Debug("credits: %s (%s) proved its identity", id.hash, id.ip)
 }
 

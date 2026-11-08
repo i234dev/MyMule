@@ -1103,7 +1103,13 @@ func (m *Manager) startIdent(c *peer.Conn, h peer.Hello) {
 	if m.cfg.Credits == nil {
 		return
 	}
-	id := m.cfg.Credits.NewIdent(h, c.RemoteIP(), m.identIP, func(op byte, payload []byte) error {
+	// Our address as this peer sees it, which signatures cover: our
+	// public one, or for a peer on our own network, the one we have there.
+	ourIP := m.identIP
+	if ip := c.RemoteIP(); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+		ourIP = c.LocalIP
+	}
+	id := m.cfg.Credits.NewIdent(h, c.RemoteIP(), ourIP, func(op byte, payload []byte) error {
 		return c.Send(proto.ProtoEMule, op, payload)
 	})
 	m.mu.Lock()

@@ -254,7 +254,11 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		Connect: func(ctx context.Context, cfg server.Config) (*server.Conn, error) {
 			// The daemon follows the server chosen in the web interface;
 			// if it doesn't answer, the others are tried.
-			return e.conn.connectTo(ctx, cfg, eng.serverTarget(*e.conn.server), true)
+			target := eng.serverTarget(*e.conn.server)
+			if target == "" {
+				fetchServersIfNone(logf)
+			}
+			return e.conn.connectTo(ctx, cfg, target, true)
 		},
 		Servers: func() []server.Info {
 			list, _ := loadServers()

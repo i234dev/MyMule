@@ -165,6 +165,31 @@ func cmdServers(args []string) error {
 	return fmt.Errorf("unknown servers subcommand %q", args[0])
 }
 
+// autoFetch remembers when the daemon last fetched a server list by itself.
+var autoFetch struct {
+	sync.Mutex
+	last time.Time
+}
+
+// fetchServersIfNone fetches a server list, as 'mymule servers update'
+// does, when none is known: on the first run the daemon then finds a
+// server by itself. It tries at most every 10 minutes.
+func fetchServersIfNone(report func(format string, a ...any)) {
+	if list, err := loadServers(); err != nil || len(list) > 0 {
+		return
+	}
+	autoFetch.Lock()
+	defer autoFetch.Unlock()
+	if !autoFetch.last.IsZero() && time.Since(autoFetch.last) < 10*time.Minute {
+		return
+	}
+	autoFetch.last = time.Now()
+	report("no servers known yet: fetching a server list")
+	if total, _, err := updateServerList(defaultServerMetURLs, report); err == nil {
+		report("%d servers known", total)
+	}
+}
+
 // updateServerList downloads server.met files and merges them into the
 // known list. It returns the number of servers and how many are new.
 func updateServerList(urls []string, report func(format string, a ...any)) (total, added int, err error) {

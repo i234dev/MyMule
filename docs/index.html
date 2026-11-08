@@ -6,6 +6,8 @@
 <title>MyMule</title>
 <meta name="description" content="A light client for the eMule network (eD2K and Kad), written in Go: one binary, web interface, command line, HTTP API and Radarr/Sonarr support.">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="logo.png">
 <style>
 :root {
   --bg: #fbfaf7;
@@ -40,7 +42,8 @@ body {
 a { color: var(--accent); }
 .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px; }
 header { padding: 64px 0 32px; }
-h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 16px; }
+h1 .logo { width: 1.1em; height: 1.1em; border-radius: 22%; }
 .lead { font-size: 1.2rem; color: var(--muted); max-width: 640px; margin: 0 0 28px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 12px; }
 .btn {
@@ -79,7 +82,7 @@ footer p { margin: 6px 0; }
 <body>
 <div class="wrap">
   <header>
-    <h1>MyMule</h1>
+    <h1><img src="favicon.svg" alt="" width="56" height="56" class="logo">MyMule</h1>
     <p class="lead">A light client for the eMule network, eD2K and Kad, written in Go. One small binary with no dependencies, for Windows, Linux, macOS, FreeBSD, ARM boards and NAS devices, using about 15&nbsp;MB of RAM.</p>
     <div class="buttons">
       <a class="btn primary" href="https://github.com/i234dev/MyMule/releases/latest">Download</a>

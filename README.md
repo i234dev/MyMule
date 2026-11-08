@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo.svg" alt="MyMule" width="240" height="56">
+</picture>
+
 # MyMule
 
 A client for the eMule networks, eD2K (servers) and Kad (serverless),

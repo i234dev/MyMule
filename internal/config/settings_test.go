@@ -219,3 +219,40 @@ func TestKadSettings(t *testing.T) {
 		t.Fatalf("other URL: %v %q", err, s.KadNodesURL)
 	}
 }
+
+func TestEnvOverridesFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	conf := "web_ui = false\napi_listen = 127.0.0.1:4711\napi_key = filekey-0123456789\nnick = FromFile\n"
+	if err := os.WriteFile(filepath.Join(home, SettingsFile), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(home, SettingsFile))
+	t.Setenv("MYMULE_WEB_UI", "true")
+	t.Setenv("MYMULE_API_LISTEN", "0.0.0.0:4711")
+	t.Setenv("MYMULE_DOWNLOAD_DIR", "media")
+	t.Setenv("MYMULE_API_KEY", "") // empty: the file's key stays
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.WebUI || s.APIListen != "0.0.0.0:4711" || s.APIKey != "filekey-0123456789" ||
+		s.Nick != "FromFile" || s.DownloadDir != filepath.Join(home, "media") {
+		t.Fatalf("settings: %+v", s)
+	}
+	// Like flags, the variables are not written into the file.
+	after, _ := os.ReadFile(filepath.Join(home, SettingsFile))
+	if !strings.HasPrefix(string(after), string(before)) || strings.Contains(string(after), "0.0.0.0") {
+		t.Fatalf("file changed:\n%s", after)
+	}
+
+	t.Setenv("MYMULE_PORT", "lots")
+	if _, err := LoadSettings(); err == nil || !strings.Contains(err.Error(), "MYMULE_PORT") ||
+		strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("bad value: %v", err)
+	}
+	t.Setenv("MYMULE_PORT", "4662\napi_key = injected-0123456789")
+	if _, err := LoadSettings(); err == nil {
+		t.Fatal("a multi-line value was accepted")
+	}
+}

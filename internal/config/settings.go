@@ -229,12 +229,41 @@ func LoadSettings() (Settings, error) {
 			fsutil.WriteFile(p, []byte(text), 0o600) // best effort
 		}
 	}
+	if err := applyEnv(&s, os.LookupEnv); err != nil {
+		return s, err
+	}
 	s.TempDir = absUnder(base, s.TempDir)
 	s.DownloadDir = absUnder(base, s.DownloadDir)
 	for i, d := range s.SharedDirs {
 		s.SharedDirs[i] = absUnder(base, d)
 	}
 	return s, nil
+}
+
+// EnvPrefix starts the environment variables that override mymule.conf:
+// MYMULE_ plus the setting's name in capitals (MYMULE_WEB_UI=true).
+const EnvPrefix = "MYMULE_"
+
+// applyEnv applies MYMULE_<SETTING> environment variables on top of
+// mymule.conf, the way command-line flags do: they win over the file and
+// are not written into it. This is how containers configure MyMule. An
+// empty MYMULE_API_KEY is ignored, so it never leaves the API without a
+// key.
+func applyEnv(s *Settings, lookup func(string) (string, bool)) error {
+	for _, st := range settingsDoc {
+		name := EnvPrefix + strings.ToUpper(st.key)
+		v, ok := lookup(name)
+		if !ok || (st.key == "api_key" && strings.TrimSpace(v) == "") {
+			continue
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("environment variable %s: must be a single line", name)
+		}
+		if _, err := parseSettings(st.key+" = "+v, s); err != nil {
+			return fmt.Errorf("environment variable %s: %s", name, strings.TrimPrefix(err.Error(), "line 1: "))
+		}
+	}
+	return nil
 }
 
 var emptyKeyLine = regexp.MustCompile(`(?m)^(\s*)api_key\s*=\s*"?"?\s*$`)

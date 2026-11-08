@@ -124,6 +124,9 @@ Shared files are hashed in the background the first time (this reads the
 whole file); the result is cached in `known.json`, so restarts are instant.
 
 Command-line flags (`-port`, `-server`, `-o`...) override the file for one run.
+So do environment variables named `MYMULE_` plus the setting in capitals
+(`MYMULE_WEB_UI=true`, `MYMULE_UPLOAD_LIMIT=500`), which is how the
+[Docker](#docker) image is configured; they are not written into the file.
 Set `MYMULE_HOME` to keep data somewhere other than the executable's folder,
 for example when the binary is installed in a read-only location.
 

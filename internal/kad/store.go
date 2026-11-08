@@ -31,8 +31,9 @@ func (n *Node) storing() bool { return n.udpReachable() }
 // What waits is limited for each address (one full publish packet) and in
 // all, in entries and in bytes: forged addresses cost an attacker nothing,
 // so only a total keeps them from filling our memory. When it is full,
-// unproven publishes are refused until some are proven or expire; proven
-// ones (with our key) are stored at once and never wait.
+// what waited longest makes room (a flood must then outpace the pings'
+// answers, which take a fraction of a second, to push honest publishes
+// out); proven ones (with our key) are stored at once and never wait.
 const (
 	maxPendingPerIP = filesPerPublish
 	maxPendingIPs   = 2000
@@ -75,9 +76,16 @@ func (n *Node) add(in incoming, kind pendingKind, e *entry, now time.Time) (bool
 	}
 	ip := in.from.Addr()
 	e.settle()
-	if n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes {
+	full := func() bool { return n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes }
+	if full() {
 		n.prunePending(now)
-		if n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes {
+		for range 8 {
+			if !full() || len(n.pending) == 0 {
+				break
+			}
+			n.dropOldestPending()
+		}
+		if full() {
 			return false, 0
 		}
 	}
@@ -400,19 +408,19 @@ func (n *Node) sendResults(in incoming, target ID, entries []*entry, withPublish
 	}
 }
 
-// maxKeywordSearches is how many keyword searches we answer per second,
-// from everyone: each may take some milliseconds, and the limit per
-// address does nothing against many (or forged) addresses.
-const maxKeywordSearches = 10
+// searchWorkPerSecond is the work (see searchWork) keyword searches
+// without our key may take per second in all: the limit per address does
+// nothing against forged addresses. Ordinary searches cost little of it;
+// searches with our key come from real addresses and are not counted.
+const searchWorkPerSecond = 10 * searchWork
 
 func (n *Node) onSearchKeyReq(in incoming, now time.Time) error {
 	if sec := now.Truncate(time.Second); !sec.Equal(n.kwSecond) {
-		n.kwSecond, n.kwSearches = sec, 0
+		n.kwSecond, n.kwWork = sec, 0
 	}
-	if n.kwSearches >= maxKeywordSearches {
+	if !in.validKey && n.kwWork >= searchWorkPerSecond {
 		return nil
 	}
-	n.kwSearches++
 	r := proto.NewReader(in.payload)
 	target := ReadID(r)
 	start := r.U16()
@@ -428,7 +436,10 @@ func (n *Node) onSearchKeyReq(in incoming, now time.Time) error {
 		tree = t
 	}
 	n.index.clean(now)
-	res := n.index.keywordResults(target, tree, int(start&0x7FFF), maxResults, now)
+	res, work := n.index.keywordResultsWork(target, tree, int(start&0x7FFF), maxResults, now)
+	if !in.validKey {
+		n.kwWork += work
+	}
 	n.sendResults(in, target, res, true)
 	return nil
 }

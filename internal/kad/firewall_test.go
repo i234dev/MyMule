@@ -337,7 +337,7 @@ func TestDirectCallback(t *testing.T) {
 	if len(connects) != 1 {
 		t.Fatal("callback taken while open")
 	}
-	// The addresses remembered are limited: full, new ones wait.
+	// The addresses remembered are limited: full, one is forgotten.
 	a.firewalledN = 0
 	clear(a.directAsked)
 	for i := range maxDirectAsked {
@@ -349,14 +349,8 @@ func TestDirectCallback(t *testing.T) {
 	pkt = append(pkt, make([]byte, 17)...)
 	fn.inject(netip.AddrPortFrom(pubIP(77, false), 4672), a, pkt)
 	a.runDeferred()
-	if len(connects) != 1 || len(a.directAsked) != maxDirectAsked {
-		t.Fatalf("callback taken while full: %v", connects)
-	}
-	a.cleanFlood(fn.now.Add(directCallbackEvery + time.Second))
-	fn.inject(netip.AddrPortFrom(pubIP(77, false), 4672), a, pkt)
-	a.runDeferred()
-	if len(connects) != 2 {
-		t.Fatalf("no callback once room was made: %v", connects)
+	if len(connects) != 2 || len(a.directAsked) != maxDirectAsked {
+		t.Fatalf("while full: %d remembered, connects %v", len(a.directAsked), connects)
 	}
 }
 

@@ -80,20 +80,21 @@ func TestPendingBudget(t *testing.T) {
 		e.tags = keepTags(tags)
 		return e
 	}
-	taken := 0
+	at := fn.now
 	for i := range maxPendingIPs {
 		from := netip.AddrPortFrom(pubIP(20000+i, false), 4672)
+		at = at.Add(time.Millisecond)
 		for j := range maxPendingPerIP {
-			if ok, _ := a.add(incoming{from: from}, pendKeyword, big(from.Addr(), j), fn.now); ok {
-				taken++
+			if ok, _ := a.add(incoming{from: from}, pendKeyword, big(from.Addr(), j), at); !ok {
+				t.Fatalf("publish %d/%d refused", i, j)
 			}
 		}
 	}
-	if a.pendingItems > maxPendingItems || a.pendingBytes > maxPendingBytes || a.pendingItems != taken {
-		t.Fatalf("%d entries, %d bytes waiting (%d taken)", a.pendingItems, a.pendingBytes, taken)
+	if a.pendingItems > maxPendingItems || a.pendingBytes > maxPendingBytes || a.pendingItems == 0 {
+		t.Fatalf("%d entries, %d bytes waiting", a.pendingItems, a.pendingBytes)
 	}
-	if taken == 0 || taken >= maxPendingIPs*maxPendingPerIP {
-		t.Fatalf("%d taken", taken)
+	if a.pending[pubIP(20000, false)] != nil || a.pending[pubIP(20000+maxPendingIPs-1, false)] == nil {
+		t.Fatal("not the oldest that made room")
 	}
 	sum, items := 0, 0
 	for _, p := range a.pending {
@@ -103,22 +104,26 @@ func TestPendingBudget(t *testing.T) {
 	if sum != a.pendingBytes || items != a.pendingItems {
 		t.Fatalf("totals %d/%d, counted %d/%d", a.pendingBytes, a.pendingItems, sum, items)
 	}
-	// Full: a new address is neither stored nor pinged.
+	// Full: a new address still gets in (and is pinged), in the place of
+	// what waited longest.
 	late := netip.AddrPortFrom(pubIP(9, false), 4672)
-	if ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), fn.now); ok || a.pending[late.Addr()] != nil || len(fn.sent[late]) != 0 {
-		t.Fatal("publish taken while full")
+	ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), at)
+	pinged := false
+	for _, q := range fn.queue {
+		pinged = pinged || q.to == late
+	}
+	if !ok || a.pending[late.Addr()] == nil || !pinged {
+		t.Fatalf("while full: taken %v, pinged %v", ok, pinged)
+	}
+	if a.pendingItems > maxPendingItems || a.pendingBytes > maxPendingBytes {
+		t.Fatalf("over the budget: %d entries, %d bytes", a.pendingItems, a.pendingBytes)
 	}
 	// Proven publishes are not held back.
 	if ok, _ := a.add(incoming{from: addrOf(b), validKey: true}, pendKeyword, kwEntry("Quiet Orchard.mkv", 7, addrOf(b).Addr()), fn.now); !ok {
 		t.Fatal("proven publish refused")
 	}
-	// Once the waiting ones expire, there is room again, and the totals
-	// go back to nothing.
-	fn.now = fn.now.Add(pendingWait + time.Second)
-	if ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), fn.now); !ok {
-		t.Fatal("no room after expiry")
-	}
-	a.prunePending(fn.now.Add(pendingWait + time.Second))
+	// Expired, they all go, and the totals go back to nothing.
+	a.prunePending(at.Add(pendingWait + time.Second))
 	if a.pendingItems != 0 || a.pendingBytes != 0 || len(a.pending) != 0 {
 		t.Fatalf("left: %d entries, %d bytes", a.pendingItems, a.pendingBytes)
 	}

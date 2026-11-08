@@ -637,17 +637,18 @@ func TestFloodStateLimited(t *testing.T) {
 	fn := newFakeNet()
 	a := fn.node(t, 1, Config{})
 	for i := range maxTrackedIPs + 50 {
-		ok := a.allowed(pubIP(100000+i, false), OpBootstrapReq, false, fn.now)
-		if ok != (i < maxTrackedIPs) {
-			t.Fatalf("address %d allowed: %v", i, ok)
+		if !a.allowed(pubIP(100000+i, false), OpBootstrapReq, false, fn.now) {
+			t.Fatalf("new address %d refused", i)
 		}
 	}
 	if len(a.inTracked) != maxTrackedIPs {
 		t.Fatalf("%d addresses tracked", len(a.inTracked))
 	}
-	// Known addresses keep their own allowance.
-	if !a.allowed(pubIP(100000, false), OpBootstrapReq, false, fn.now) {
-		t.Fatal("known address refused")
+	// A known address keeps its own count.
+	ip := pubIP(100000+maxTrackedIPs+49, false)
+	a.allowed(ip, OpBootstrapReq, false, fn.now)
+	if a.allowed(ip, OpBootstrapReq, false, fn.now) {
+		t.Fatal("third request in a second allowed")
 	}
 	for i := range maxBanned + 10 {
 		ip := pubIP(300000+i, false)
@@ -885,5 +886,51 @@ func TestOutsideContactsNotVerified(t *testing.T) {
 	}
 	if v := locked(d, func() int { return d.table.VerifiedLen() }); v > 1 {
 		t.Fatalf("%d verified after a bootstrap (only its sender may be)", v)
+	}
+}
+
+// A downloaded nodes.dat of the current format, every contact marked
+// verified and with a key, vouches for nothing either; our own saved
+// nodes.dat keeps its flags and keys.
+func TestDownloadedNodesFlagsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{Dir: dir})
+	var cs []Contact
+	for i := 10; i < 40; i++ {
+		c := contactN(i)
+		c.Key = UDPKey{Key: 1234, IP: netip.MustParseAddr("5.6.7.8")}
+		cs = append(cs, c)
+	}
+	if _, err := a.AddNodes(EncodeNodes(cs)); err != nil {
+		t.Fatal(err)
+	}
+	if a.table.Len() != len(cs) || a.table.VerifiedLen() != 0 {
+		t.Fatalf("%d contacts, %d verified", a.table.Len(), a.table.VerifiedLen())
+	}
+	for _, c := range a.table.All() {
+		if c.Key != (UDPKey{}) {
+			t.Fatal("a downloaded key kept")
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "nodes.dat"), EncodeNodes(cs), 0o600)
+	b := fn.node(t, 2, Config{Dir: dir})
+	if b.table.VerifiedLen() != len(cs) {
+		t.Fatalf("own nodes.dat: %d verified", b.table.VerifiedLen())
+	}
+}
+
+// With the flood state full, new addresses are still served (an old one
+// is forgotten), so forged packets cannot lock new nodes out.
+func TestFloodStateFullStillServes(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{})
+	for i := range maxTrackedIPs {
+		a.allowed(pubIP(100000+i, false), OpCallbackReq, false, fn.now)
+	}
+	x := netip.AddrPortFrom(pubIP(81, false), 4672)
+	fn.inject(x, a, rawPacket(OpPing, nil))
+	if len(fn.sent[x]) != 1 || len(a.inTracked) != maxTrackedIPs {
+		t.Fatalf("%d answers, %d tracked", len(fn.sent[x]), len(a.inTracked))
 	}
 }

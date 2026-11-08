@@ -666,6 +666,12 @@ const searchWork = 200000
 // trusted ones first, skipping start of them, at most max. Entries are
 // taken in a fixed order (by file, then size), so pages do not overlap.
 func (x *index) keywordResults(key ID, tree *term, start, max int, now time.Time) []*entry {
+	res, _ := x.keywordResultsWork(key, tree, start, max, now)
+	return res
+}
+
+// keywordResultsWork is keywordResults, also returning the work it took.
+func (x *index) keywordResultsWork(key ID, tree *term, start, max int, now time.Time) ([]*entry, int) {
 	files := x.keywords[key]
 	ids, ok := x.sorted[key]
 	if !ok || len(ids) != len(files) {
@@ -712,10 +718,10 @@ func (x *index) keywordResults(key ID, tree *term, start, max int, now time.Time
 	}
 	all := append(trusted, other...)
 	if start >= len(all) {
-		return nil
+		return nil, work
 	}
 	all = all[start:]
-	return all[:min(len(all), max)]
+	return all[:min(len(all), max)], work
 }
 
 // listResults returns the sources or notes of a file of the given size (0

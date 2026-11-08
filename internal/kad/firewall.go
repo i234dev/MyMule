@@ -568,9 +568,12 @@ func (n *Node) onClientUDP(data []byte, from netip.AddrPort, now time.Time) {
 		}
 		// Each address once per 3 minutes; the eD2K side's callback gate
 		// limits how many in all. The addresses remembered are limited
-		// too (forged ones cost nothing): beyond that, new ones wait.
-		if len(n.directAsked) >= maxDirectAsked {
-			return
+		// too (forged ones cost nothing): when full, one is forgotten.
+		for k := range n.directAsked {
+			if len(n.directAsked) < maxDirectAsked {
+				break
+			}
+			delete(n.directAsked, k)
 		}
 		n.directAsked[ip] = now
 		connect := n.cfg.ConnectTo

@@ -472,7 +472,8 @@ func TestKeywordSearchWork(t *testing.T) {
 	}
 }
 
-// Keyword searches answered per second are limited, whoever asks.
+// Keyword searches without our key share a work budget per second;
+// cheap ones barely use it, and searches with our key are not held back.
 func TestKeywordSearchesPerSecond(t *testing.T) {
 	key := KeywordID("orchard")
 	fn, a, _ := storeNode(t, key)
@@ -480,21 +481,29 @@ func TestKeywordSearchesPerSecond(t *testing.T) {
 	var w proto.Writer
 	WriteID(&w, key)
 	w.U16(0)
-	answered := 0
-	for i := range maxKeywordSearches + 5 {
+	ask := func(i int, keyed bool) bool {
 		x := netip.AddrPortFrom(pubIP(600+i, false), 4672)
-		fn.inject(x, a, rawPacket(OpSearchKeyReq, w.B))
-		if len(fn.sent[x]) > 0 {
-			answered++
+		d := rawPacket(OpSearchKeyReq, w.B)
+		if keyed {
+			d = (&Keys{Secret: [32]byte{4}}).EncryptKad(d, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
+		}
+		fn.inject(x, a, d)
+		return len(fn.sent[x]) > 0
+	}
+	for i := range 30 {
+		if !ask(i, false) {
+			t.Fatalf("cheap search %d not answered", i)
 		}
 	}
-	if answered != maxKeywordSearches {
-		t.Fatalf("%d answered in one second", answered)
+	a.kwWork = searchWorkPerSecond // spent
+	if ask(100, false) {
+		t.Fatal("answered beyond the budget")
+	}
+	if !ask(101, true) {
+		t.Fatal("search with our key held back")
 	}
 	fn.now = fn.now.Add(time.Second)
-	x := netip.AddrPortFrom(pubIP(700, false), 4672)
-	fn.inject(x, a, rawPacket(OpSearchKeyReq, w.B))
-	if len(fn.sent[x]) == 0 {
+	if !ask(102, false) {
 		t.Fatal("not answered a second later")
 	}
 }

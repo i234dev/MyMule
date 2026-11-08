@@ -72,9 +72,9 @@ type Node struct {
 	// pendingItems and pendingBytes are what waits in pending in all.
 	pendingItems, pendingBytes int
 
-	// Keyword searches answered in the second kwSecond.
-	kwSecond   time.Time
-	kwSearches int
+	// Work of the keyword searches without our key in the second kwSecond.
+	kwSecond time.Time
+	kwWork   int
 
 	outTracked []tracked // requests we sent, to accept answers
 	inTracked  map[netip.Addr]*floodEntry
@@ -239,10 +239,11 @@ func (n *Node) loadNodes(path string) {
 		n.cfg.Log("kad: %s: %v", path, err)
 		return
 	}
-	n.addNodes(f)
+	n.addNodes(f, true)
 }
 
-// AddNodes adds the contacts of a nodes.dat (one downloaded, say).
+// AddNodes adds the contacts of a nodes.dat from elsewhere (one
+// downloaded): its verified flags and keys are not taken.
 func (n *Node) AddNodes(b []byte) (int, error) {
 	f, err := ParseNodes(b)
 	if err != nil {
@@ -250,10 +251,11 @@ func (n *Node) AddNodes(b []byte) (int, error) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.addNodes(f), nil
+	return n.addNodes(f, false), nil
 }
 
-func (n *Node) addNodes(f NodesFile) int {
+// addNodes adds a nodes.dat's contacts; ours: the one we saved.
+func (n *Node) addNodes(f NodesFile, ours bool) int {
 	now := n.clock()
 	added := 0
 	if f.Bootstrap {
@@ -263,13 +265,17 @@ func (n *Node) addNodes(f NodesFile) int {
 		if c.Version <= 1 || !GoodAddr(c.IP, c.UDPPort) || (c.UDPPort == 53 && c.Version <= 5) {
 			continue
 		}
-		// A nodes.dat without the flag (an old one, or one downloaded)
-		// vouches for nothing: whoever wrote it, or sits on the way it was
-		// downloaded, could fill it with its own nodes. Its contacts are
-		// verified by a HELLO answered with our key before we use them or
-		// give them to others.
-		if !f.HasVerified {
+		// A nodes.dat that is not our own, or has no flags, vouches for
+		// nothing: whoever wrote it, or sits on the way it was downloaded,
+		// could fill it with its own nodes (marked verified, with keys of
+		// its choice that would make the real nodes look like impostors).
+		// Its contacts are verified by a HELLO answered with our key before
+		// we use them or give them to others.
+		if !ours || !f.HasVerified {
 			c.Verified = false
+		}
+		if !ours {
+			c.Key = UDPKey{}
 		}
 		if ok, _ := n.table.AddUnfiltered(c, false, false, now); ok {
 			added++

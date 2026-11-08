@@ -51,8 +51,9 @@ func (n *Node) wasAsked(ip netip.Addr, op byte, now time.Time, keep bool) bool {
 //
 // Each address seen costs memory, and forged ones cost an attacker
 // nothing, so the state is limited: maxTrackedIPs addresses (beyond that,
-// limited requests from new addresses are refused until old ones expire),
-// maxBanned bans, all cleaned every minute.
+// one is forgotten to make room: refusing new addresses instead would let
+// forged packets lock every new node out), maxBanned bans, all cleaned
+// every minute.
 func allowedPerMinute(op byte) int {
 	switch op {
 	case OpBootstrapReq, OpPublishSourceReq, OpPublishNotesReq, OpFirewalledReq, OpFirewalled2Req, OpFindBuddyReq, OpPing:
@@ -133,8 +134,11 @@ func (n *Node) allowed(ip netip.Addr, op byte, proven bool, now time.Time) bool 
 			if now.Sub(n.inCleanup) >= time.Second {
 				n.cleanFlood(now)
 			}
-			if len(n.inTracked) >= maxTrackedIPs {
-				return false // no room to count it: refused
+			for k := range n.inTracked { // full: one is forgotten (any)
+				if len(n.inTracked) < maxTrackedIPs {
+					break
+				}
+				delete(n.inTracked, k)
 			}
 		}
 		e = &floodEntry{}

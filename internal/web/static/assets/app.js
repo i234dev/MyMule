@@ -349,8 +349,17 @@ async function logout() {
 $("#logout").addEventListener("click", logout);
 
 // ---------- Tabs ----------
+// Each tab is an entry in the browser's history (#downloads, #settings...):
+// Back goes to the tab before, not out of MyMule, and a tab's address can
+// be bookmarked. how: "push" (a click), "replace" (on start) or
+// "history" (Back/Forward, already in the address).
+const TABS = ["downloads", "media", "search", "sharing", "settings"];
 let currentTab = "downloads";
-function selectTab(name) {
+function selectTab(name, how = "push") {
+  if (how !== "history" && location.hash !== "#" + name) {
+    if (how === "replace") history.replaceState(null, "", "#" + name);
+    else history.pushState(null, "", "#" + name);
+  }
   currentTab = name;
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(s => { s.hidden = s.id !== "tab-" + name; });
@@ -361,6 +370,10 @@ function selectTab(name) {
   render();
 }
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => selectTab(b.dataset.tab)));
+window.addEventListener("popstate", () => {
+  const name = location.hash.slice(1);
+  if (TABS.includes(name) && !$("#app").hidden && name !== currentTab) selectTab(name, "history");
+});
 
 // ---------- Status polling ----------
 let status = null, timer = null;
@@ -1196,9 +1209,13 @@ async function start() {
   }
   $("#login").hidden = true;
   $("#app").hidden = false;
-  let tab = "downloads";
-  try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
-  selectTab(["downloads", "media", "search", "sharing", "settings"].includes(tab) ? tab : "downloads");
+  // The tab in the address (a bookmark, a reload) first, else the last one.
+  let tab = location.hash.slice(1);
+  if (!TABS.includes(tab)) {
+    tab = "downloads";
+    try { tab = localStorage.getItem("mymule.tab") || tab; } catch {}
+  }
+  selectTab(TABS.includes(tab) ? tab : "downloads", "replace");
   startPolling();
   if (!termsAccepted()) showTerms(true);
 }

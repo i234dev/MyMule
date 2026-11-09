@@ -216,15 +216,7 @@ func (e *engine) start(ctx context.Context) {
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
 	go e.ipf.run(ctx)
-	if settings.UPnP {
-		var ports []portmap.Port
-		if p := e.ListenPortWanted(); p != 0 {
-			ports = append(ports, portmap.Port{Proto: "tcp", Port: p})
-		}
-		if e.kad != nil {
-			ports = append(ports, portmap.Port{Proto: "udp", Port: settings.KadPort})
-		}
-		e.portmap = portmap.New(portmap.Config{Ports: ports, Log: logf})
+	if e.portmap != nil {
 		e.portmapDone = make(chan struct{})
 		go func() {
 			defer close(e.portmapDone)
@@ -374,8 +366,22 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	if withKad {
 		kadEng = setupKad(&dc, &m, lib, uh)
 	}
+	var pm *portmap.Mapper
+	if settings.UPnP {
+		var ports []portmap.Port
+		if *e.port != 0 {
+			ports = append(ports, portmap.Port{Proto: "tcp", Port: uint16(*e.port)})
+		}
+		if kadEng != nil {
+			ports = append(ports, portmap.Port{Proto: "udp", Port: settings.KadPort})
+		}
+		if len(ports) > 0 {
+			pm = portmap.New(portmap.Config{Ports: ports, Log: logf})
+			dc.Router = func() *portmap.State { s := pm.State(); return &s }
+		}
+	}
 	m = download.NewManager(dc)
-	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals, ipf: ipf,
+	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals, ipf: ipf, portmap: pm,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)

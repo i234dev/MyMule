@@ -13,6 +13,7 @@ import (
 
 	"mymule/internal/ed2k"
 	"mymule/internal/kad"
+	"mymule/internal/portmap"
 	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -460,6 +461,15 @@ func (m *Manager) PublicIP() netip.Addr {
 // is enabled.
 // Received is how many bytes of file data peers have sent us since start.
 func (m *Manager) Received() int64 { return m.received.Load() }
+
+// Router returns which ports are open on the router, or nil when MyMule
+// does not open them (upnp = false).
+func (m *Manager) Router() *portmap.State {
+	if m.cfg.Router == nil {
+		return nil
+	}
+	return m.cfg.Router()
+}
 
 // Totals returns the all-time upload and download totals, or nil when
 // they are not kept.

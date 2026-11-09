@@ -138,6 +138,7 @@ type RStatus struct {
 	Shared        *share.Status  `json:"shared,omitempty"`
 	Kad           *KadInfo       `json:"kad,omitempty"`
 	Totals        *stats.Totals  `json:"totals,omitempty"` // all time
+	Router        *RouterInfo    `json:"router,omitempty"` // ports opened on the router; absent: upnp off
 }
 
 // ToRDownload converts a manager status to the REST format.
@@ -186,6 +187,7 @@ func (r *REST) getStatus(w http.ResponseWriter, req *http.Request) {
 	st.Upload, st.Shared = r.m.SharingStatus()
 	st.Kad = KadInfoOf(r.m.KadStatus(), r.m.KadProblem())
 	st.Totals = r.m.Totals()
+	st.Router = RouterInfoOf(r.m.Router())
 	reply(w, st)
 }
 

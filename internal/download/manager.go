@@ -19,6 +19,7 @@ import (
 	"mymule/internal/netutil"
 	"mymule/internal/obfus"
 	"mymule/internal/peer"
+	"mymule/internal/portmap"
 	"mymule/internal/proto"
 	"mymule/internal/safe"
 	"mymule/internal/server"
@@ -67,6 +68,9 @@ type Config struct {
 	// Totals, when set, gives the all-time upload and download totals,
 	// for the status.
 	Totals func() stats.Totals
+	// Router, when set, says which ports are open on the router (UPnP or
+	// NAT-PMP), for the status.
+	Router func() *portmap.State
 	// SendClientUDP, when set, sends an eD2K client UDP packet from our
 	// client UDP port (the Kad port), obfuscated for userHash when not
 	// zero. With it, our hello offers client UDP and queued sources are

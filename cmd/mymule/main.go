@@ -191,6 +191,9 @@ func printSharing(st api.Status) {
 		}
 		fmt.Println(line)
 	}
+	if st.Router != nil || st.Server.Port != 0 {
+		fmt.Println("router:", st.Router.Summary())
+	}
 	if t := st.Totals; t != nil {
 		fmt.Printf("all time: %s sent, %s received (since %s)\n",
 			humanSize(uint64(t.Uploaded)), humanSize(uint64(t.Downloaded)), t.Since.Local().Format("2006-01-02"))

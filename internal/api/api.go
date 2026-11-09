@@ -32,6 +32,7 @@ type Status struct {
 	Shared *share.Status         `json:"shared,omitempty"`
 	Kad    *KadInfo              `json:"kad,omitempty"`
 	Totals *stats.Totals         `json:"totals,omitempty"`
+	Router *RouterInfo           `json:"router,omitempty"` // nil: upnp off
 }
 
 // AddRequest is the body of POST /v1/add.

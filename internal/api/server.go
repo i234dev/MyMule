@@ -148,7 +148,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	}
 	up, shared := s.m.SharingStatus()
 	reply(w, Status{Server: ss, Files: files, Upload: up, Shared: shared, Kad: KadInfoOf(s.m.KadStatus(), s.m.KadProblem()),
-		Totals: s.m.Totals()})
+		Totals: s.m.Totals(), Router: RouterInfoOf(s.m.Router())})
 }
 
 func (s *Server) add(w http.ResponseWriter, r *http.Request) {

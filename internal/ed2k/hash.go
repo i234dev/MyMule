@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mymule/internal/aich"
 	"mymule/internal/md4"
 	"mymule/internal/netutil"
 )
@@ -142,9 +143,14 @@ type Link struct {
 	Name string
 	Size int64
 	Hash Hash
+	// AICH is the file's AICH hash, from an h= field (zero: none).
+	AICH aich.Hash
 }
 
 func (l Link) String() string {
+	if !l.AICH.IsZero() {
+		return fmt.Sprintf("ed2k://|file|%s|%d|%s|h=%s|/", url.PathEscape(l.Name), l.Size, l.Hash, l.AICH)
+	}
 	return fmt.Sprintf("ed2k://|file|%s|%d|%s|/", url.PathEscape(l.Name), l.Size, l.Hash)
 }
 
@@ -156,7 +162,9 @@ const MaxFileSize int64 = 256 << 30
 // ValidSize reports whether n is a usable eD2K file size.
 func ValidSize(n int64) bool { return n > 0 && n <= MaxFileSize }
 
-// ParseLink parses an ed2k file link. Extra fields (sources, AICH, etc.) are ignored.
+// ParseLink parses an ed2k file link. Of the extra fields, the AICH hash
+// (h=) is read; others (sources, part hashes) are ignored, and so is an
+// AICH hash that cannot be read.
 func ParseLink(s string) (Link, error) {
 	var l Link
 	s = strings.TrimSpace(s)
@@ -180,5 +188,13 @@ func ParseLink(s string) (Link, error) {
 	if err != nil {
 		return l, err
 	}
-	return Link{Name: name, Size: size, Hash: h}, nil
+	l = Link{Name: name, Size: size, Hash: h}
+	for _, f := range parts[3:] {
+		if len(f) > 2 && strings.EqualFold(f[:2], "h=") {
+			if a, err := aich.ParseHash(f[2:]); err == nil {
+				l.AICH = a
+			}
+		}
+	}
+	return l, nil
 }

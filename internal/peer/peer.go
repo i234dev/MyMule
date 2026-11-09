@@ -74,12 +74,13 @@ const (
 	edonkeyVersion = 0x3C
 	emuleVersion   = 0<<17 | 50<<10 | 0<<7
 
-	// Misc options 1: we support unicode, secure identification (both
-	// versions, bits 16-19), source exchange version 4 (bits 12-15) and do
+	// Misc options 1: we support AICH (bits 29-31), unicode, secure
+	// identification (both versions, bits 16-19), source exchange version
+	// 4 (bits 12-15) and do
 	// not let others browse our shared files. Everything else
 	// (compression, extended requests) is 0 = unsupported, so peers stick
 	// to the protocol subset we implement.
-	miscOpts1 = 1<<28 | 3<<16 | SXVersion<<12 | 1<<2
+	miscOpts1 = AICHVersion<<29 | 1<<28 | 3<<16 | SXVersion<<12 | 1<<2
 	// Misc options 2: large file (>4 GB) support and the second form of
 	// source exchange (bit 10).
 	miscOpts2 = 1<<4 | 1<<10

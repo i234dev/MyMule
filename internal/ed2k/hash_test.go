@@ -88,3 +88,22 @@ func TestParseLinkRejectsBadSizes(t *testing.T) {
 		t.Fatalf("256 GiB link: %v, %d", err, l.Size)
 	}
 }
+
+// The AICH hash of a link is read and written back; one that cannot be
+// read is ignored, as the other extra fields.
+func TestLinkAICH(t *testing.T) {
+	const h = "31D6CFE0D16AE931B73C59D7E0C089C0"
+	l, err := ParseLink("ed2k://|file|Example.Movie.mkv|1000|" + h + "|h=3car43a4ucisWHU4ALC7JUGJRUZP5FAY|/")
+	if err != nil || l.AICH.String() != "3CAR43A4UCISWHU4ALC7JUGJRUZP5FAY" {
+		t.Fatalf("%v %s", err, l.AICH)
+	}
+	if s := l.String(); s != "ed2k://|file|Example.Movie.mkv|1000|"+h+"|h=3CAR43A4UCISWHU4ALC7JUGJRUZP5FAY|/" {
+		t.Fatalf("written %s", s)
+	}
+	for _, bad := range []string{"|h=NOTBASE32!|/", "|h=|/", "|p=ABC|/", "|/|sources,192.0.2.1:4662|/"} {
+		l, err := ParseLink("ed2k://|file|x.bin|1000|" + h + bad)
+		if err != nil || !l.AICH.IsZero() {
+			t.Errorf("%s: %v %s", bad, err, l.AICH)
+		}
+	}
+}

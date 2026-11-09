@@ -89,6 +89,7 @@ type Manager struct {
 	byConn  map[*peer.Conn]*client
 
 	total      atomic.Int64
+	recovery   recoveryBudget
 	speedBytes int64
 	speedTime  time.Time
 	speed      float64
@@ -203,6 +204,9 @@ func (m *Manager) updateIdentity(cl *client, h peer.Hello, ip net.IP) {
 func (m *Manager) Handle(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.Packet) (bool, error) {
 	if p.Proto == proto.ProtoEMule && p.Opcode == peer.OpRequestPartsI64 {
 		return true, m.onRequestParts(c, p, true)
+	}
+	if p.Proto == proto.ProtoEMule && (p.Opcode == peer.OpAICHFileHashReq || p.Opcode == peer.OpAICHRequest) {
+		return true, m.handleAICH(c, p)
 	}
 	if p.Proto != proto.ProtoEDonkey {
 		return false, nil

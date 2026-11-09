@@ -5,9 +5,11 @@
 package share
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"mymule/internal/aich"
 	"mymule/internal/config"
 	"mymule/internal/ed2k"
 	"mymule/internal/fsutil"
@@ -50,7 +53,8 @@ type diskFile struct {
 	id      os.FileInfo // the file as registered, to recognise it (nil: unknown)
 	hash    ed2k.Hash
 	parts   []ed2k.Hash
-	changed func() // asks for a rescan
+	aich    *aich.Tree // nil until computed
+	changed func()     // asks for a rescan
 }
 
 func (d *diskFile) FileHash() ed2k.Hash     { return d.hash }
@@ -107,6 +111,9 @@ type cacheEntry struct {
 	MTime int64     `json:"mtime"`
 	Hash  ed2k.Hash `json:"hash"`
 	Parts []string  `json:"parts,omitempty"`
+	// AICH holds the AICH hash of each part (see aich.Tree); empty until
+	// computed.
+	AICH []string `json:"aich,omitempty"`
 }
 
 // Status summarises the library for display.
@@ -138,6 +145,11 @@ type Library struct {
 	toHash   int
 	hashPct  int
 	rescanCh chan struct{}
+
+	// AICH trees of files hashed before MyMule computed them are computed
+	// when a peer asks for one, one file at a time.
+	aichQ    chan *diskFile
+	aichBusy map[ed2k.Hash]bool
 }
 
 // NewLibrary shares the files in dirs (not recursive, like eMule).
@@ -155,6 +167,8 @@ func NewLibrary(dirs []string, cachePath string, log func(string, ...any)) *Libr
 		byHash:    map[ed2k.Hash]File{},
 		cache:     map[string]cacheEntry{},
 		rescanCh:  make(chan struct{}, 1),
+		aichQ:     make(chan *diskFile, aichQueue),
+		aichBusy:  map[ed2k.Hash]bool{},
 	}
 	if data, err := os.ReadFile(cachePath); err == nil {
 		json.Unmarshal(data, &l.cache)
@@ -165,6 +179,7 @@ func NewLibrary(dirs []string, cachePath string, log func(string, ...any)) *Libr
 // Run scans the shared folders now and then every interval, or when
 // Rescan is called, until ctx ends.
 func (l *Library) Run(ctx context.Context, interval time.Duration) {
+	go l.aichWorker(ctx)
 	for {
 		l.scan(ctx)
 		select {
@@ -409,7 +424,7 @@ func (l *Library) scan(ctx context.Context) {
 		l.mu.Lock()
 		l.hashing, l.toHash, l.hashPct = filepath.Base(c.path), len(todo)-i, 0
 		l.mu.Unlock()
-		fh, err := ed2k.HashFile(c.path, func(done int64) {
+		fh, tree, err := hashFile(c.path, c.size, func(done int64) {
 			l.mu.Lock()
 			l.hashPct = int(done * 100 / c.size)
 			l.mu.Unlock()
@@ -418,7 +433,7 @@ func (l *Library) scan(ctx context.Context) {
 			l.log("cannot hash %s: %v", c.path, err)
 			continue
 		}
-		ce := cacheEntry{Size: c.size, MTime: c.mtime, Hash: fh.Root}
+		ce := cacheEntry{Size: c.size, MTime: c.mtime, Hash: fh.Root, AICH: aichStrings(tree)}
 		if len(fh.Parts) > 1 {
 			for _, p := range fh.Parts {
 				ce.Parts = append(ce.Parts, p.String())
@@ -514,6 +529,7 @@ func (l *Library) addDiskLocked(path string, ce cacheEntry, id os.FileInfo) {
 			d.parts = append(d.parts, h)
 		}
 	}
+	d.aich = aichTree(ce)
 	old, had := l.disk[path]
 	l.disk[path] = d
 	if had && old.hash != d.hash {
@@ -700,4 +716,128 @@ func sameAsRegistered(d *diskFile, path string) bool {
 	diskAccess(path)
 	st, err := os.Lstat(path)
 	return err == nil && os.SameFile(d.id, st)
+}
+
+// aichQueue bounds the files waiting for their AICH tree.
+const aichQueue = 32
+
+// hashFile computes a file's eD2K hashes and AICH tree, reading it once.
+func hashFile(path string, size int64, progress func(int64)) (*ed2k.FileHashes, *aich.Tree, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	ah := aich.NewHasher(uint64(size))
+	fh, err := ed2k.HashReader(io.TeeReader(f, ah), progress)
+	if err != nil {
+		return nil, nil, err
+	}
+	if fh.Size != size {
+		return nil, nil, fmt.Errorf("%d bytes read, %d expected", fh.Size, size)
+	}
+	tree, err := ah.Tree()
+	if err != nil {
+		return nil, nil, err
+	}
+	return fh, tree, nil
+}
+
+func aichStrings(t *aich.Tree) []string {
+	if t == nil {
+		return nil
+	}
+	out := make([]string, len(t.Parts))
+	for i, h := range t.Parts {
+		out[i] = h.String()
+	}
+	return out
+}
+
+// aichTree reads the AICH tree of a cache entry (nil: none, or not one
+// that fits the file).
+func aichTree(ce cacheEntry) *aich.Tree {
+	if ce.Size <= 0 || len(ce.AICH) != int((ce.Size+aich.PartSize-1)/aich.PartSize) {
+		return nil
+	}
+	t := &aich.Tree{Size: uint64(ce.Size), Parts: make([]aich.Hash, len(ce.AICH))}
+	for i, s := range ce.AICH {
+		h, err := aich.ParseHash(s)
+		if err != nil {
+			return nil
+		}
+		t.Parts[i] = h
+	}
+	return t
+}
+
+// AICH returns the AICH tree of a complete shared file. It is nil for
+// files not shared, partial ones, and files whose tree is not known yet:
+// that is then computed in the background, for a later request.
+func (l *Library) AICH(h ed2k.Hash) *aich.Tree {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	d, ok := l.byHash[h].(*diskFile)
+	if !ok {
+		return nil
+	}
+	if d.aich != nil || l.aichBusy[h] {
+		return d.aich
+	}
+	select {
+	case l.aichQ <- d:
+		l.aichBusy[h] = true
+	default: // busy enough; asked again later
+	}
+	return nil
+}
+
+// sequential reads a shared file from the start, through its ReadAt (which
+// stops if the file changes).
+type sequential struct {
+	d   *diskFile
+	off int64
+}
+
+func (r *sequential) Read(p []byte) (int, error) {
+	if r.off >= r.d.size {
+		return 0, io.EOF
+	}
+	p = p[:min(int64(len(p)), r.d.size-r.off)]
+	n, err := r.d.ReadAt(p, r.off)
+	r.off += int64(n)
+	if n == len(p) {
+		err = nil
+	}
+	return n, err
+}
+
+// aichWorker computes the AICH trees asked for, one at a time.
+func (l *Library) aichWorker(ctx context.Context) {
+	for {
+		var d *diskFile
+		select {
+		case <-ctx.Done():
+			return
+		case d = <-l.aichQ:
+		}
+		tree, err := aich.FromReader(bufio.NewReaderSize(&sequential{d: d}, 1<<20), uint64(d.size))
+		l.mu.Lock()
+		delete(l.aichBusy, d.hash)
+		saved := false
+		if err == nil {
+			d.aich = tree
+			if ce, ok := l.cache[d.path]; ok && ce.Hash == d.hash && ce.Size == d.size && ce.MTime == d.mtime {
+				ce.AICH = aichStrings(tree)
+				l.cache[d.path] = ce
+				saved = true
+			}
+		}
+		l.mu.Unlock()
+		if err != nil {
+			l.log("cannot compute the AICH hash of %s: %v", d.name, err)
+		} else if saved {
+			l.saveCache()
+		}
+	}
 }

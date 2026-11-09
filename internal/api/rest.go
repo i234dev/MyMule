@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mymule/internal/authlimit"
+	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
@@ -26,16 +27,17 @@ import (
 // and a user-visible key, and a stable JSON format documented in
 // docs/API.md. Every request must carry the key.
 type REST struct {
-	m       *download.Manager
-	key     string
-	version string
-	mux     *http.ServeMux
-	also    func(*http.Request) bool // extra check, e.g. the web interface session
-	media   meta.Source              // movie/series lookups; nil = disabled
-	prefs   *prefs.Store             // web preferences; nil = disabled
-	items   *library.Store           // downloads that are movies or episodes
-	onPrefs func()                   // called after preferences change
-	servers ServerControl            // server list and switching; nil = disabled
+	m           *download.Manager
+	key         string
+	version     string
+	mux         *http.ServeMux
+	also        func(*http.Request) bool // extra check, e.g. the web interface session
+	media       meta.Source              // movie/series lookups; nil = disabled
+	prefs       *prefs.Store             // web preferences; nil = disabled
+	items       *library.Store           // downloads that are movies or episodes
+	onPrefs     func()                   // called after preferences change
+	servers     ServerControl            // server list and switching; nil = disabled
+	folderCheck config.FolderCheck       // new folders in mymule.conf; nil = refused
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

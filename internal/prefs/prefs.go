@@ -144,6 +144,10 @@ func (s *Store) check(abs string) error {
 	return checkFolder(abs, []string{base}, noInside, hosts)
 }
 
+// CheckFolder reports why abs cannot be used as a folder MyMule shares or
+// downloads into (the rules of library folders), or nil.
+func (s *Store) CheckFolder(abs string) error { return s.check(abs) }
+
 // usable resolves a library folder, or returns "" if it is not acceptable.
 func (s *Store) usable(dir string) string {
 	abs := s.Abs(dir)

@@ -18,7 +18,7 @@ func TestUpdateSettings(t *testing.T) {
 	orig := "# mine\nport = 4662\r\n# keep\nincoming_dir = old\nupload_limit = 10\nupload_limit = 20\napi_key = example-key-0123456789\n"
 	os.WriteFile(p, []byte(orig), 0o600)
 
-	if err := UpdateSettings(map[string]string{"port": "5000", "download_dir": "/data/done", "upload_limit": "300", "nick": "Example Nick"}); err != nil {
+	if err := UpdateSettings(map[string]string{"port": "5000", "download_dir": "/data/done", "upload_limit": "300", "nick": "Example Nick"}, okFolder); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
@@ -56,7 +56,7 @@ func TestUpdateSettings(t *testing.T) {
 		"multi-line": {"nick": "a\nweb_ui = true"},
 		"bad first":  {"nick": "fine", "kad_port": "0"},
 	} {
-		err := UpdateSettings(vals)
+		err := UpdateSettings(vals, okFolder)
 		if err == nil {
 			t.Errorf("%s: written", name)
 		}
@@ -66,5 +66,45 @@ func TestUpdateSettings(t *testing.T) {
 	}
 	if b2, _ := os.ReadFile(p); string(b2) != got {
 		t.Fatal("file changed by a refused update")
+	}
+}
+
+func okFolder(string) error { return nil }
+
+// A new folder outside the data folder must pass the check; one inside
+// it, or already in mymule.conf, does not need to.
+func TestUpdateSettingsFolders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	p := filepath.Join(home, SettingsFile)
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	os.WriteFile(p, []byte("download_dir = "+outside+"\n"), 0o600)
+	var checked []string
+	check := func(abs string) error {
+		checked = append(checked, abs)
+		return errors.New("not this one")
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	for _, vals := range []map[string]string{
+		{"shared_dirs": "videos; " + other},
+		{"temp_dir": other},
+		{"download_dir": filepath.Join("..", "escape")},
+	} {
+		if err := UpdateSettings(vals, check); err == nil {
+			t.Errorf("%v: written", vals)
+		}
+	}
+	if err := UpdateSettings(map[string]string{"download_dir": other}, nil); err == nil {
+		t.Error("folder changed without a check")
+	}
+	checked = nil
+	if err := UpdateSettings(map[string]string{"temp_dir": "temp", "shared_dirs": "videos;" + outside, "download_dir": outside}, check); err != nil {
+		t.Fatal(err)
+	}
+	if len(checked) != 0 {
+		t.Fatalf("checked %v", checked)
+	}
+	if err := UpdateSettings(map[string]string{"shared_dirs": "."}, check); err == nil {
+		t.Error("the data folder itself shared")
 	}
 }

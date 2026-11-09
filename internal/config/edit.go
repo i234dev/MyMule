@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -77,11 +78,20 @@ func ReadSettingsForEdit() ([]SettingInfo, error) {
 // ErrLockedSetting is returned for a change to a locked setting.
 var ErrLockedSetting = errors.New("this setting can only be changed in mymule.conf")
 
+// FolderCheck reports why a folder cannot be used, or nil.
+type FolderCheck func(abs string) error
+
 // UpdateSettings writes values (setting name -> value) into mymule.conf,
 // keeping everything else in it as it is. The whole file must still read
 // without error, or nothing is written. Changes take effect when MyMule
 // restarts.
-func UpdateSettings(values map[string]string) error {
+//
+// A changed folder (temp_dir, download_dir, shared_dirs) outside the data
+// folder must pass check, the rules library folders follow: whoever holds
+// the API key must not be able to share the users' folders or have
+// downloads land in a system folder. Without check, folders cannot be
+// changed.
+func UpdateSettings(values map[string]string, check FolderCheck) error {
 	known := map[string]bool{}
 	for _, st := range settingsDoc {
 		known[st.key] = true
@@ -105,6 +115,13 @@ func UpdateSettings(values map[string]string) error {
 		return err
 	}
 	text := string(data)
+	cur := Defaults()
+	if _, err := parseSettings(text, &cur); err != nil {
+		return fmt.Errorf("%s: %w", p, err)
+	}
+	if err := checkFolders(values, cur, filepath.Dir(p), check); err != nil {
+		return err
+	}
 	for _, st := range settingsDoc { // in a fixed order
 		v, ok := values[st.key]
 		if !ok {
@@ -117,6 +134,52 @@ func UpdateSettings(values map[string]string) error {
 		return err
 	}
 	return fsutil.WriteFile(p, []byte(text), 0o600)
+}
+
+// checkFolders applies check to the folders values change (see
+// UpdateSettings). Folders inside the data folder are MyMule's own, as
+// the default temp and downloads are; folders already in mymule.conf were
+// put there by whoever edits it, and are not checked again.
+func checkFolders(values map[string]string, cur Settings, base string, check FolderCheck) error {
+	had := map[string]bool{}
+	for _, d := range append([]string{cur.TempDir, cur.DownloadDir}, cur.SharedDirs...) {
+		had[absUnder(base, d)] = true
+	}
+	for _, key := range []string{"temp_dir", "download_dir", "shared_dirs"} {
+		v, ok := values[key]
+		if !ok {
+			continue
+		}
+		dirs := []string{strings.TrimSpace(v)}
+		if key == "shared_dirs" {
+			dirs = nil
+			for _, d := range strings.Split(v, ";") {
+				if d = strings.Trim(strings.TrimSpace(d), `"`); d != "" {
+					dirs = append(dirs, d)
+				}
+			}
+		}
+		for _, d := range dirs {
+			abs := absUnder(base, d)
+			if d == "" || had[abs] || insideDir(abs, base) {
+				continue
+			}
+			if check == nil {
+				return fmt.Errorf("%s: folders can only be changed in mymule.conf", key)
+			}
+			if err := check(abs); err != nil {
+				return fmt.Errorf("%s: %s: %w", key, d, err)
+			}
+		}
+	}
+	return nil
+}
+
+// insideDir reports whether p is inside dir (not dir itself).
+func insideDir(p, dir string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != "." && rel != ".." && !filepath.IsAbs(rel) &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // setLine sets key to value in a mymule.conf text: every line of key is

@@ -761,7 +761,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableMedia(mediaSource())
 		rest.EnableLibrary(e.prefs, e.items, e.updateShared)
 		rest.EnableServers(e)
-		rest.EnableSettings()
+		rest.EnableSettings(e.prefs.CheckFolder)
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()
 			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)

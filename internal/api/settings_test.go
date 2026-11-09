@@ -1,15 +1,18 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/portmap"
+	"mymule/internal/prefs"
 )
 
 // The settings endpoints show mymule.conf and change it; locked settings
@@ -25,7 +28,9 @@ func TestSettingsAPI(t *testing.T) {
 	state := &portmap.State{Method: "UPnP", Ports: []portmap.Port{{Proto: "tcp", Port: 4662}}}
 	m := download.NewManager(download.Config{TempDir: tmp, Router: func() *portmap.State { return state }})
 	rest := NewREST(m, restKey, "test")
-	rest.EnableSettings()
+	store := prefs.Open(filepath.Join(home, "preferences.json"), home)
+	store.Protect(tmp)
+	rest.EnableSettings(store.CheckFolder)
 	srv := httptest.NewServer(rest)
 	defer srv.Close()
 
@@ -47,6 +52,22 @@ func TestSettingsAPI(t *testing.T) {
 	}
 	if code := call(t, srv, "PUT", "/api/v1/settings", "application/json", `{"values":{"port":"x"}}`, nil); code != 400 {
 		t.Fatalf("bad value: %d", code)
+	}
+	// Folders follow the library folders' rules: not the user's whole
+	// home, not MyMule's temporary folder.
+	userHome, _ := os.UserHomeDir()
+	for _, d := range []string{userHome, tmp} {
+		body, _ := json.Marshal(map[string]any{"values": map[string]string{"shared_dirs": d}})
+		if code := call(t, srv, "PUT", "/api/v1/settings", "application/json", string(body), nil); code != 400 {
+			t.Fatalf("shared %s: %d", d, code)
+		}
+	}
+	if runtime.GOOS != "windows" { // its temporary folders are in AppData, refused
+		ok := filepath.Join(t.TempDir(), "Shared")
+		body, _ := json.Marshal(map[string]any{"values": map[string]string{"shared_dirs": ok}})
+		if code := call(t, srv, "PUT", "/api/v1/settings", "application/json", string(body), nil); code != 200 {
+			t.Fatalf("shared %s: %d", ok, code)
+		}
 	}
 
 	var st RStatus

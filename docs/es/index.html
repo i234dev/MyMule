@@ -95,12 +95,14 @@
   <ul class="plain">
     <li>Búsquedas en el servidor conectado o en todos los servidores conocidos a la vez, y en Kad.</li>
     <li>Kad, la red sin servidores: búsquedas y fuentes también ahí, tus archivos compartidos publicados y un nodo Kad completo para los demás.</li>
-    <li>Verificación MD4 de cada parte de 9,28&nbsp;MB: las partes dañadas se vuelven a descargar, y quien sigue enviando datos erróneos deja de usarse.</li>
-    <li>Archivos compartidos y subidas con cola, turnos por usuario y límite de velocidad.</li>
+    <li>Verificación MD4 de cada parte de 9,28&nbsp;MB, y AICH: de una parte dañada solo se vuelven a descargar los bloques de 180&nbsp;KB que están mal. Quien sigue enviando datos erróneos deja de usarse.</li>
+    <li>Archivos compartidos y subidas con cola y turnos por usuario; límites de velocidad de subida y de bajada.</li>
     <li>El sistema de créditos de eMule, con identificación segura: quien te sube archivos avanza en tu cola, y los usuarios de eMule y aMule a los que subes hacen lo mismo contigo.</li>
     <li>Ofuscación del protocolo en las conexiones con usuarios y servidores, que oculta el tráfico de eMule a los proveedores de internet que lo frenan.</li>
     <li>Continúa donde lo dejó tras parar, un fallo o un reinicio.</li>
-    <li>HighID, callbacks de servidor y buddies de Kad para llegar a usuarios detrás de un cortafuegos.</li>
+    <li>HighID, con los puertos abiertos en el router automáticamente (UPnP o NAT-PMP), callbacks de servidor y buddies de Kad para llegar a usuarios detrás de un cortafuegos.</li>
+    <li>Intercambio de fuentes y consultas de cola por UDP con otros clientes eMule y aMule.</li>
+    <li>Filtro de IPs: el ipfilter.dat de eMule, o una lista que se descarga cada semana.</li>
     <li>Todo lo que envían otros usuarios y nodos se comprueba y se limita.</li>
   </ul>
 
@@ -157,7 +159,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>¿Qué es el HighID y lo necesito?</summary>
-      <p>Con HighID los demás usuarios pueden conectarse contigo directamente, así que consigues muchas más fuentes y descargas más rápidas. Para tenerlo, abre en tu router los puertos 4662 (TCP) y 4672 (UDP) hacia el ordenador donde corre MyMule. Sin él MyMule también funciona, con LowID y menos fuentes.</p>
+      <p>Con HighID los demás usuarios pueden conectarse contigo directamente, así que consigues muchas más fuentes y descargas más rápidas. MyMule abre por sí mismo los puertos 4662 (TCP) y 4672 (UDP) en tu router con UPnP o NAT-PMP, si el router lo permite; si no, ábrelos a mano hacia el ordenador donde corre MyMule. Sin HighID MyMule también funciona, con LowID y menos fuentes.</p>
     </details>
     <details>
       <summary>¿Es seguro?</summary>
@@ -173,7 +175,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>¿Qué no hace todavía?</summary>
-      <p>Todavía no tiene transferencias comprimidas ni AICH (recuperar una parte dañada sin volver a descargarla entera). Las ideas y los avisos de fallos son bienvenidos en <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
+      <p>Todavía no tiene transferencias comprimidas ni prioridades de descarga. Las ideas y los avisos de fallos son bienvenidos en <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
     </details>
     <details>
       <summary>¿Es gratis?</summary>

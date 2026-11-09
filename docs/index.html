@@ -109,12 +109,14 @@
   <ul class="plain">
     <li>Searches on the connected server or on every known server at once, and on Kad.</li>
     <li>Kad, the network without servers: searches and sources there too, your shared files published, and a full Kad node for others.</li>
-    <li>MD4 verification of every 9.28&nbsp;MB part: corrupt parts are downloaded again, and peers that keep sending bad data are dropped.</li>
-    <li>Sharing and uploads with a queue, slots taken in turns and a speed limit.</li>
+    <li>MD4 verification of every 9.28&nbsp;MB part, and AICH: only the damaged 180&nbsp;KB blocks of a corrupt part are downloaded again. Peers that keep sending bad data are dropped.</li>
+    <li>Sharing and uploads with a queue and slots taken in turns; upload and download speed limits.</li>
     <li>eMule's credit system, with secure identification: whoever uploads to you moves up in your queue, and the eMule and aMule users you upload to do the same for you.</li>
     <li>Protocol obfuscation for connections to users and servers, which hides eMule traffic from internet providers that slow it down.</li>
     <li>Resume after a stop, a crash or a reboot.</li>
-    <li>HighID support, server callbacks and Kad buddies to reach firewalled peers.</li>
+    <li>HighID support, with the ports opened on the router by itself (UPnP or NAT-PMP), server callbacks and Kad buddies to reach firewalled peers.</li>
+    <li>Source exchange and UDP queue reasks with other eMule and aMule clients.</li>
+    <li>IP filter: eMule's ipfilter.dat, or a list downloaded every week.</li>
     <li>Everything other peers and nodes send is checked and bounded.</li>
   </ul>
 
@@ -171,7 +173,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>What is HighID, and do I need it?</summary>
-      <p>With HighID other users can connect to you directly, so you get many more sources and faster downloads. To get it, forward port 4662 (TCP) and 4672 (UDP) in your router to the computer running MyMule. Without it MyMule still works, with LowID and fewer sources.</p>
+      <p>With HighID other users can connect to you directly, so you get many more sources and faster downloads. MyMule opens port 4662 (TCP) and 4672 (UDP) on your router by itself with UPnP or NAT-PMP, if the router allows it; otherwise forward them by hand to the computer running MyMule. Without HighID MyMule still works, with LowID and fewer sources.</p>
     </details>
     <details>
       <summary>Is it safe to run?</summary>
@@ -187,7 +189,7 @@ mymule stop</code></pre>
     </details>
     <details>
       <summary>What does it not do yet?</summary>
-      <p>Compressed transfers and AICH (recovering a damaged part without downloading all of it again) are not implemented yet. Ideas and bug reports are welcome on <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
+      <p>Compressed transfers and download priorities are not implemented yet. Ideas and bug reports are welcome on <a href="https://github.com/i234dev/MyMule/issues">GitHub</a>.</p>
     </details>
     <details>
       <summary>Is it free?</summary>

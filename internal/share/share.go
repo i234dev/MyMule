@@ -822,22 +822,27 @@ func (l *Library) aichWorker(ctx context.Context) {
 		case d = <-l.aichQ:
 		}
 		tree, err := aich.FromReader(bufio.NewReaderSize(&sequential{d: d}, 1<<20), uint64(d.size))
-		l.mu.Lock()
-		delete(l.aichBusy, d.hash)
-		saved := false
-		if err == nil {
-			d.aich = tree
-			if ce, ok := l.cache[d.path]; ok && ce.Hash == d.hash && ce.Size == d.size && ce.MTime == d.mtime {
-				ce.AICH = aichStrings(tree)
-				l.cache[d.path] = ce
-				saved = true
-			}
-		}
-		l.mu.Unlock()
 		if err != nil {
 			l.log("cannot compute the AICH hash of %s: %v", d.name, err)
-		} else if saved {
-			l.saveCache()
+		} else {
+			// Kept in the cache first, then given out.
+			l.mu.Lock()
+			ce, ok := l.cache[d.path]
+			ok = ok && ce.Hash == d.hash && ce.Size == d.size && ce.MTime == d.mtime
+			if ok {
+				ce.AICH = aichStrings(tree)
+				l.cache[d.path] = ce
+			}
+			l.mu.Unlock()
+			if ok {
+				l.saveCache()
+			}
 		}
+		l.mu.Lock()
+		delete(l.aichBusy, d.hash)
+		if err == nil {
+			d.aich = tree
+		}
+		l.mu.Unlock()
 	}
 }

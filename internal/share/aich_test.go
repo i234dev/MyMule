@@ -48,7 +48,10 @@ func TestLibraryAICH(t *testing.T) {
 	if l3.AICH(fh.Root).Root() != want.Root() {
 		t.Fatal("computed tree differs")
 	}
-	if l4 := NewLibrary([]string{dir}, cache, nil); func() bool { l4.scan(ctx); return l4.AICH(fh.Root) == nil }() {
+	// Saved too (before it is given out).
+	l4 := NewLibrary([]string{dir}, cache, nil)
+	l4.scan(ctx)
+	if l4.AICH(fh.Root) == nil {
 		t.Fatal("computed tree not saved")
 	}
 

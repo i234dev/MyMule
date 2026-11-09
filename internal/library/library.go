@@ -283,6 +283,13 @@ func Destination(st Settings, it Item, src string) string {
 // Move moves src to dst, creating folders. If dst exists, " (2)", " (3)"...
 // is added. It works across disks (copy, then delete). Returns the final path.
 func Move(src, dst string) (string, error) {
+	// Already there (a file organized in place): nothing to move, and no
+	// "(2)" copy of its own name.
+	if a, err := os.Stat(src); err == nil {
+		if b, err := os.Stat(dst); err == nil && os.SameFile(a, b) {
+			return dst, nil
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}

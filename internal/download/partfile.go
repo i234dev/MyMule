@@ -55,6 +55,7 @@ type PartFile struct {
 	badPart map[string]map[int]int // per owner: failures per part (2 = not given to it again)
 	ownerAt map[string]time.Time   // per owner: last data it sent us
 	banned  map[string]bool        // owners that sent too many bad parts
+	badSets int                    // hash sets received that did not fit
 
 	f        *os.File
 	dataPath string
@@ -211,9 +212,17 @@ func Open(metaPath string) (*PartFile, error) {
 		return nil, fmt.Errorf("%s: the hash set does not match the file", metaPath)
 	}
 	for _, r := range m.Done {
+		if r[0] < 0 || r[1] <= r[0] || r[0] >= pf.Size {
+			continue // nothing a sound state file says
+		}
 		pf.done.Add(Range{r[0], min(r[1], pf.Size)})
 	}
 	copy(pf.verified, m.Verified)
+	if pf.hashSet == nil && !pf.rootIsPartHash() {
+		// Verified against what? Without the hash set they cannot be
+		// checked again, nor uploaded: they wait for it like the others.
+		clear(pf.verified)
+	}
 	if done, err := pf.finishedBefore(m.Finishing); done {
 		return nil, err
 	}
@@ -222,6 +231,14 @@ func Open(metaPath string) (*PartFile, error) {
 		return nil, err
 	}
 	pf.f = f
+	// Bytes past the end of the file (a damaged or replaced data file) are
+	// not the file's: cut them, so they are never shared.
+	if st, err := f.Stat(); err == nil && st.Size() > pf.Size {
+		if err := f.Truncate(pf.Size); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("%s: longer than the file and cannot be cut: %w", pf.dataPath, err)
+		}
+	}
 	// If the data file is shorter than what the state claims (e.g. crash
 	// before flush), forget the bytes we don't actually have.
 	if st, err := f.Stat(); err == nil && st.Size() < pf.Size {
@@ -385,6 +402,17 @@ func (pf *PartFile) completeLocked() bool {
 
 // IsLarge reports whether 64-bit packets are needed.
 func (pf *PartFile) IsLarge() bool { return pf.Size > peer.LargeFileLimit }
+
+// badSetsWarn is after how many hash sets that do not fit we warn.
+const badSetsWarn = 3
+
+// badHashSet counts a hash set that did not fit, and returns the count.
+func (pf *PartFile) badHashSet() int {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	pf.badSets++
+	return pf.badSets
+}
 
 // NeedsHashSet reports whether we still need the part hashes from a peer.
 func (pf *PartFile) NeedsHashSet() bool {

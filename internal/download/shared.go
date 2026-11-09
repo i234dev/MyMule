@@ -18,7 +18,9 @@ func (s sharedPart) Partial() bool       { return true }
 func (s sharedPart) Avail() []bool       { return s.pf.VerifiedParts() }
 
 func (s sharedPart) PartHashes() []ed2k.Hash {
-	if NumParts(s.pf.Size) <= 1 {
+	// Below one part the file hash is the part's hash, and there is no set;
+	// at exactly one part (and above) there is, and peers need it.
+	if s.pf.Size < ed2k.PartSize {
 		return nil
 	}
 	return s.pf.HashSet()

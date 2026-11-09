@@ -216,3 +216,33 @@ func TestCreditsOrderQueue(t *testing.T) {
 	}
 	m.mu.Unlock()
 }
+
+// One address (several user hashes) does not get every slot while peers
+// from other addresses wait; with nobody else waiting, it may.
+func TestSlotsSpreadOverAddresses(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.mu.Lock()
+	add := func(i int, ip string) *client {
+		cl := &client{userHash: ed2k.Hash{byte(i)}, ip: net.ParseIP(ip), port: 4662, lastAsk: time.Now(),
+			queuedAt: time.Now().Add(-time.Duration(10-i) * time.Minute)}
+		m.clients[idOf(cl.userHash, cl.ip)] = cl
+		m.enqueueLocked(cl)
+		return cl
+	}
+	a1 := add(1, "198.51.100.1")
+	add(2, "198.51.100.1")
+	b := add(3, "198.51.100.2")
+	a1.uploading = true
+	next := m.firstWaitingLocked()
+	m.mu.Unlock()
+	if next != b {
+		t.Fatalf("next slot for %v, want the other address", next.ip)
+	}
+	m.mu.Lock()
+	b.uploading = true
+	next = m.firstWaitingLocked()
+	m.mu.Unlock()
+	if next == nil || !next.ip.Equal(net.ParseIP("198.51.100.1")) {
+		t.Fatal("nobody else waits: the address may have a second slot")
+	}
+}

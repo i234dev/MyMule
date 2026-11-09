@@ -509,13 +509,31 @@ func (m *Manager) othersWaitingLocked(cl *client) bool {
 	return false
 }
 
+// firstWaitingLocked is the next peer to get a slot: the first waiting
+// one whose address has no slot yet, so that one address (one machine
+// with several user hashes) cannot take every slot while others wait;
+// only when every waiting peer shares an address with an upload, the
+// first of them.
 func (m *Manager) firstWaitingLocked() *client {
-	for _, cl := range m.orderLocked() {
-		if !cl.uploading && cl.awaiting.IsZero() {
-			return cl
+	busy := map[string]bool{}
+	for _, cl := range m.clients {
+		if cl.uploading || !cl.awaiting.IsZero() {
+			busy[cl.ip.String()] = true
 		}
 	}
-	return nil
+	var first *client
+	for _, cl := range m.orderLocked() {
+		if cl.uploading || !cl.awaiting.IsZero() {
+			continue
+		}
+		if !busy[cl.ip.String()] {
+			return cl
+		}
+		if first == nil {
+			first = cl
+		}
+	}
+	return first
 }
 
 // orderLocked returns the queue in the order slots are given: by score,

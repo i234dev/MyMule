@@ -468,6 +468,12 @@ func (s *session) handle(p *proto.Packet) error {
 		if err == nil && h == s.pf.Hash {
 			if err := s.pf.SetHashSet(set); err != nil {
 				s.m.cfg.Debug("%s: bad hashset from %s: %v", s.pf.Name, s.src.key, err)
+				if s.pf.badHashSet() == badSetsWarn {
+					// Several peers, and none gives a set that fits: the size
+					// in the link is likely wrong (the hash is the file's,
+					// the size another), and the download would never move.
+					s.m.cfg.Log("%s: %d peers sent a hash set that does not fit this file: the size in its link is probably wrong", s.pf.Name, badSetsWarn)
+				}
 			}
 		}
 

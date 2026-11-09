@@ -169,3 +169,18 @@ func TestLongTitlesFit(t *testing.T) {
 		t.Fatalf("season file: %q %v", rel, ok)
 	}
 }
+
+// A file already where it belongs is left as it is: not copied to a
+// "(2)" name of its own.
+func TestMoveInPlace(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "Quiet Orchard (2017).mkv")
+	os.WriteFile(p, []byte("x"), 0o644)
+	got, err := Move(p, p)
+	if err != nil || got != p {
+		t.Fatalf("%q %v", got, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*(2)*")); len(left) != 0 {
+		t.Fatalf("copies: %v", left)
+	}
+}

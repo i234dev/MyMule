@@ -265,6 +265,10 @@ func (pf *PartFile) AICHRecovered(owner string, p int, root aich.Hash, data []by
 		pf.aich.restored = map[int]bool{}
 	}
 	pf.aich.restored[p] = true
+	// The kept blocks were written by others before (and are only as good
+	// as the AICH hash): if the part fails again, the peer that fills in
+	// the rest must not be blamed for them alone.
+	pf.unknown[p] = true
 	for _, r := range good {
 		pf.done.Add(r)
 	}

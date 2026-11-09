@@ -124,6 +124,37 @@ func TestAICHRepairsCorruptPart(t *testing.T) {
 	}
 }
 
+// A repaired part that fails again (the AICH hash was a lie, so bad
+// blocks were kept) is not blamed on the peer that filled in the rest.
+func TestAICHRepairFailureNotBlamedOnFiller(t *testing.T) {
+	data := testData(int(ed2k.PartSize)*2 + 5000)
+	bad := corruptBlocks(data, 2, 40)
+	lie := corruptBlocks(data, 2, 40, 5) // calls blocks 2 and 40 good
+	pf, tree := aichSetup(t, data, lie)
+	serve(t, pf, "peer:1", part0, bad, 0)
+	p, root, ok := pf.AICHAsk("peer:2", part0)
+	if !ok {
+		t.Fatal("not asked")
+	}
+	if _, _, err := pf.AICHRecovered("peer:2", p, root, recoveryOf(t, tree, lie, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if n := serve(t, pf, "peer:3", part0, data, 0); n != 1 {
+		t.Fatalf("%d blocks downloaded again, want 1", n)
+	}
+	if pf.Corrupt() != 2 {
+		t.Fatalf("%d corrupt parts, want 2", pf.Corrupt())
+	}
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	if pf.strikes["peer:3"] != 0 || pf.badPart["peer:3"] != nil {
+		t.Fatal("the peer that filled in the repaired part was blamed")
+	}
+	if !pf.isolate[0] {
+		t.Fatal("the part is not downloaded again from a single peer")
+	}
+}
+
 // Without an answer in time, the part is downloaded again whole.
 func TestAICHWaitEnds(t *testing.T) {
 	old := aichWaitMax

@@ -1,6 +1,10 @@
 package download
 
 import (
+	"bytes"
+	"compress/zlib"
+	"encoding/binary"
+	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -201,6 +205,11 @@ func TestSXShouldAsk(t *testing.T) {
 	}
 }
 
+// rawOf is the network connection under a peer end of sxSession.
+var rawOf = map[*peer.Conn]net.Conn{}
+
+func theirsRaw(c *peer.Conn) net.Conn { return rawOf[c] }
+
 // sxSession is a download session over a TCP connection (whose remote
 // address is real), with the peer's end.
 func sxSession(t *testing.T, hello peer.Hello) (*session, *peer.Conn, *File) {
@@ -220,8 +229,10 @@ func sxSession(t *testing.T, hello peer.Hello) (*session, *peer.Conn, *File) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs := peer.NewConn(<-other)
-	t.Cleanup(func() { nc.Close(); theirs.Close() })
+	raw := <-other
+	theirs := peer.NewConn(raw)
+	rawOf[theirs] = raw
+	t.Cleanup(func() { nc.Close(); theirs.Close(); delete(rawOf, theirs) })
 	src := &Source{key: "1.0.0.9:4662", file: f}
 	return &session{m: m, c: peer.NewConn(nc), src: src, f: f, pf: f.pf, owner: src.key, hello: hello}, theirs, f
 }
@@ -323,4 +334,64 @@ func TestSXAskedOnFileStatus(t *testing.T) {
 		}
 	}
 	t.Fatal("no source request after the file status")
+}
+
+// packed is p compressed as eMule sends it (protocol 0xD4).
+func packed(t *testing.T, op byte, payload []byte) []byte {
+	t.Helper()
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zw.Write(payload)
+	zw.Close()
+	b := []byte{proto.ProtoPacked, 0, 0, 0, 0, op}
+	binary.LittleEndian.PutUint32(b[1:5], uint32(1+z.Len()))
+	return append(b, z.Bytes()...)
+}
+
+// eMule compresses large source answers: one is taken while our request
+// is pending; a compressed packet otherwise still ends the connection.
+func TestSXPackedAnswer(t *testing.T) {
+	sx2 := peer.Hello{Tags: proto.TagList{proto.IntTag(peer.CTEMuleMiscOpts2, 1<<10)}}
+	s, theirs, f := sxSession(t, sx2)
+	var srcs []peer.SXSource
+	for i := range 30 {
+		srcs = append(srcs, peer.SXSource{ID: 2 | uint32(1+i)<<24, Port: 4662})
+	}
+	ans := packed(t, peer.OpAnswerSources2, peer.EncodeAnswerSources2(4, f.pf.Hash, srcs))
+	s.askSources()
+	theirs.Read(5 * time.Second) // our request
+	if _, err := theirsRaw(theirs).Write(ans); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.c.Read(5 * time.Second)
+	if err != nil {
+		t.Fatalf("packed answer refused: %v", err)
+	}
+	s.handle(p)
+	if len(f.sources) != 30 {
+		t.Fatalf("%d sources", len(f.sources))
+	}
+	// No request pending now: refused.
+	theirsRaw(theirs).Write(ans)
+	if _, err := s.c.Read(5 * time.Second); !errors.Is(err, proto.ErrPacked) {
+		t.Fatalf("packed packet without a request: %v", err)
+	}
+}
+
+// Requests count even when we have nothing to give: asking over and over
+// does not make us go through the sources each time.
+func TestSXEmptyRequestsCounted(t *testing.T) {
+	m, f := sxManager(t, nil)
+	now := time.Now()
+	ip := net.ParseIP("1.0.0.9")
+	if m.sxSourcesFor(f.pf.Hash, ip, now) != nil {
+		t.Fatal("sources from nothing")
+	}
+	f.sources["1.0.0.1:4662"] = &Source{key: "1.0.0.1:4662", IP: net.ParseIP("1.0.0.1").To4(), Port: 4662, State: StateQueued, file: f}
+	if m.sxSourcesFor(f.pf.Hash, ip, now.Add(time.Second)) != nil {
+		t.Fatal("an empty answer did not count")
+	}
+	if m.sx.answersInMinute != 1 {
+		t.Fatalf("%d counted", m.sx.answersInMinute)
+	}
 }

@@ -262,6 +262,10 @@ type Conn struct {
 	writeMu sync.Mutex
 	// Trace, if set, is called for every packet sent (out=true) or received.
 	Trace func(out bool, p *proto.Packet)
+	// Packed, if set, says which compressed packets Read takes and how
+	// large they may grow (0 = refused, as all are by default). Set and
+	// read by the reading goroutine only.
+	Packed func(opcode byte) int
 }
 
 func NewConn(nc net.Conn) *Conn { return &Conn{nc: nc} }
@@ -299,7 +303,7 @@ func (c *Conn) Send(protocol, opcode byte, payload []byte) error {
 // Read reads the next packet, failing if none arrives within timeout.
 func (c *Conn) Read(timeout time.Duration) (*proto.Packet, error) {
 	c.nc.SetReadDeadline(time.Now().Add(timeout))
-	p, err := proto.ReadPeerPacket(c.nc, proto.MaxPeerPacketSize)
+	p, err := proto.ReadPeerPacketPacked(c.nc, proto.MaxPeerPacketSize, c.Packed)
 	if err == nil && c.Trace != nil {
 		c.Trace(false, p)
 	}

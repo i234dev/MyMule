@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"io"
 	"runtime"
 	"testing"
@@ -162,5 +163,38 @@ func TestPeerPacketRefusesPacked(t *testing.T) {
 	}
 	if _, err := ReadPacketMax(bytes.NewReader(p.Encode()), MaxPacketSize); err != nil {
 		t.Fatalf("compressed server packet refused: %v", err)
+	}
+}
+
+// A compressed packet from a peer is taken only for an opcode the caller
+// allows, and only up to the size it allows.
+func TestReadPeerPacketPacked(t *testing.T) {
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zw.Write(make([]byte, 10000))
+	zw.Close()
+	pkt := append([]byte{ProtoPacked, 0, 0, 0, 0, 0x84}, z.Bytes()...)
+	binary.LittleEndian.PutUint32(pkt[1:5], uint32(1+z.Len()))
+	allow := func(limit int) func(byte) int {
+		return func(op byte) int {
+			if op == 0x84 {
+				return limit
+			}
+			return 0
+		}
+	}
+	if p, err := ReadPeerPacketPacked(bytes.NewReader(pkt), MaxPeerPacketSize, allow(20000)); err != nil || len(p.Payload) != 10000 || p.Proto != ProtoEMule {
+		t.Fatalf("allowed: %v", err)
+	}
+	if _, err := ReadPeerPacketPacked(bytes.NewReader(pkt), MaxPeerPacketSize, allow(5000)); err == nil {
+		t.Fatal("expanded beyond the limit allowed")
+	}
+	other := append([]byte(nil), pkt...)
+	other[5] = 0x85
+	if _, err := ReadPeerPacketPacked(bytes.NewReader(other), MaxPeerPacketSize, allow(20000)); !errors.Is(err, ErrPacked) {
+		t.Fatalf("another opcode: %v", err)
+	}
+	if _, err := ReadPeerPacket(bytes.NewReader(pkt), MaxPeerPacketSize); !errors.Is(err, ErrPacked) {
+		t.Fatalf("without permission: %v", err)
 	}
 }

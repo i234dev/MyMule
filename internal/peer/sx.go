@@ -17,8 +17,9 @@ import (
 //
 // A source is <ID 4><TCP port 2><server IP 4><server port 2>, then from
 // version 2 its user hash (16), from version 4 its crypt options (1). From
-// version 3 the ID is "hybrid": an IP in the opposite byte order to the
-// eD2K ID, so that a HighID whose last byte is 0 is not taken for a LowID.
+// version 3 the ID is "hybrid": a HighID's IP in the opposite byte order
+// to the eD2K ID, so that one whose last byte is 0 is not taken for a
+// LowID; a LowID as it is.
 const (
 	OpAnswerSources   = 0x82 // eMule protocol
 	OpRequestSources2 = 0x83
@@ -28,9 +29,16 @@ const (
 // SXVersion is the source exchange version we speak (eMule's latest).
 const SXVersion = 4
 
-// MaxSXSources is the most sources one answer may carry (eMule sends at
-// most 500); a longer answer is refused whole.
-const MaxSXSources = 500
+// MaxSXSources is the most sources one answer may carry (eMule stops
+// after 500, one more at times); a longer answer is refused whole.
+const MaxSXSources = 501
+
+// MaxSXAnswerBytes bounds a source answer: MaxSXSources of the largest
+// format, plus the header.
+const MaxSXAnswerBytes = 1 + 16 + 2 + MaxSXSources*29
+
+// lowIDLimit: client IDs below it are LowIDs (eD2K's limit).
+const lowIDLimit = 0x01000000
 
 // SXSource is one source in a source exchange answer.
 type SXSource struct {
@@ -67,12 +75,13 @@ func sxEntrySize(version byte) int {
 }
 
 // encodeSources writes count and sources in the given version's format.
+// Every ID is taken for a HighID (an IP): we give no LowIDs.
 func encodeSources(w *proto.Writer, version byte, srcs []SXSource) {
 	w.U16(uint16(len(srcs)))
 	for _, s := range srcs {
 		id := s.ID
 		if version >= 3 {
-			id = swap32(id)
+			id = swap32(id) // every source we give is a HighID
 		}
 		w.U32(id)
 		w.U16(s.Port)
@@ -120,7 +129,7 @@ func decodeSources(r *proto.Reader, version byte) ([]SXSource, error) {
 	for range n {
 		var s SXSource
 		s.ID = r.U32()
-		if version >= 3 {
+		if version >= 3 && s.ID >= lowIDLimit {
 			s.ID = swap32(s.ID)
 		}
 		s.Port = r.U16()
@@ -149,13 +158,26 @@ func DecodeAnswerSources2(payload []byte) (byte, ed2k.Hash, []SXSource, error) {
 	return version, file, srcs, err
 }
 
-// DecodeAnswerSources parses OP_ANSWERSOURCES, in the format of version
-// (the one we asked with).
+// DecodeAnswerSources parses OP_ANSWERSOURCES. It says no version, and
+// clients write it in theirs or ours: the size of the sources tells (as
+// eMule reads it), and version (the one we asked with) only chooses
+// between 2 and 3, which have the same size.
 func DecodeAnswerSources(payload []byte, version byte) (ed2k.Hash, []SXSource, error) {
 	r := proto.NewReader(payload)
 	file := ed2k.Hash(r.Hash())
-	if r.Err() != nil {
+	n := int(proto.NewReader(payload[min(len(payload), 16):]).U16())
+	if r.Err() != nil || len(payload) < 18 {
 		return file, nil, errBadSX
+	}
+	if rest := len(payload) - 18; n > 0 && rest%n == 0 {
+		switch rest / n {
+		case sxEntrySize(1):
+			version = 1
+		case sxEntrySize(2):
+			version = min(max(version, 2), 3)
+		case sxEntrySize(4):
+			version = 4
+		}
 	}
 	srcs, err := decodeSources(r, version)
 	return file, srcs, err

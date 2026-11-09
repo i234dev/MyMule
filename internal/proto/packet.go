@@ -45,7 +45,7 @@ func ReadPacket(r io.Reader) (*Packet, error) { return ReadPacketMax(r, MaxPacke
 
 // ReadPacketMax is ReadPacket with a size limit that applies both to the
 // packet on the wire and to its decompressed payload.
-func ReadPacketMax(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, true) }
+func ReadPacketMax(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, true, nil) }
 
 // ErrPacked is returned by ReadPeerPacket for a compressed packet.
 var ErrPacked = errors.New("proto: compressed packet refused")
@@ -54,9 +54,18 @@ var ErrPacked = errors.New("proto: compressed packet refused")
 // but compressed packets are refused. We never announce compression to
 // peers, so honest clients never send it, and unpacking let a peer make
 // us allocate and inflate about 2000 times what it sent.
-func ReadPeerPacket(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, false) }
+func ReadPeerPacket(r io.Reader, max int) (*Packet, error) { return readPacket(r, max, false, nil) }
 
-func readPacket(r io.Reader, max int, allowPacked bool) (*Packet, error) {
+// ReadPeerPacketPacked is ReadPeerPacket, but a compressed packet whose
+// opcode packed allows (a limit above 0) is taken, decompressed to at
+// most that limit. eMule compresses some answers whatever we announce
+// (the sources of a file, above 354 bytes); only those, only when we
+// asked for one, and only small, are worth taking.
+func ReadPeerPacketPacked(r io.Reader, max int, packed func(opcode byte) int) (*Packet, error) {
+	return readPacket(r, max, false, packed)
+}
+
+func readPacket(r io.Reader, max int, allowPacked bool, packed func(opcode byte) int) (*Packet, error) {
 	var hdr [6]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return nil, err
@@ -65,7 +74,7 @@ func readPacket(r io.Reader, max int, allowPacked bool) (*Packet, error) {
 	switch proto {
 	case ProtoEDonkey, ProtoEMule:
 	case ProtoPacked:
-		if !allowPacked {
+		if !allowPacked && (packed == nil || packed(hdr[5]) <= 0) {
 			return nil, ErrPacked
 		}
 	default:
@@ -81,7 +90,11 @@ func readPacket(r io.Reader, max int, allowPacked bool) (*Packet, error) {
 	}
 	p := &Packet{Proto: proto, Opcode: hdr[5], Payload: payload}
 	if proto == ProtoPacked {
-		if err := p.unpack(max); err != nil {
+		limit := max
+		if !allowPacked {
+			limit = min(max, packed(hdr[5]))
+		}
+		if err := p.unpack(limit); err != nil {
 			return nil, err
 		}
 	}

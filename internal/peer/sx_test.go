@@ -117,3 +117,58 @@ func TestOurHelloOffersSX(t *testing.T) {
 		t.Fatalf("version %d, second form %v", h.SourceExchange1(), h.SourceExchange2())
 	}
 }
+
+// eMule's wire bytes: a LowID is sent as it is, from version 3 too, and
+// stays a LowID; a HighID comes byte-reversed.
+func TestSXDecodeHybridLowID(t *testing.T) {
+	var w proto.Writer
+	w.U8(4)
+	w.Bytes(make([]byte, 16))
+	w.U16(2)
+	for _, id := range []uint32{0x00123456, swap32(ipToU32(net.IPv4(1, 2, 3, 4)))} {
+		w.U32(id)
+		w.U16(4662)
+		w.U32(0)
+		w.U16(0)
+		w.Bytes(make([]byte, 16))
+		w.U8(0)
+	}
+	_, _, srcs, err := DecodeAnswerSources2(w.B)
+	if err != nil || srcs[0].ID != 0x00123456 || srcs[1].ID != ipToU32(net.IPv4(1, 2, 3, 4)) {
+		t.Fatalf("%v %+v", err, srcs)
+	}
+}
+
+// eMule may send 501 sources; more is refused.
+func TestSXMaxSources(t *testing.T) {
+	src := make([]SXSource, 501)
+	for i := range src {
+		src[i] = SXSource{ID: 1 << 24, Port: 1}
+	}
+	if _, _, got, err := DecodeAnswerSources2(EncodeAnswerSources2(4, ed2k.Hash{}, src)); err != nil || len(got) != MaxSXSources {
+		t.Fatalf("%d: %v", len(got), err)
+	}
+	if b := EncodeAnswerSources2(4, ed2k.Hash{}, append(src, src[0])); len(b) > MaxSXAnswerBytes {
+		if _, _, _, err := DecodeAnswerSources2(b); err == nil {
+			t.Fatal("more than MaxSXSources accepted")
+		}
+	}
+	if MaxSXAnswerBytes != len(EncodeAnswerSources2(4, ed2k.Hash{}, src)) {
+		t.Fatalf("MaxSXAnswerBytes %d, largest answer %d", MaxSXAnswerBytes, len(EncodeAnswerSources2(4, ed2k.Hash{}, src)))
+	}
+}
+
+// A first-form answer is read in the version its size says: written in
+// ours (4) or the answerer's.
+func TestSXFirstFormVersionFromSize(t *testing.T) {
+	file := ed2k.Hash{3}
+	for _, tc := range []struct{ written, asked byte }{{4, 3}, {1, 3}, {2, 2}, {3, 3}, {4, 2}} {
+		f, srcs, err := DecodeAnswerSources(EncodeAnswerSources(tc.written, file, sxSample()), tc.asked)
+		if err != nil || f != file || len(srcs) != 2 || srcs[0].ID != sxSample()[0].ID || srcs[1].Port != 5000 {
+			t.Fatalf("written v%d, asked v%d: %v %+v", tc.written, tc.asked, err, srcs)
+		}
+	}
+	if _, srcs, err := DecodeAnswerSources(EncodeAnswerSources(4, file, nil), 3); err != nil || len(srcs) != 0 {
+		t.Fatalf("empty answer: %v", err)
+	}
+}

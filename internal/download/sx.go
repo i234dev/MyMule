@@ -117,6 +117,12 @@ func (m *Manager) sxSourcesFor(file ed2k.Hash, ip net.IP, now time.Time) []peer.
 	if st.answersInMinute >= sxAnswersPerMin {
 		return nil
 	}
+	// Counted before looking, whatever we find: a peer asking over and
+	// over must not make us go through the sources each time.
+	if !remember(&st.answered, key, now) {
+		return nil
+	}
+	st.answersInMinute++
 	var out []peer.SXSource
 	for _, src := range f.sources {
 		if len(out) == sxMaxAnswer {
@@ -134,10 +140,6 @@ func (m *Manager) sxSourcesFor(file ed2k.Hash, ip net.IP, now time.Time) []peer.
 		out = append(out, peer.SXSource{ID: server.IPToU32(src.IP), Port: src.Port, ServerIP: net.IPv4zero,
 			UserHash: src.UserHash, Crypt: src.Crypt})
 	}
-	if len(out) == 0 || !remember(&st.answered, key, now) {
-		return nil
-	}
-	st.answersInMinute++
 	return out
 }
 
@@ -170,6 +172,15 @@ func (s *session) askSources() error {
 	h := s.hello
 	if !h.SourceExchange() || !s.m.sxShouldAsk(s.f, s.c.RemoteIP(), time.Now()) {
 		return nil
+	}
+	// eMule compresses answers above 354 bytes whatever we announce:
+	// taken while our request is pending, and no larger than an answer
+	// can be.
+	s.c.Packed = func(op byte) int {
+		if s.sxVersion != 0 && (op == peer.OpAnswerSources || op == peer.OpAnswerSources2) {
+			return peer.MaxSXAnswerBytes
+		}
+		return 0
 	}
 	if h.SourceExchange2() {
 		s.sxVersion, s.sxSecond = peer.SXVersion, true
@@ -215,6 +226,6 @@ func (s *session) onSourcesAnswer(p *proto.Packet) {
 	}
 	m.mu.Unlock()
 	if n := m.addSources(s.f, add, "source exchange", our, false); n > 0 {
-		m.cfg.Debug("%s: %d new sources from %s (source exchange)", s.pf.Name, n, s.src.key)
+		m.cfg.Log("%s: %d new sources from %s (source exchange)", s.pf.Name, n, s.src.key)
 	}
 }

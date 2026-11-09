@@ -53,6 +53,19 @@ func (m *Manager) udpAskLocked(src *Source, now time.Time) udpAsk {
 	return a
 }
 
+// udpPendingLocked reports whether the address src is asked at has a UDP
+// question pending, for any file (m.mu held).
+func (m *Manager) udpPendingLocked(src *Source, now time.Time) bool {
+	for _, f := range m.files {
+		for _, o := range f.sources {
+			if !o.udpAskAt.IsZero() && now.Sub(o.udpAskAt) <= udpWait && o.udpPort == src.udpPort && o.IP.Equal(src.IP) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // OnClientUDP handles an eD2K client UDP packet that came to our client
 // UDP port.
 func (m *Manager) OnClientUDP(from netip.AddrPort, op byte, payload []byte) {
@@ -81,7 +94,7 @@ func (m *Manager) OnClientUDP(from netip.AddrPort, op byte, payload []byte) {
 			case peer.OpReaskAck:
 				avail, rank, err := peer.DecodeReaskAck(payload, src.udpVer)
 				if err != nil {
-					continue
+					return
 				}
 				if avail != nil {
 					src.Avail = avail[:min(len(avail), NumParts(f.pf.Size))]
@@ -94,6 +107,7 @@ func (m *Manager) OnClientUDP(from netip.AddrPort, op byte, payload []byte) {
 				m.cfg.Debug("%s [%s]: no longer has the file (UDP)", f.pf.Name, key)
 				src.State = StateNoFile
 			}
+			return // the one question pending at that address
 		}
 	}
 }

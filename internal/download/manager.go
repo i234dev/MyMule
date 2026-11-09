@@ -911,7 +911,11 @@ func (m *Manager) schedule(ctx context.Context) {
 				src.udpAskAt = time.Time{}
 				src.udpFails++
 			} else if m.udpReaskable(src, high) {
-				udpAsks = append(udpAsks, m.udpAskLocked(src, now))
+				// The answers do not say which file they are for: one
+				// question to an address at a time.
+				if !m.udpPendingLocked(src, now) {
+					udpAsks = append(udpAsks, m.udpAskLocked(src, now))
+				}
 				continue
 			}
 			src.busy = true

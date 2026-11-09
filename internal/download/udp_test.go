@@ -186,3 +186,38 @@ func TestDownloadLimit(t *testing.T) {
 	}
 	_ = before
 }
+
+// One peer queues us for two files: it is asked about one at a time,
+// and its answer goes to the source asked, not to the other file's.
+func TestUDPOneQuestionPerAddress(t *testing.T) {
+	m, f := sxManager(t, nil)
+	var sent int
+	m.cfg.SendClientUDP = func(netip.AddrPort, byte, []byte, ed2k.Hash) { sent++ }
+	m.cfg.MaxConns = 10
+	m.srv = highIDServer(t)
+	f2 := &File{pf: f.pf, sources: map[string]*Source{}}
+	m.files[ed2k.Hash{0xEE}] = f2
+	mk := func(file *File) *Source {
+		s := &Source{key: "198.51.100.7:4662", IP: net.ParseIP("198.51.100.7").To4(), Port: 4662, file: file,
+			State: StateQueued, Rank: 50, udpPort: 4672, udpVer: 4, NextAsk: time.Now().Add(-time.Second)}
+		file.sources[s.key] = s
+		return s
+	}
+	a, b := mk(f), mk(f2)
+	m.schedule(context.Background())
+	m.mu.Lock()
+	asked := 0
+	for _, s := range []*Source{a, b} {
+		if !s.udpAskAt.IsZero() {
+			asked++
+		}
+	}
+	m.mu.Unlock()
+	if asked != 1 || sent != 1 {
+		t.Fatalf("%d asked, %d sent", asked, sent)
+	}
+	m.OnClientUDP(netip.MustParseAddrPort("198.51.100.7:4672"), peer.OpFileNotFound, nil)
+	if (a.State == StateNoFile) == (b.State == StateNoFile) {
+		t.Fatalf("answer applied to %v / %v", a.State, b.State)
+	}
+}

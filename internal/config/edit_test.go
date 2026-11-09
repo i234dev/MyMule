@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -106,5 +107,31 @@ func TestUpdateSettingsFolders(t *testing.T) {
 	}
 	if err := UpdateSettings(map[string]string{"shared_dirs": "."}, check); err == nil {
 		t.Error("the data folder itself shared")
+	}
+}
+
+// Changes made at the same time are all kept.
+func TestUpdateSettingsAtOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	p := filepath.Join(home, SettingsFile)
+	os.WriteFile(p, []byte("# empty\n"), 0o600)
+	vals := map[string]string{"port": "5001", "kad_port": "5002", "upload_limit": "33", "download_limit": "44", "upload_slots": "7", "max_conns": "123"}
+	var wg sync.WaitGroup
+	for k, v := range vals {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := UpdateSettings(map[string]string{k: v}, okFolder); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	b, _ := os.ReadFile(p)
+	for k, v := range vals {
+		if !strings.Contains(string(b), "\n"+k+" = "+v+"\n") {
+			t.Errorf("%s lost:\n%s", k, b)
+		}
 	}
 }

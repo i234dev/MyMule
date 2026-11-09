@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 
 	"mymule/internal/fsutil"
@@ -78,6 +79,10 @@ func ReadSettingsForEdit() ([]SettingInfo, error) {
 // ErrLockedSetting is returned for a change to a locked setting.
 var ErrLockedSetting = errors.New("this setting can only be changed in mymule.conf")
 
+// editMu makes changes to mymule.conf one at a time: two at once would
+// each read the file, and the second write would undo the first.
+var editMu sync.Mutex
+
 // FolderCheck reports why a folder cannot be used, or nil.
 type FolderCheck func(abs string) error
 
@@ -92,6 +97,8 @@ type FolderCheck func(abs string) error
 // downloads land in a system folder. Without check, folders cannot be
 // changed.
 func UpdateSettings(values map[string]string, check FolderCheck) error {
+	editMu.Lock()
+	defer editMu.Unlock()
 	known := map[string]bool{}
 	for _, st := range settingsDoc {
 		known[st.key] = true

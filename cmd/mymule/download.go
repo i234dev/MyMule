@@ -119,6 +119,8 @@ func cmdDownload(args []string) error {
 
 	err = m.Run(ctx)
 	m.saveCredits()
+	stop() // all done, or interrupted: close the ports on the router
+	m.waitPortmap()
 	show()
 	if err == context.Canceled {
 		fmt.Fprintln(os.Stderr, "stopped; progress saved. Run 'mymule download' to resume.")

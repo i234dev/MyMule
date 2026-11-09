@@ -28,6 +28,7 @@ import (
 	"mymule/internal/library"
 	"mymule/internal/meta"
 	"mymule/internal/obfus"
+	"mymule/internal/portmap"
 	"mymule/internal/prefs"
 	"mymule/internal/server"
 	"mymule/internal/share"
@@ -83,6 +84,9 @@ type engine struct {
 	cred  *credit.Store  // credits and our secure identification key
 	stats *stats.Store   // all-time upload and download totals
 	ipf   *ipFilter      // the IP filter list
+	// portmap opens our ports on the router; nil when upnp is off.
+	portmap     *portmap.Mapper
+	portmapDone chan struct{}
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -212,6 +216,29 @@ func (e *engine) start(ctx context.Context) {
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
 	go e.ipf.run(ctx)
+	if settings.UPnP {
+		var ports []portmap.Port
+		if p := e.ListenPortWanted(); p != 0 {
+			ports = append(ports, portmap.Port{Proto: "tcp", Port: p})
+		}
+		if e.kad != nil {
+			ports = append(ports, portmap.Port{Proto: "udp", Port: settings.KadPort})
+		}
+		e.portmap = portmap.New(portmap.Config{Ports: ports, Log: logf})
+		e.portmapDone = make(chan struct{})
+		go func() {
+			defer close(e.portmapDone)
+			e.portmap.Run(ctx)
+		}()
+	}
+}
+
+// waitPortmap waits, once stopping, for the ports to be closed on the
+// router.
+func (e *engine) waitPortmap() {
+	if e.portmapDone != nil {
+		<-e.portmapDone
+	}
 }
 
 // obfuscation is the protocol obfuscation we offer, as crypt options,
@@ -419,6 +446,7 @@ func cmdDaemon(args []string) error {
 
 	err = m.Run(ctx)
 	m.saveCredits()
+	m.waitPortmap()
 	if m.kad != nil {
 		m.kad.wait() // it saves its nodes and what others published to us
 	}

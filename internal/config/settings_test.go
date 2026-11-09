@@ -74,7 +74,7 @@ func TestSettingsParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Settings{Port: 12345, Kad: false, KadPort: 5000, KadNodesURL: "https://example.org/nodes.dat", Server: "192.0.2.10:4661", Nick: "tester",
+	want := Settings{Port: 12345, Kad: false, KadPort: 5000, KadNodesURL: "https://example.org/nodes.dat", UPnP: true, Server: "192.0.2.10:4661", Nick: "tester",
 		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10, Obfuscation: "required",
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
@@ -204,7 +204,13 @@ func TestKadSettings(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	for _, bad := range []string{"ip_filter_url = ftp://x/ipfilter.dat", "ip_filter_url = ipfilter.dat"} {
+	if !d.UPnP {
+		t.Fatal("upnp off by default")
+	}
+	if s := Defaults(); func() error { _, err := parseSettings("upnp = false\n", &s); return err }() != nil || s.UPnP {
+		t.Fatal("upnp = false not read")
+	}
+	for _, bad := range []string{"ip_filter_url = ftp://x/ipfilter.dat", "ip_filter_url = ipfilter.dat", "upnp = sometimes"} {
 		s := Defaults()
 		if _, err := parseSettings(bad+"\n", &s); err == nil {
 			t.Errorf("%q accepted", bad)

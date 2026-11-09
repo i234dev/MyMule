@@ -172,6 +172,7 @@ On first run MyMule creates `mymule.conf` next to the executable:
 port = 4662            # TCP port for peers; forward it in your router for HighID
 kad = true             # Kad network (no servers needed): true or false
 kad_port = 4672        # UDP port for Kad; forward it in your router (UDP) too
+upnp = true            # open port and kad_port on the router (UPnP / NAT-PMP); false = by hand
 kad_nodes_url = https://upd.emule-security.org/nodes.dat  # first Kad nodes; empty = only from other clients
 server =               # ip:port, or empty to choose automatically
 nick = MyMule
@@ -214,6 +215,11 @@ for example when the binary is installed in a read-only location.
 Peers that cannot reach you only serve you if they can reach you instead,
 so forwarding the TCP port (`port` in the config) to your machine gets you
 far more sources. `mymule status` shows whether you have HighID or LowID.
+If your router allows UPnP or NAT-PMP, MyMule opens the TCP port and the
+Kad UDP port on it by itself (and closes them when it stops); the log
+says whether it could. Otherwise forward them by hand, or set
+`upnp = false` to never try. In Docker this only works with host
+networking.
 If you have a listen port configured but get LowID, MyMule tries other
 servers, since some servers never test the port.
 

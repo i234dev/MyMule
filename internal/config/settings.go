@@ -29,6 +29,8 @@ type Settings struct {
 	// KadNodesURL is a nodes.dat to start from when no Kad contact is
 	// known; empty = only from other clients.
 	KadNodesURL string
+	// UPnP opens port and kad_port on the router (UPnP or NAT-PMP).
+	UPnP bool
 	// IPFilterURL is an IP filter list downloaded weekly into
 	// ipfilter.dat; empty = only a list put there by hand.
 	IPFilterURL string
@@ -82,6 +84,7 @@ func Defaults() Settings {
 		Kad:            true,
 		KadPort:        4672,
 		KadNodesURL:    DefaultKadNodesURL,
+		UPnP:           true,
 		Nick:           "MyMule",
 		TempDir:        "temp",
 		DownloadDir:    "downloads",
@@ -131,6 +134,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strconv.Itoa(int(s.KadPort)) }},
 	{"kad_nodes_url", "A nodes.dat (list of Kad nodes) to start from when MyMule knows none,\nas http:// or https:// URL. Empty = start only from other clients.",
 		func(s Settings) string { return s.KadNodesURL }},
+	{"upnp", "Open port (TCP) and kad_port (UDP) on the router automatically, with\nUPnP or NAT-PMP, when the router allows it; they are closed again when\nMyMule stops. false = forward them by hand.",
+		func(s Settings) string { return strconv.FormatBool(s.UPnP) }},
 	{"ip_filter_url", "An IP filter list to download every week into ipfilter.dat in the data\nfolder, as http:// or https:// URL: eMule's ipfilter.dat or the P2P\nformat, plain, gzip or zip. MyMule neither connects to nor takes\nconnections from the addresses in it. Empty = only use an ipfilter.dat\nyou put in the data folder yourself (none by default).",
 		func(s Settings) string { return s.IPFilterURL }},
 	{"server", "Server to connect to, as ip:port. Leave empty to pick automatically\nfrom the server list ('mymule servers list'), preferring HighID.",
@@ -335,6 +340,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: kad must be true or false", line)
 			}
 			s.Kad = b
+		case "upnp":
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: upnp must be true or false", line)
+			}
+			s.UPnP = b
 		case "kad_port":
 			n, err := strconv.ParseUint(val, 10, 16)
 			if err != nil || n == 0 {

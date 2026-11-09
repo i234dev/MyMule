@@ -157,6 +157,7 @@ func (m *Manager) session(ctx context.Context, c *peer.Conn, nc net.Conn, outbou
 	m.mu.Lock()
 	src.UserHash = hello.UserHash
 	src.Crypt = hello.Crypt()
+	src.udpPort, src.udpVer = hello.UDPPort(), hello.UDPVersion()
 	src.Name = hello.Name()
 	src.Fails = 0
 	f := src.file

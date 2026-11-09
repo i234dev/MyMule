@@ -540,6 +540,11 @@ func (n *Node) onClientUDP(data []byte, from netip.AddrPort, now time.Time) {
 	}
 	op, p := data[1], data[2:]
 	switch op {
+	case peerReaskFilePing, peerReaskAck, peerFileNotFound, peerQueueFull:
+		if f := n.cfg.ClientUDP; f != nil && len(p) <= maxClientUDP {
+			payload := append([]byte(nil), p...)
+			n.later(func() { f(from, op, payload) })
+		}
 	case OpReaskCallbackUDP:
 		// To the node we are the buddy of, with the asker's address.
 		s := n.served
@@ -579,6 +584,34 @@ func (n *Node) onClientUDP(data []byte, from netip.AddrPort, now time.Time) {
 		connect := n.cfg.ConnectTo
 		n.later(func() { connect(ip, tcp) })
 	}
+}
+
+// eD2K client UDP opcodes for the download and upload queues (package
+// peer has their formats), passed to Config.ClientUDP.
+const (
+	peerReaskFilePing = 0x90
+	peerReaskAck      = 0x91
+	peerFileNotFound  = 0x92
+	peerQueueFull     = 0x93
+	// maxClientUDP bounds one: a hash and the part status of the largest
+	// file.
+	maxClientUDP = 16 + 2 + 4000 + 2
+)
+
+// SendClientUDP sends an eD2K client UDP packet (protocol 0xC5) from our
+// Kad port, which is also our client UDP port; obfuscated for the client
+// with userHash when it is not zero (and our public IP is known).
+func (n *Node) SendClientUDP(to netip.AddrPort, op byte, payload []byte, userHash [16]byte) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !GoodAddr(to.Addr(), to.Port()) {
+		return
+	}
+	b := append([]byte{ProtoEMule, op}, payload...)
+	if userHash != ([16]byte{}) {
+		b = n.keys.EncryptClient(b, userHash, n.publicIP())
+	}
+	n.conn.WriteTo(b, net.UDPAddrFromAddrPort(netip.AddrPortFrom(to.Addr().Unmap(), to.Port())))
 }
 
 // RequestCallback asks the buddy of a firewalled source to have it connect

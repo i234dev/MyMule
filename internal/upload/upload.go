@@ -55,7 +55,9 @@ type client struct {
 	port     uint16
 	lowID    bool
 	emule    bool
-	crypt    byte // obfuscation it offers, from its hello
+	crypt    byte   // obfuscation it offers, from its hello
+	udpPort  uint16 // its eD2K client UDP port (0 = none), from its hello
+	udpVer   byte   // its client UDP version
 	file     ed2k.Hash
 	conn     *peer.Conn
 
@@ -192,6 +194,7 @@ func (m *Manager) updateIdentity(cl *client, h peer.Hello, ip net.IP) {
 	cl.lowID = h.ClientID != 0 && h.ClientID < 0x01000000
 	cl.crypt = h.Crypt()
 	_, cl.emule = h.Tags.Find(peer.CTEMuleVersion)
+	cl.udpPort, cl.udpVer = h.UDPPort(), h.UDPVersion()
 }
 
 // Handle processes an upload-related packet. It returns false for packets
@@ -855,4 +858,72 @@ func (l *limiter) Wait(n int) {
 		l.mu.Unlock()
 		time.Sleep(wait)
 	}
+}
+
+// UDPReply is what to send back to a client UDP packet.
+type UDPReply struct {
+	Op       byte
+	Payload  []byte
+	UserHash ed2k.Hash // obfuscate for this user hash (zero: plain)
+}
+
+// ReaskPing answers OP_REASKFILEPING from ip:port, a peer asking for its
+// place in our queue without connecting (eMule's UDP reask): its rank,
+// "file not found" or "queue full", or nothing (ok false). The datagram's
+// address may be forged; the answer is small and goes to that address,
+// and it only keeps a queued peer's place (as its own reask would).
+func (m *Manager) ReaskPing(ip net.IP, port uint16, payload []byte) (UDPReply, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var cl *client
+	for _, c := range m.queue {
+		if c.ip.Equal(ip) && c.udpPort == port && port != 0 && !c.uploading {
+			cl = c
+			break
+		}
+	}
+	v := byte(peer.UDPVersion)
+	if cl != nil {
+		v = cl.udpVer
+	}
+	file, err := peer.DecodeReaskFilePing(payload, v)
+	if err != nil {
+		return UDPReply{}, false
+	}
+	f := m.cfg.Library.Get(file)
+	if f == nil {
+		r := UDPReply{Op: peer.OpFileNotFound}
+		if cl != nil && cl.crypt&1 != 0 {
+			r.UserHash = cl.userHash
+		}
+		return r, true
+	}
+	if cl == nil {
+		if len(m.queue)+50 > maxQueue {
+			return UDPReply{Op: peer.OpQueueFull}, true
+		}
+		return UDPReply{}, false // it asks over TCP then
+	}
+	if cl.file != file {
+		return UDPReply{}, false // another file than it waits for
+	}
+	cl.lastAsk = time.Now()
+	var status []bool
+	if f.Partial() {
+		status = StatusBits(f.FileSize(), f.Avail())
+	}
+	rank := min(m.rankLocked(cl), 0xFFFF)
+	r := UDPReply{Op: peer.OpReaskAck, Payload: peer.EncodeReaskAck(cl.udpVer, status, uint16(rank))}
+	if cl.crypt&1 != 0 {
+		r.UserHash = cl.userHash
+	}
+	return r, true
+}
+
+// StatusBits pads a part status to eMule's part count (see
+// ed2k.StatusPartCount; the extra part, if any, is empty).
+func StatusBits(size int64, avail []bool) []bool {
+	out := make([]bool, max(ed2k.StatusPartCount(size), len(avail)))
+	copy(out, avail)
+	return out
 }

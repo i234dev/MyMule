@@ -53,6 +53,10 @@ type Config struct {
 	ConnectBuddy func(ip netip.Addr, tcpPort uint16, userHash [16]byte) bool
 	// ConnectTo connects to a downloader that asked for a callback.
 	ConnectTo func(ip netip.Addr, tcpPort uint16)
+	// ClientUDP gets the eD2K client UDP packets (queue reasks) that come
+	// to the Kad port, which is also our client UDP port; called outside
+	// the node's lock. May be nil.
+	ClientUDP func(from netip.AddrPort, op byte, payload []byte)
 	Log       func(format string, args ...any)
 	// Now is the clock (tests); nil = time.Now.
 	Now func() time.Time

@@ -154,6 +154,12 @@ func setupKad(dc *download.Config, m **download.Manager, lib *share.Library, uh 
 				mm.KadConnectTo(ipOf(ip), tcp)
 			}
 		},
+		// The Kad port is our eD2K client UDP port too (as eMule's).
+		ClientUDP: func(from netip.AddrPort, op byte, payload []byte) {
+			if mm := mgr(); mm != nil {
+				mm.OnClientUDP(from, op, payload)
+			}
+		},
 		Log: logf,
 	}
 	if lib != nil {
@@ -167,6 +173,9 @@ func setupKad(dc *download.Config, m **download.Manager, lib *share.Library, uh 
 		return nil
 	}
 	k.node = node
+	dc.SendClientUDP = func(to netip.AddrPort, op byte, payload []byte, user ed2k.Hash) {
+		node.SendClientUDP(to, op, payload, [16]byte(user))
+	}
 	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
 
 	dc.Kad = func() (uint16, byte) { return port, kad.Version }

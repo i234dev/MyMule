@@ -63,6 +63,11 @@ type Config struct {
 	// Totals, when set, gives the all-time upload and download totals,
 	// for the status.
 	Totals func() stats.Totals
+	// SendClientUDP, when set, sends an eD2K client UDP packet from our
+	// client UDP port (the Kad port), obfuscated for userHash when not
+	// zero. With it, our hello offers client UDP and queued sources are
+	// asked for their queue place by UDP.
+	SendClientUDP func(to netip.AddrPort, op byte, payload []byte, userHash ed2k.Hash)
 	// Obfuscation is the protocol obfuscation we offer, as crypt options
 	// (obfus.Supports, Requests, Requires): with Supports, connections to
 	// peers that support it are obfuscated, and obfuscated connections
@@ -186,6 +191,10 @@ type Source struct {
 
 	busy       bool
 	callbackAt time.Time   // when we last asked the server for a callback (LowID)
+	udpPort    uint16      // its client UDP port (0 = none), from its hello
+	udpVer     byte        // its client UDP version
+	udpAskAt   time.Time   // when we asked it by UDP for our queue place
+	udpFails   int         // UDP asks in a row it did not answer
 	kadFW      *kad.Source // a firewalled Kad source, reached by a callback
 	file       *File
 }
@@ -814,6 +823,7 @@ func (m *Manager) schedule(ctx context.Context) {
 		file ed2k.Hash
 	}
 	var kadCallbacks []kadCB
+	var udpAsks []udpAsk
 
 	m.mu.Lock()
 	srv := m.srv
@@ -886,6 +896,14 @@ func (m *Manager) schedule(ctx context.Context) {
 				src.NextAsk = now.Add(ReaskInterval)
 				continue
 			}
+			if !src.udpAskAt.IsZero() {
+				// Asked by UDP, and no answer in time: TCP this time.
+				src.udpAskAt = time.Time{}
+				src.udpFails++
+			} else if m.udpReaskable(src, high) {
+				udpAsks = append(udpAsks, m.udpAskLocked(src, now))
+				continue
+			}
 			src.busy = true
 			src.State = StateConnecting
 			m.active++
@@ -903,6 +921,9 @@ func (m *Manager) schedule(ctx context.Context) {
 
 	for _, id := range callbacks {
 		srv.RequestCallback(id)
+	}
+	for _, a := range udpAsks {
+		m.cfg.SendClientUDP(a.to, peer.OpReaskFilePing, a.payload, a.userHash)
 	}
 	for _, cb := range kadCallbacks {
 		if err := m.cfg.KadCallback(cb.src, cb.file); err != nil {
@@ -1188,6 +1209,9 @@ func (m *Manager) ourHello() peer.Hello {
 	if m.cfg.Kad != nil {
 		if port, version := m.cfg.Kad(); port != 0 {
 			h = h.WithKad(port, version)
+			if m.cfg.SendClientUDP != nil {
+				h = h.WithClientUDP(port) // the Kad port is our client UDP port too
+			}
 			if m.cfg.KadFirewall != nil {
 				fw := m.cfg.KadFirewall()
 				h = h.WithKadFirewall(fw.BuddyIP, fw.BuddyPort, fw.DirectCallback)

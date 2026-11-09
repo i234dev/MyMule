@@ -181,3 +181,31 @@ func TestCallbackLookupsLimited(t *testing.T) {
 		t.Fatalf("%d lookups started", started)
 	}
 }
+
+// Client UDP queue packets that come to the Kad port go to ClientUDP,
+// outside the lock; others do not. SendClientUDP sends from the Kad port,
+// and only to addresses that may be peers.
+func TestClientUDPThroughKadPort(t *testing.T) {
+	fn := newFakeNet()
+	var got []byte
+	var gotOp byte
+	a := fn.node(t, 1, Config{ClientUDP: func(from netip.AddrPort, op byte, p []byte) { gotOp, got = op, p }})
+	x := netip.AddrPortFrom(pubIP(60, false), 4672)
+	fn.inject(x, a, []byte{ProtoEMule, 0x90, 1, 2, 3})
+	a.runDeferred()
+	if gotOp != 0x90 || string(got) != string([]byte{1, 2, 3}) {
+		t.Fatalf("op %02X payload % X", gotOp, got)
+	}
+	gotOp = 0
+	fn.inject(x, a, []byte{ProtoEMule, 0x7F, 1})
+	a.runDeferred()
+	if gotOp != 0 {
+		t.Fatal("another opcode passed on")
+	}
+	fn.queue = nil
+	a.SendClientUDP(x, 0x91, []byte{9}, [16]byte{})
+	a.SendClientUDP(netip.MustParseAddrPort("10.0.0.1:4672"), 0x91, []byte{9}, [16]byte{})
+	if len(fn.queue) != 1 || fn.queue[0].to != x || string(fn.queue[0].b) != string([]byte{ProtoEMule, 0x91, 9}) {
+		t.Fatalf("sent %+v", fn.queue)
+	}
+}

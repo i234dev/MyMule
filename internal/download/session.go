@@ -314,6 +314,10 @@ type session struct {
 	// would otherwise hold the connection for ever.
 	queued, accepted bool
 	hello            peer.Hello
+	// sxVersion is the source exchange version we asked this peer with (0
+	// = no request pending); sxSecond: with the second form.
+	sxVersion byte
+	sxSecond  bool
 }
 
 func (s *session) setState(st SourceState) {
@@ -385,6 +389,10 @@ func (s *session) handle(p *proto.Packet) error {
 	if s.m.kadPacket(s.c, p) || s.m.sxPacket(s.c, s.hello, p) {
 		return nil
 	}
+	if p.Proto == proto.ProtoEMule && (p.Opcode == peer.OpAnswerSources || p.Opcode == peer.OpAnswerSources2) {
+		s.onSourcesAnswer(p)
+		return nil
+	}
 	if ok, err := s.m.identPacket(s.c, p); ok {
 		return err
 	}
@@ -441,6 +449,9 @@ func (s *session) handle(p *proto.Packet) error {
 		if !s.pf.HasNeededParts(avail) {
 			s.setState(StateNoNeededParts)
 			return errDone
+		}
+		if err := s.askSources(); err != nil {
+			return err
 		}
 		if s.pf.NeedsHashSet() {
 			if err := s.c.SendHash(proto.ProtoEDonkey, peer.OpHashSetRequest, s.pf.Hash); err != nil {

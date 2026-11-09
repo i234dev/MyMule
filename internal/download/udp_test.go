@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
 	"mymule/internal/server"
@@ -151,4 +152,37 @@ func TestUDPReaskableConditions(t *testing.T) {
 			t.Errorf("%s: asked by UDP", name)
 		}
 	}
+}
+
+// The download limit holds the data we take, and the time waited does
+// not count against the peer: its session deadline moves by as much.
+func TestDownloadLimit(t *testing.T) {
+	s, _, f := sxSession(t, peer.Hello{})
+	s.m.dlLimit = netutil.NewLimiter(32 << 10) // 32 KB/s, the bucket full
+	held := f.pf.Reserve(s.owner, nil, 3)
+	s.pending = held
+	b := held[0]
+	for _, h := range held {
+		if h.End-h.Start >= 96<<10 { // not the short last block
+			b = h
+			break
+		}
+	}
+	chunk := make([]byte, 16<<10)
+	s.deadline = time.Now().Add(time.Minute)
+	before := s.deadline
+	start := time.Now()
+	for i := range 6 { // 96 KB
+		s.store(b.Start+int64(i*len(chunk)), chunk)
+	}
+	el := time.Since(start)
+	if el < 1500*time.Millisecond || el > 5*time.Second {
+		t.Fatalf("96 KB at 32 KB/s took %v", el)
+	}
+	// Data moves the deadline up to transferTimeout ahead; the wait for
+	// the last packet (half a second) does not eat into that.
+	if time.Until(s.deadline) < transferTimeout-100*time.Millisecond {
+		t.Fatalf("deadline %v ahead: the wait counted against the peer", time.Until(s.deadline))
+	}
+	_ = before
 }

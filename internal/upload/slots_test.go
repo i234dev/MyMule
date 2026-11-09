@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
 )
@@ -89,7 +90,7 @@ func TestUnreachablePeerDoesNotBlockQueue(t *testing.T) {
 
 // With an upload limit below one packet (1-9 KB/s), sending still works.
 func TestLimiterBelowPacketSize(t *testing.T) {
-	l := newLimiter(8192)
+	l := netutil.NewLimiter(8192)
 	done := make(chan struct{})
 	go func() {
 		l.Wait(chunkSize)

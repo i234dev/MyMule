@@ -607,6 +607,12 @@ func (s *session) store(off int64, data []byte) error {
 	}
 	s.f.bytes.Add(n)
 	s.m.received.Add(n)
+	// The download limit: reading the next packet waits, and TCP slows the
+	// peer. The time waited is ours, not the peer's: it does not count
+	// against the session's deadline.
+	if w := s.m.dlLimit.Wait(int(n)); w > 0 {
+		s.deadline = s.deadline.Add(w)
+	}
 	if cr := s.m.cfg.Credits; cr != nil {
 		// Only what is new to us: bytes sent again would let a peer earn
 		// the best place in our upload queue for nothing.

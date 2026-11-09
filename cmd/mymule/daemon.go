@@ -297,13 +297,14 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		})
 	}
 	dc := download.Config{
-		UserHash:    uh,
-		Nick:        *e.conn.nick,
-		Port:        uint16(*e.port),
-		TempDir:     tmp,
-		IncomingDir: *e.out,
-		MaxConns:    *e.maxConns,
-		StayAlive:   stayAlive,
+		UserHash:          uh,
+		Nick:              *e.conn.nick,
+		Port:              uint16(*e.port),
+		TempDir:           tmp,
+		IncomingDir:       *e.out,
+		MaxConns:          *e.maxConns,
+		DownloadLimitKBps: settings.DownloadLimit,
+		StayAlive:         stayAlive,
 		Connect: func(ctx context.Context, cfg server.Config) (*server.Conn, error) {
 			// The daemon follows the server chosen in the web interface;
 			// if it doesn't answer, the others are tried.

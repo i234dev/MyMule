@@ -47,6 +47,9 @@ type Config struct {
 	IncomingDir string
 	StayAlive   bool // keep running when every download is finished (daemon mode)
 	MaxConns    int
+	// DownloadLimitKBps limits the file data we take from peers, in all
+	// (0 = no limit).
+	DownloadLimitKBps int
 	// Connect logs into some server with the given config (the manager
 	// fills in callbacks). Called again whenever the connection drops.
 	Connect func(ctx context.Context, cfg server.Config) (*server.Conn, error)
@@ -255,6 +258,7 @@ type Manager struct {
 	sx sxState // source exchange
 
 	received atomic.Int64 // bytes of file data received from peers since start
+	dlLimit  *netutil.Limiter
 
 	// kadCalled is when we last asked each address (a buddy, or a type 6
 	// source) for a Kad callback.
@@ -281,6 +285,7 @@ func NewManager(cfg Config) *Manager {
 		cfg.MaxConns = 40
 	}
 	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, idents: map[*peer.Conn]*credits.Ident{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
+	m.dlLimit = netutil.NewLimiter(cfg.DownloadLimitKBps * 1024)
 	m.callbacks.allowPrivate = cfg.allowPrivateSources
 	return m
 }

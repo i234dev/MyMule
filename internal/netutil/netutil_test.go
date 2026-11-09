@@ -3,6 +3,7 @@ package netutil
 import (
 	"net"
 	"testing"
+	"time"
 )
 
 func TestIsPublicIPv4(t *testing.T) {
@@ -23,5 +24,24 @@ func TestIsPublicIPv4(t *testing.T) {
 		if !IsPublicIPv4(net.ParseIP(s)) {
 			t.Errorf("%s reported as not public", s)
 		}
+	}
+}
+
+// The limiter spreads bytes to its rate and says how long it waited;
+// unlimited (or nil) it never waits.
+func TestLimiter(t *testing.T) {
+	l := NewLimiter(100 << 10) // 100 KB/s, the bucket full
+	start := time.Now()
+	var waited time.Duration
+	for range 30 {
+		waited += l.Wait(10 << 10)
+	}
+	el := time.Since(start)
+	// 300 KB at 100 KB/s, the first 100 KB at once: about 2 s.
+	if el < 1500*time.Millisecond || el > 4*time.Second || waited < time.Second {
+		t.Fatalf("took %v, waited %v", el, waited)
+	}
+	if NewLimiter(0).Wait(1<<20) != 0 || (*Limiter)(nil).Wait(1<<20) != 0 {
+		t.Fatal("unlimited waited")
 	}
 }

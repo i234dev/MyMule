@@ -43,6 +43,7 @@ type Settings struct {
 	ShareDownloads bool     // share DownloadDir too
 	UploadSlots    int
 	UploadLimit    int // KB/s, 0 = unlimited
+	DownloadLimit  int // KB/s, 0 = unlimited
 
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
@@ -90,6 +91,10 @@ func Defaults() Settings {
 		APIListen:      "127.0.0.1:4711",
 	}
 }
+
+// MinDownloadLimit is the lowest download limit (KB/s): about 1 KB/s for
+// each of the connections a download may have.
+const MinDownloadLimit = 32
 
 // DefaultKadNodesURL is where a first nodes.dat comes from (the one eMule
 // offers), over HTTPS: the file decides which nodes we first talk to.
@@ -141,6 +146,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strconv.Itoa(s.UploadSlots) }},
 	{"upload_limit", "Upload speed limit in KB/s (0 = no limit). Using all your upload\nbandwidth also slows down your downloads.",
 		func(s Settings) string { return strconv.Itoa(s.UploadLimit) }},
+	{"download_limit", "Download speed limit in KB/s (0 = no limit, the default). At least\n32 KB/s: shared by every peer you download from, a lower limit would\nleave each of them too little to keep its place.",
+		func(s Settings) string { return strconv.Itoa(s.DownloadLimit) }},
 	{"api_listen", "HTTP API for scripts and for apps like Radarr, Sonarr and Prowlarr\n(see docs/API.md). 127.0.0.1:4711 = only this computer.\n0.0.0.0:4711 = every device on your network: use it only on a trusted\nnetwork and never forward this port in your router. Empty = disabled.",
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
@@ -428,6 +435,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: upload_limit must be 0 (no limit) or a speed in KB/s", line)
 			}
 			s.UploadLimit = n
+		case "download_limit":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 0 || (n > 0 && n < MinDownloadLimit) {
+				return present, fmt.Errorf("line %d: download_limit must be 0 (no limit) or at least %d (KB/s)", line, MinDownloadLimit)
+			}
+			s.DownloadLimit = n
 		case "web_ui":
 			b, err := strconv.ParseBool(val)
 			if err != nil {

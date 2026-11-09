@@ -208,6 +208,17 @@ func TestKadSettings(t *testing.T) {
 	if _, err := parseSettings("kad_nodes_url =\n", &s); err != nil || s.KadNodesURL != "" {
 		t.Fatalf("empty URL: %v %q", err, s.KadNodesURL)
 	}
+	for _, tc := range []struct {
+		v  string
+		ok bool
+		n  int
+	}{{"0", true, 0}, {"32", true, 32}, {"500", true, 500}, {"10", false, 0}, {"-1", false, 0}, {"lots", false, 0}} {
+		s := Defaults()
+		_, err := parseSettings("download_limit = "+tc.v+"\n", &s)
+		if (err == nil) != tc.ok || (tc.ok && s.DownloadLimit != tc.n) {
+			t.Errorf("download_limit = %s: %v, %d", tc.v, err, s.DownloadLimit)
+		}
+	}
 	// The default of earlier versions, plain HTTP, is read as HTTPS; any
 	// other URL is kept as written.
 	if !strings.HasPrefix(DefaultKadNodesURL, "https://") {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mymule/internal/ed2k"
+	"mymule/internal/netutil"
 	"mymule/internal/peer"
 	"mymule/internal/proto"
 	"mymule/internal/safe"
@@ -79,7 +80,7 @@ type client struct {
 // Manager is the upload side of the client.
 type Manager struct {
 	cfg     Config
-	limiter *limiter
+	limiter *netutil.Limiter
 
 	mu      sync.Mutex
 	clients map[clientID]*client // by user hash and IP
@@ -106,7 +107,7 @@ func New(cfg Config) *Manager {
 	}
 	return &Manager{
 		cfg:       cfg,
-		limiter:   newLimiter(cfg.LimitKBps * 1024),
+		limiter:   netutil.NewLimiter(cfg.LimitKBps * 1024),
 		clients:   map[clientID]*client{},
 		byConn:    map[*peer.Conn]*client{},
 		speedTime: time.Now(),
@@ -821,43 +822,6 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
-}
-
-// ---- bandwidth limiter ----
-
-type limiter struct {
-	mu     sync.Mutex
-	rate   float64 // bytes per second; 0 = unlimited
-	tokens float64
-	last   time.Time
-}
-
-func newLimiter(bytesPerSec int) *limiter {
-	return &limiter{rate: float64(bytesPerSec), tokens: float64(bytesPerSec), last: time.Now()}
-}
-
-// Wait blocks until n bytes may be sent.
-func (l *limiter) Wait(n int) {
-	if l.rate <= 0 {
-		return
-	}
-	for {
-		l.mu.Lock()
-		now := time.Now()
-		// The bucket holds at least one packet: with a limit below the
-		// packet size (1-9 KB/s) it could otherwise never fill enough,
-		// and every upload hung for good.
-		l.tokens = min(max(l.rate, float64(n)), l.tokens+now.Sub(l.last).Seconds()*l.rate)
-		l.last = now
-		if l.tokens >= float64(n) {
-			l.tokens -= float64(n)
-			l.mu.Unlock()
-			return
-		}
-		wait := time.Duration((float64(n) - l.tokens) / l.rate * float64(time.Second))
-		l.mu.Unlock()
-		time.Sleep(wait)
-	}
 }
 
 // UDPReply is what to send back to a client UDP packet.

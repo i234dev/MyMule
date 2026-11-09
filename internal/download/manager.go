@@ -581,6 +581,7 @@ func (m *Manager) requestSources(ctx context.Context, c *server.Conn) {
 // MaxSourcesPerFile in total, making room by forgetting dead sources.
 func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID uint32, allowLowID bool) int {
 	added := 0
+	self := m.identIP() // also known without a server, from Kad
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	perIP := map[string]int{}
@@ -601,6 +602,9 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 		// Skip ourselves. Another machine behind the same router (e.g. a
 		// NAS) has our public IP but a different port, so keep that one.
 		if s.ID == ourID && (s.LowID() || s.Port == m.port) {
+			continue
+		}
+		if m.isSelfLocked(s, self) {
 			continue
 		}
 		if s.LowID() && !allowLowID {
@@ -1204,6 +1208,15 @@ func (m *Manager) identPacket(c *peer.Conn, p *proto.Packet) (bool, error) {
 		return false, nil
 	}
 	return id.Handle(p)
+}
+
+// isSelfLocked reports whether s is this client: our user hash, or our
+// public address (self, from identIP) with our port.
+func (m *Manager) isSelfLocked(s server.Source, self net.IP) bool {
+	if !s.UserHash.IsZero() && s.UserHash == m.cfg.UserHash {
+		return true
+	}
+	return !s.LowID() && self != nil && s.Port == m.port && server.IPFromU32(s.ID).Equal(self)
 }
 
 // identIP is our public address for version 2 signatures: as the server

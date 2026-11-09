@@ -133,7 +133,7 @@ func errCode(err error) int {
 	case errors.Is(err, download.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, download.ErrAmbiguous), errors.Is(err, download.ErrExists),
-		errors.Is(err, download.ErrBadSource), errors.Is(err, download.ErrFinishedYet):
+		errors.Is(err, download.ErrBadSource), errors.Is(err, download.ErrSelfSource), errors.Is(err, download.ErrFinishedYet):
 		return http.StatusConflict
 	case errors.Is(err, download.ErrNoServer):
 		return http.StatusServiceUnavailable

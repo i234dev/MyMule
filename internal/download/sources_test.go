@@ -1,9 +1,13 @@
 package download
 
 import (
+	"errors"
 	"net"
+	"net/netip"
 	"testing"
 
+	"mymule/internal/ed2k"
+	"mymule/internal/kad"
 	"mymule/internal/server"
 )
 
@@ -82,5 +86,34 @@ func TestAddSourcesCapsPerFile(t *testing.T) {
 	}
 	if len(f.sources) != MaxSourcesPerFile {
 		t.Fatalf("%d sources kept, want %d", len(f.sources), MaxSourcesPerFile)
+	}
+}
+
+// We are never our own source, even without a server: our public address
+// as Kad sees it with our port, or our user hash, is skipped.
+func TestAddSourcesSkipsSelf(t *testing.T) {
+	us := ed2k.Hash{7}
+	m := NewManager(Config{UserHash: us, KadStatus: func() kad.Status {
+		return kad.Status{ExternalIP: netip.MustParseAddr("11.0.0.5")}
+	}})
+	m.port = 4662
+	f := newTestFile()
+	hashed := srcAt(net.IPv4(11, 0, 0, 6), 4662)
+	hashed.UserHash = us
+	srcs := []server.Source{
+		srcAt(net.IPv4(11, 0, 0, 5), 4662), // us
+		hashed,                             // us, from another address
+		srcAt(net.IPv4(11, 0, 0, 5), 4663), // same router, another machine
+	}
+	if added := m.addSources(f, srcs, "kad", 0, false); added != 1 {
+		t.Fatalf("added %d sources, want 1: %v", added, f.sources)
+	}
+	if _, ok := f.sources["11.0.0.5:4663"]; !ok {
+		t.Fatalf("the other machine's source missing: %v", f.sources)
+	}
+	h := ed2k.Hash{1}
+	m.files[h] = f
+	if err := m.AddSource(h, "11.0.0.5:4662"); !errors.Is(err, ErrSelfSource) {
+		t.Fatalf("our own address added by hand: %v", err)
 	}
 }

@@ -32,6 +32,7 @@ var (
 	ErrNoTempDir   = errors.New("manager has no temp dir configured")
 	ErrBadSource   = errors.New("invalid source address (want ip:port)")
 	ErrBlocked     = errors.New("the IP filter blocks this address")
+	ErrSelfSource  = errors.New("that address is this MyMule")
 	ErrFinishedYet = errors.New("download already finished")
 )
 
@@ -76,11 +77,15 @@ func (m *Manager) AddSource(h ed2k.Hash, addr string) error {
 	if m.blocked(ip) {
 		return ErrBlocked
 	}
+	self := m.identIP()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	f := m.files[h]
 	if f == nil {
 		return ErrNotFound
+	}
+	if m.isSelfLocked(server.Source{ID: server.IPToU32(ip), Port: uint16(port)}, self) {
+		return ErrSelfSource
 	}
 	key := net.JoinHostPort(ip.String(), portStr)
 	if _, ok := f.sources[key]; !ok {

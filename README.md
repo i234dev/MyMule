@@ -42,9 +42,18 @@ Python, cron, home automation).
   (`search -global`, over UDP); a server that stops answering doesn't
   leave the search empty
 - Downloads from eD2K peers, with MD4 verification of every 9.28 MB part:
-  corrupt parts are thrown away and downloaded again, and a peer that
-  keeps sending bad data is not used for that file any more
+  corrupt parts are downloaded again, and a peer that keeps sending bad
+  data is not used for that file any more. With AICH (an `h=` in the
+  link, or a hash enough peers agree on), only the bad 180 KB blocks of
+  a corrupt part are downloaded again; MyMule gives other clients the
+  AICH data of its shared files too
 - Sources from every server in the list (UDP), not only the connected one
+- Opens its ports on the router by itself (UPnP or NAT-PMP) when the
+  router allows it
+- IP filter: eMule's `ipfilter.dat` (or a list downloaded every week from
+  `ip_filter_url`) blocks connections from and to the addresses in it
+- Download and upload speed limits; queue places asked over UDP, as eMule
+  does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from
   tell you where else the file is, and you tell them (only sources that
   answered, with a public address, a limited number and not too often)

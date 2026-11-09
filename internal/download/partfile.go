@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"mymule/internal/aich"
 	"mymule/internal/ed2k"
 	"mymule/internal/fsutil"
 	"mymule/internal/md4"
@@ -56,6 +57,7 @@ type PartFile struct {
 	ownerAt map[string]time.Time   // per owner: last data it sent us
 	banned  map[string]bool        // owners that sent too many bad parts
 	badSets int                    // hash sets received that did not fit
+	aich    aichState              // see aich.go
 
 	f        *os.File
 	dataPath string
@@ -79,6 +81,8 @@ type partMeta struct {
 	Verified []bool     `json:"verified"`
 	// Finishing is the final path the file is being moved to.
 	Finishing string `json:"finishing,omitempty"`
+	// AICH is the file's AICH hash, once trusted.
+	AICH string `json:"aich,omitempty"`
 }
 
 // NumParts is the number of 9.28 MB parts (as peers count them).
@@ -147,6 +151,7 @@ func create(dir string, link ed2k.Link, checkSpace bool) (*PartFile, error) {
 		dataPath: base + ".part",
 		metaPath: base + ".part.json",
 	}
+	pf.trustLinkAICH(link.AICH)
 	f, err := openRegular(pf.dataPath, os.O_RDWR, true)
 	if err != nil {
 		return nil, err
@@ -218,6 +223,11 @@ func Open(metaPath string) (*PartFile, error) {
 		pf.done.Add(Range{r[0], min(r[1], pf.Size)})
 	}
 	copy(pf.verified, m.Verified)
+	if m.AICH != "" {
+		if h, err := aich.ParseHash(m.AICH); err == nil {
+			pf.trustLinkAICH(h)
+		}
+	}
 	if pf.hashSet == nil && !pf.rootIsPartHash() {
 		// Verified against what? Without the hash set they cannot be
 		// checked again, nor uploaded: they wait for it like the others.
@@ -329,6 +339,9 @@ func (pf *PartFile) saveLocked() error {
 		Done:     [][2]int64{},
 
 		Finishing: pf.finishing,
+	}
+	if pf.aich.trusted && !pf.aich.off {
+		m.AICH = pf.aich.root.String()
 	}
 	for _, h := range pf.hashSet {
 		m.HashSet = append(m.HashSet, h.String())
@@ -512,6 +525,9 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 		}
 		if pf.badPart[owner][p] > 1 {
 			continue // this peer's copy of it is bad
+		}
+		if pf.aichHeldLocked(p, now) {
+			continue // waiting for its AICH recovery data
 		}
 		if pf.isolate[p] && pf.writtenByOther(p, owner) && !others[p] && time.Since(pf.lastWr[p]) > isolateAbandon {
 			// Its single peer went away: start the part over, and take
@@ -740,6 +756,7 @@ func (pf *PartFile) verifyLocked(p int) {
 		pf.done.Remove(pr)
 		pf.corrupt++
 		pf.blameLocked(p)
+		pf.aichFailedLocked(p)
 	}
 	delete(pf.writers, p)
 	delete(pf.unknown, p)

@@ -319,6 +319,9 @@ type session struct {
 	// = no request pending); sxSecond: with the second form.
 	sxVersion byte
 	sxSecond  bool
+	// gotStatus: the peer said which parts it has (AICH recovery data is
+	// asked only of peers that have the part).
+	gotStatus bool
 }
 
 func (s *session) setState(st SourceState) {
@@ -361,6 +364,9 @@ func (s *session) run(ctx context.Context) error {
 	if err := s.c.SendHash(proto.ProtoEDonkey, peer.OpSetReqFileID, h); err != nil {
 		return err
 	}
+	if err := s.askAICHRoot(); err != nil {
+		return err
+	}
 	s.timeout = askTimeout
 	s.deadline = time.Now().Add(askLimit)
 
@@ -379,6 +385,11 @@ func (s *session) run(ctx context.Context) error {
 		if err := s.handle(p); err != nil {
 			return err
 		}
+		if s.gotStatus {
+			if err := s.askRecovery(); err != nil {
+				return err
+			}
+		}
 	}
 	return ctx.Err()
 }
@@ -387,7 +398,7 @@ func (s *session) handle(p *proto.Packet) error {
 	if peer.IsDataPacket(p) {
 		return s.onData(p)
 	}
-	if s.m.kadPacket(s.c, p) || s.m.sxPacket(s.c, s.hello, p) {
+	if s.m.kadPacket(s.c, p) || s.m.sxPacket(s.c, s.hello, p) || s.aichPacket(p) {
 		return nil
 	}
 	if p.Proto == proto.ProtoEMule && (p.Opcode == peer.OpAnswerSources || p.Opcode == peer.OpAnswerSources2) {
@@ -447,6 +458,7 @@ func (s *session) handle(p *proto.Packet) error {
 		s.m.mu.Lock()
 		s.src.Avail = avail
 		s.m.mu.Unlock()
+		s.gotStatus = true
 		if !s.pf.HasNeededParts(avail) {
 			s.setState(StateNoNeededParts)
 			return errDone

@@ -206,7 +206,7 @@ func (m *Manager) Handle(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.Packet)
 		return true, m.onRequestParts(c, p, true)
 	}
 	if p.Proto == proto.ProtoEMule && (p.Opcode == peer.OpAICHFileHashReq || p.Opcode == peer.OpAICHRequest) {
-		return true, m.handleAICH(c, p)
+		return true, m.handleAICH(c, ip, p)
 	}
 	if p.Proto != proto.ProtoEDonkey {
 		return false, nil

@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -22,23 +23,33 @@ type AICHRooter interface {
 // part.
 const maxRecoveryPerMinute = 20
 
+// maxRecoveryPerPeer bounds what one address may take of that, so that a
+// single peer cannot use it all up and leave the others without.
+const maxRecoveryPerPeer = 3
+
 // recoveryBudget counts the recovery data built in the current minute.
 type recoveryBudget struct {
-	mu    sync.Mutex
-	start time.Time
-	n     int
+	mu     sync.Mutex
+	start  time.Time
+	n      int
+	byPeer map[string]int
 }
 
-func (b *recoveryBudget) take(now time.Time) bool {
+func (b *recoveryBudget) take(now time.Time, ip net.IP) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if now.Sub(b.start) >= time.Minute {
-		b.start, b.n = now, 0
+		b.start, b.n, b.byPeer = now, 0, nil
 	}
-	if b.n >= maxRecoveryPerMinute {
+	who := ip.String()
+	if b.n >= maxRecoveryPerMinute || b.byPeer[who] >= maxRecoveryPerPeer {
 		return false
 	}
+	if b.byPeer == nil {
+		b.byPeer = map[string]int{}
+	}
 	b.n++
+	b.byPeer[who]++
 	return true
 }
 
@@ -59,7 +70,7 @@ func (m *Manager) aichRoot(h ed2k.Hash) (aich.Hash, bool) {
 
 // handleAICH answers AICH requests: a file's AICH hash, and the recovery
 // data of a part of a complete file.
-func (m *Manager) handleAICH(c *peer.Conn, p *proto.Packet) error {
+func (m *Manager) handleAICH(c *peer.Conn, ip net.IP, p *proto.Packet) error {
 	switch p.Opcode {
 	case peer.OpAICHFileHashReq:
 		if len(p.Payload) < 16 {
@@ -78,22 +89,22 @@ func (m *Manager) handleAICH(c *peer.Conn, p *proto.Packet) error {
 		if err != nil {
 			return nil
 		}
-		data := m.recoveryData(h, part, root)
+		data := m.recoveryData(h, part, root, ip)
 		return c.Send(proto.ProtoEMule, peer.OpAICHAnswer, peer.EncodeAICHAnswer(h, part, root, data))
 	}
 	return nil
 }
 
 // recoveryData builds the recovery data of a part of a complete shared
-// file whose AICH hash is root (nil: none).
-func (m *Manager) recoveryData(h ed2k.Hash, part int, root aich.Hash) []byte {
+// file whose AICH hash is root (nil: none), for the peer at ip.
+func (m *Manager) recoveryData(h ed2k.Hash, part int, root aich.Hash, ip net.IP) []byte {
 	lib := m.cfg.Library
 	if lib == nil {
 		return nil
 	}
 	t := lib.AICH(h)
 	f := lib.Get(h)
-	if t == nil || f == nil || f.Partial() || t.Root() != root || !aich.CanRecover(t.Size, part) || !m.recovery.take(time.Now()) {
+	if t == nil || f == nil || f.Partial() || t.Root() != root || !aich.CanRecover(t.Size, part) || !m.recovery.take(time.Now(), ip) {
 		return nil
 	}
 	blocks, err := aich.BlockHashes(t.Size, part, func(b []byte, off int64) error { return share.ReadFull(f, b, off) })

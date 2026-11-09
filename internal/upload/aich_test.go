@@ -86,6 +86,28 @@ func TestServeAICH(t *testing.T) {
 			t.Fatalf("empty answer: %v %d", err, len(pk.Payload))
 		}
 	}
+	// Over one peer's budget: empty for it, not for another.
+	ask2 := func(ip string) int {
+		t.Helper()
+		go m.Handle(us, peer.Hello{}, net.ParseIP(ip), &proto.Packet{Proto: proto.ProtoEMule, Opcode: peer.OpAICHRequest,
+			Payload: peer.EncodeAICHRequest(fh.Root, 0, tree.Root())})
+		pk, err := them.Read(5 * time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(pk.Payload)
+	}
+	for range maxRecoveryPerPeer - 1 { // the first was asked above
+		if ask2("198.51.100.1") == 16 {
+			t.Fatal("recovery data refused within a peer's budget")
+		}
+	}
+	if ask2("198.51.100.1") != 16 {
+		t.Fatal("recovery data over a peer's budget")
+	}
+	if ask2("198.51.100.2") == 16 {
+		t.Fatal("another peer refused")
+	}
 	// Over budget: empty.
 	m.recovery.mu.Lock()
 	m.recovery.n = maxRecoveryPerMinute

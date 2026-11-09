@@ -218,3 +218,13 @@ func TestSecureCookieBehindProxy(t *testing.T) {
 		t.Fatalf("cookie behind an HTTPS proxy: %+v", ck)
 	}
 }
+
+// With a signing key, sessions are signed with it, not with the api_key.
+func TestSessionsSignedWithSigningKey(t *testing.T) {
+	u := New("the-api-key-0123456789", "v")
+	plain := u.sign(1, "0123456789abcdef0123456789abcdef")
+	u.SetSigningKey([]byte("a key derived elsewhere"))
+	if u.sign(1, "0123456789abcdef0123456789abcdef") == plain {
+		t.Fatal("still signed with the api_key")
+	}
+}

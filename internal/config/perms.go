@@ -14,7 +14,7 @@ import (
 // machine must not read them, and they are never shared.
 var PrivateFiles = []string{SettingsFile, "api.json", "userhash.dat", "known.json",
 	"preferences.json", "library.json", "arr.json", "mymule.log", "mymule.lock", "web_sessions.json",
-	"cryptkey.dat", "credits.dat", "kad.dat", "kadindex.dat", "stats.json"}
+	"cryptkey.dat", "credits.dat", "kad.dat", "kadindex.dat", "stats.json", "sign.key"}
 
 // TightenPermissions makes the private files in dir readable by their
 // owner only. Older versions created them readable by everyone; new

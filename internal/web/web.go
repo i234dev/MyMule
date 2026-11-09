@@ -35,7 +35,8 @@ const (
 
 // UI is the web interface.
 type UI struct {
-	key     string // the api_key: login password and session signing key
+	key     string // the api_key: login password (and signing key unless signKey)
+	signKey []byte // signs sessions; see SetSigningKey
 	version string
 	now     func() time.Time
 
@@ -131,9 +132,17 @@ func (u *UI) RequireLogin(h http.Handler) http.Handler {
 	})
 }
 
+// SetSigningKey makes sessions signed with k (config.SigningKey) instead
+// of the api_key. Call it before serving.
+func (u *UI) SetSigningKey(k []byte) { u.signKey = k }
+
 // sign returns the signature of session id, which expires at exp.
 func (u *UI) sign(exp int64, id string) string {
-	m := hmac.New(sha256.New, []byte(u.key))
+	key := u.signKey
+	if key == nil {
+		key = []byte(u.key)
+	}
+	m := hmac.New(sha256.New, key)
 	m.Write([]byte("mymule-web-session|" + strconv.FormatInt(exp, 10) + "|" + id))
 	return hex.EncodeToString(m.Sum(nil))
 }

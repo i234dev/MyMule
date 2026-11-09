@@ -302,10 +302,15 @@ func (a *Adapter) torrentFile(w http.ResponseWriter, r *http.Request) {
 	w.Write(Torrent(link))
 }
 
-// linkSig signs a download link of our feed with the api_key, so the link
-// works for that file only and without the key in it.
+// linkSig signs a download link of our feed (with SignKey, derived from
+// the api_key), so the link works for that file only and without the key
+// in it.
 func (a *Adapter) linkSig(l ed2k.Link) string {
-	m := hmac.New(sha256.New, []byte(a.cfg.Key))
+	key := a.cfg.SignKey
+	if key == nil {
+		key = []byte(a.cfg.Key)
+	}
+	m := hmac.New(sha256.New, key)
 	fmt.Fprintf(m, "mymule-torznab-link|%s|%d|%s", l.Hash, l.Size, l.Name)
 	return hex.EncodeToString(m.Sum(nil))[:32]
 }

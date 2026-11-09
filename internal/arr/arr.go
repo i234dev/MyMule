@@ -19,11 +19,14 @@ import (
 
 // Config configures the adapter.
 type Config struct {
-	Manager     *download.Manager
-	REST        *api.REST // searches and API key checks
-	Key         string    // the API key (qBittorrent password)
-	DownloadDir string    // where finished files end up
-	StorePath   string    // small JSON file with categories (arr.json)
+	Manager *download.Manager
+	REST    *api.REST // searches and API key checks
+	Key     string    // the API key (qBittorrent password)
+	// SignKey signs the download links of our Torznab feed
+	// (config.SigningKey); nil = the API key.
+	SignKey     []byte
+	DownloadDir string // where finished files end up
+	StorePath   string // small JSON file with categories (arr.json)
 	Log         func(format string, args ...any)
 
 	// Languages (e.g. "es") whose titles are also searched for, looked up

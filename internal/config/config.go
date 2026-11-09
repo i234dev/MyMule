@@ -2,7 +2,9 @@
 package config
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,4 +76,29 @@ func UserHash() (ed2k.Hash, error) {
 		return h, fmt.Errorf("saving user hash: %w", err)
 	}
 	return h, nil
+}
+
+// SigningKey derives the key that signs web sessions and Torznab links
+// from the api_key and a random secret kept in sign.key (made on first
+// use). The api_key alone would make every cookie and signed link an
+// offline test for guessing it; with the secret they reveal nothing about
+// it. Changing the api_key still changes the key (logging everybody out).
+func SigningKey(apiKey string) ([]byte, error) {
+	p, err := Path("sign.key")
+	if err != nil {
+		return nil, err
+	}
+	secret, err := os.ReadFile(p)
+	if err != nil || len(secret) != 32 {
+		secret = make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, err
+		}
+		if err := fsutil.WriteFile(p, secret, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte("mymule-signing|" + apiKey))
+	return m.Sum(nil), nil
 }

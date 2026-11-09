@@ -708,6 +708,11 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 	mux.Handle("/api/v1/", rest)
 	if settings.WebUI {
 		ui := web.New(settings.APIKey, version)
+		if k, err := config.SigningKey(settings.APIKey); err == nil {
+			ui.SetSigningKey(k)
+		} else {
+			logf("warning: %v; web sessions are signed with the api_key", err)
+		}
 		if p, err := config.Path("web_sessions.json"); err == nil {
 			ui.SetStateFile(p)
 		}
@@ -724,7 +729,8 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 	}
 	if settings.ArrSupport {
 		store, _ := config.Path("arr.json")
-		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, DownloadDir: downloadDir,
+		signKey, _ := config.SigningKey(settings.APIKey)
+		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, SignKey: signKey, DownloadDir: downloadDir,
 			StorePath: store, Log: logf, Languages: settings.SearchLanguages,
 			UserAgent: userAgent()}).Routes(mux)
 	}

@@ -458,3 +458,13 @@ func TestQBittorrentLoginBodyLimit(t *testing.T) {
 		t.Fatalf("oversized login: %d %q", code, body)
 	}
 }
+
+// With a signing key, feed links are signed with it, not with the api_key.
+func TestLinkSignedWithSigningKey(t *testing.T) {
+	l := ed2k.Link{Name: "example.iso", Size: 1234, Hash: ed2k.Hash{1}}
+	plain := (&Adapter{cfg: Config{Key: "the-api-key-0123456789"}}).linkSig(l)
+	signed := (&Adapter{cfg: Config{Key: "the-api-key-0123456789", SignKey: []byte("derived")}}).linkSig(l)
+	if plain == signed {
+		t.Fatal("still signed with the api_key")
+	}
+}

@@ -264,7 +264,7 @@ func (m *Manager) serveUploads(ctx context.Context, c *peer.Conn, hello peer.Hel
 			c.Send(proto.ProtoEMule, peer.OpEMuleInfoAnswer, peer.EMuleInfoAnswer())
 			continue
 		}
-		if m.kadPacket(c, p) {
+		if m.kadPacket(c, p) || m.sxPacket(c, hello, p) {
 			continue
 		}
 		if ok, err := m.identPacket(c, p); ok {
@@ -382,7 +382,7 @@ func (s *session) handle(p *proto.Packet) error {
 	if peer.IsDataPacket(p) {
 		return s.onData(p)
 	}
-	if s.m.kadPacket(s.c, p) {
+	if s.m.kadPacket(s.c, p) || s.m.sxPacket(s.c, s.hello, p) {
 		return nil
 	}
 	if ok, err := s.m.identPacket(s.c, p); ok {

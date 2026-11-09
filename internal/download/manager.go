@@ -239,6 +239,8 @@ type Manager struct {
 	inbound   connLimiter  // incoming peer connections
 	callbacks callbackGate // server callback requests we act on
 
+	sx sxState // source exchange
+
 	// kadCalled is when we last asked each address (a buddy, or a type 6
 	// source) for a Kad callback.
 	kadCalled map[netip.Addr]time.Time

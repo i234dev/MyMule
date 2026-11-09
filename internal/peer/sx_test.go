@@ -109,3 +109,11 @@ func TestSXHelloFlags(t *testing.T) {
 		t.Fatal("version 1 only counts as source exchange (eMule asks above 1)")
 	}
 }
+
+// Our hello says we do source exchange, both forms.
+func TestOurHelloOffersSX(t *testing.T) {
+	h := NewHello(ed2k.Hash{1}, "me", 0x02000000, 4662, nil, 0).WithKad(4672, 8).WithCrypt(1)
+	if h.SourceExchange1() != SXVersion || !h.SourceExchange2() {
+		t.Fatalf("version %d, second form %v", h.SourceExchange1(), h.SourceExchange2())
+	}
+}

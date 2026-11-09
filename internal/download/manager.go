@@ -14,6 +14,7 @@ import (
 
 	credits "mymule/internal/credit"
 	"mymule/internal/ed2k"
+	"mymule/internal/ipfilter"
 	"mymule/internal/kad"
 	"mymule/internal/netutil"
 	"mymule/internal/obfus"
@@ -71,6 +72,9 @@ type Config struct {
 	// zero. With it, our hello offers client UDP and queued sources are
 	// asked for their queue place by UDP.
 	SendClientUDP func(to netip.AddrPort, op byte, payload []byte, userHash ed2k.Hash)
+	// IPFilter, when set, blocks addresses: no connection from or to them,
+	// and they are not taken as sources or servers.
+	IPFilter *ipfilter.Holder
 	// Obfuscation is the protocol obfuscation we offer, as crypt options
 	// (obfus.Supports, Requests, Requires): with Supports, connections to
 	// peers that support it are obfuscated, and obfuscated connections
@@ -433,6 +437,7 @@ func (m *Manager) serverLoop(ctx context.Context) {
 			Port:       m.port,
 			Crypt:      m.cfg.Obfuscation,
 			OnCallback: func(ip net.IP, port uint16, h ed2k.Hash, crypt byte) { m.onCallback(ctx, ip, port, h, crypt) },
+			Blocked:    m.cfg.IPFilter.BlockedIP,
 		}
 		m.mu.Lock()
 		m.reconnect = false
@@ -602,7 +607,7 @@ func (m *Manager) addSources(f *File, srcs []server.Source, via string, ourID ui
 			src.key = fmt.Sprintf("lowid:%d@%s", s.ID, src.server)
 		} else {
 			src.IP = server.IPFromU32(s.ID)
-			if s.Port == 0 || (!netutil.IsPublicIPv4(src.IP) && !m.cfg.allowPrivateSources) {
+			if s.Port == 0 || (!netutil.IsPublicIPv4(src.IP) && !m.cfg.allowPrivateSources) || m.blocked(src.IP) {
 				continue
 			}
 			src.key = net.JoinHostPort(src.IP.String(), strconv.Itoa(int(s.Port)))
@@ -695,7 +700,7 @@ func (m *Manager) udpLoop(ctx context.Context) {
 		if len(files) == 0 {
 			continue
 		}
-		for _, s := range m.cfg.Servers() {
+		for _, s := range m.servers() {
 			addr := s.Addr()
 			if addr == connected || time.Since(m.udpAsked[addr]) < SourceReqInterval {
 				continue // the connected server is asked over TCP
@@ -978,6 +983,11 @@ func (m *Manager) acceptLoop(ctx context.Context, ln net.Listener) {
 			continue
 		}
 		ip := remoteIP(nc)
+		if m.blocked(net.ParseIP(ip)) {
+			m.cfg.Debug("incoming connection from %s refused: IP filter", ip)
+			nc.Close()
+			continue
+		}
 		if !m.inbound.acquire(ip) {
 			m.cfg.Debug("incoming connection from %s refused: too many connections", ip)
 			nc.Close()
@@ -1102,6 +1112,23 @@ func (m *Manager) trackConn(c *peer.Conn, add bool) {
 	}
 }
 
+// errBlocked is returned by dial for an address the IP filter blocks.
+var errBlocked = errors.New("blocked by the IP filter")
+
+// blocked reports whether the IP filter blocks ip.
+func (m *Manager) blocked(ip net.IP) bool { return m.cfg.IPFilter.BlockedIP(ip) }
+
+// servers returns the known servers the IP filter lets through.
+func (m *Manager) servers() []server.Info {
+	var out []server.Info
+	for _, s := range m.cfg.Servers() {
+		if !m.blocked(s.IP) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // errObfuscation is returned by dial when an obfuscated connection could
 // not be made.
 var errObfuscation = errors.New("obfuscation")
@@ -1110,6 +1137,9 @@ var errObfuscation = errors.New("obfuscation")
 // (userHash and crypt known) and we offer it. With obfuscation required,
 // a peer that does not take it is not dialed.
 func (m *Manager) dial(ctx context.Context, network, addr string, userHash ed2k.Hash, crypt byte) (net.Conn, error) {
+	if host, _, err := net.SplitHostPort(addr); err == nil && m.blocked(net.ParseIP(host)) {
+		return nil, errBlocked
+	}
 	ours := m.cfg.Obfuscation
 	obf := ours&obfus.Supports != 0 && crypt&obfus.Supports != 0 && !userHash.IsZero()
 	if !obf && ours&obfus.Requires != 0 {

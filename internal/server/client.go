@@ -44,6 +44,9 @@ type Config struct {
 	// must be checked before use. userHash and crypt are zero when the
 	// server does not give them.
 	OnCallback func(ip net.IP, port uint16, userHash ed2k.Hash, crypt byte)
+	// Blocked, when set, reports addresses not to connect to (the IP
+	// filter): Dial refuses such a server.
+	Blocked func(ip net.IP) bool
 }
 
 // Status is the server's view of us after login.
@@ -100,6 +103,9 @@ const LowIDLimit = 0x01000000
 func Dial(ctx context.Context, info Info, cfg Config) (*Conn, error) {
 	if cfg.Log == nil {
 		cfg.Log = func(string, ...any) {}
+	}
+	if cfg.Blocked != nil && cfg.Blocked(info.IP) {
+		return nil, fmt.Errorf("%s: blocked by the IP filter", info.Addr())
 	}
 	nc, err := dialServer(ctx, info, cfg)
 	if err != nil {

@@ -30,6 +30,7 @@ var (
 	ErrAmbiguous   = errors.New("several downloads match; be more specific")
 	ErrNoTempDir   = errors.New("manager has no temp dir configured")
 	ErrBadSource   = errors.New("invalid source address (want ip:port)")
+	ErrBlocked     = errors.New("the IP filter blocks this address")
 	ErrFinishedYet = errors.New("download already finished")
 )
 
@@ -70,6 +71,9 @@ func (m *Manager) AddSource(h ed2k.Hash, addr string) error {
 	port, err := strconv.ParseUint(portStr, 10, 16)
 	if ip == nil || err != nil || port == 0 {
 		return ErrBadSource
+	}
+	if m.blocked(ip) {
+		return ErrBlocked
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -296,7 +300,7 @@ func (m *Manager) SearchGlobal(ctx context.Context, q server.Query, wait time.Du
 
 	if useUDP {
 		var others []server.Info
-		for _, s := range m.cfg.Servers() {
+		for _, s := range m.servers() {
 			if c == nil || s.Addr() != c.Info().Addr() {
 				others = append(others, s)
 			}

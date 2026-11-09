@@ -29,6 +29,9 @@ type Settings struct {
 	// KadNodesURL is a nodes.dat to start from when no Kad contact is
 	// known; empty = only from other clients.
 	KadNodesURL string
+	// IPFilterURL is an IP filter list downloaded weekly into
+	// ipfilter.dat; empty = only a list put there by hand.
+	IPFilterURL string
 	Server      string // ip:port to connect to; empty = pick from the server list
 	Nick        string
 	TempDir     string // absolute after Load
@@ -128,6 +131,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strconv.Itoa(int(s.KadPort)) }},
 	{"kad_nodes_url", "A nodes.dat (list of Kad nodes) to start from when MyMule knows none,\nas http:// or https:// URL. Empty = start only from other clients.",
 		func(s Settings) string { return s.KadNodesURL }},
+	{"ip_filter_url", "An IP filter list to download every week into ipfilter.dat in the data\nfolder, as http:// or https:// URL: eMule's ipfilter.dat or the P2P\nformat, plain, gzip or zip. MyMule neither connects to nor takes\nconnections from the addresses in it. Empty = only use an ipfilter.dat\nyou put in the data folder yourself (none by default).",
+		func(s Settings) string { return s.IPFilterURL }},
 	{"server", "Server to connect to, as ip:port. Leave empty to pick automatically\nfrom the server list ('mymule servers list'), preferring HighID.",
 		func(s Settings) string { return s.Server }},
 	{"nick", "Nickname shown to other users.", func(s Settings) string { return s.Nick }},
@@ -347,6 +352,14 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				val = DefaultKadNodesURL
 			}
 			s.KadNodesURL = val
+		case "ip_filter_url":
+			if val != "" {
+				u, err := url.Parse(val)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					return present, fmt.Errorf("line %d: ip_filter_url must be an http:// or https:// URL, or empty", line)
+				}
+			}
+			s.IPFilterURL = val
 		case "server":
 			s.Server = val
 		case "nick":

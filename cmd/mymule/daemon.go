@@ -82,6 +82,7 @@ type engine struct {
 	kad   *kadEngine     // nil when Kad is off
 	cred  *credit.Store  // credits and our secure identification key
 	stats *stats.Store   // all-time upload and download totals
+	ipf   *ipFilter      // the IP filter list
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -210,6 +211,7 @@ func (e *engine) start(ctx context.Context) {
 	}
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
+	go e.ipf.run(ctx)
 }
 
 // obfuscation is the protocol obfuscation we offer, as crypt options,
@@ -339,12 +341,14 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		Totals:      totals.Totals,
 		Obfuscation: obfuscation(),
 	}
+	ipf := openIPFilter(dataDir, settings.IPFilterURL, logf)
+	dc.IPFilter = &ipf.holder
 	var kadEng *kadEngine
 	if withKad {
 		kadEng = setupKad(&dc, &m, lib, uh)
 	}
 	m = download.NewManager(dc)
-	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals,
+	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals, ipf: ipf,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)

@@ -204,7 +204,19 @@ func TestKadSettings(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
+	for _, bad := range []string{"ip_filter_url = ftp://x/ipfilter.dat", "ip_filter_url = ipfilter.dat"} {
+		s := Defaults()
+		if _, err := parseSettings(bad+"\n", &s); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
 	s := Defaults()
+	if s.IPFilterURL != "" {
+		t.Fatal("an IP filter list is downloaded by default")
+	}
+	if _, err := parseSettings("ip_filter_url = https://example.org/ipfilter.zip\n", &s); err != nil || s.IPFilterURL != "https://example.org/ipfilter.zip" {
+		t.Fatalf("ip_filter_url: %v %q", err, s.IPFilterURL)
+	}
 	if _, err := parseSettings("kad_nodes_url =\n", &s); err != nil || s.KadNodesURL != "" {
 		t.Fatalf("empty URL: %v %q", err, s.KadNodesURL)
 	}

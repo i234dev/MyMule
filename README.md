@@ -185,6 +185,7 @@ shared_dirs =          # more folders to share, separated by ';'
 upload_slots = 20      # peers served at the same time; the rest queue
 upload_limit = 1000    # KB/s, 0 = no limit
 download_limit = 0     # KB/s, 0 = no limit (else at least 32)
+ip_filter_url =        # IP filter list (ipfilter.dat / P2P, plain, gz or zip) refreshed weekly; empty = only your own ipfilter.dat
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
 api_hosts =            # extra names the API/web answer to (NAS name, proxy domain)

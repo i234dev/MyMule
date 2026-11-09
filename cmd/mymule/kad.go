@@ -15,6 +15,7 @@ import (
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/ipfilter"
 	"mymule/internal/kad"
 	"mymule/internal/peer"
 	"mymule/internal/server"
@@ -120,7 +121,7 @@ func setupKad(dc *download.Config, m **download.Manager, lib *share.Library, uh 
 	mgr := func() *download.Manager { return *m }
 	var node *kad.Node
 	cfg := kad.Config{
-		Conn:     conn,
+		Conn:     ipfilter.PacketConn(conn, dc.IPFilter), // Kad and client UDP
 		Dir:      dir,
 		UserHash: uh,
 		Crypt:    obfuscation(),

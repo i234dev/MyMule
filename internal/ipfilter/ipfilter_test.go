@@ -19,6 +19,7 @@ func TestParseAndBlock(t *testing.T) {
 9.0.0.0 - 9.255.255.255 , 127 , allowed level
 Example P2P range:10.20.30.0-10.20.30.127
 Name: with colons:11.0.0.0-11.0.0.10
+Example-Name, Inc:12.0.0.0-12.0.0.255
 not a range
 1.2.3.4 - 1.2.3.0 , 0 , backwards
 300.1.1.1 - 300.1.1.2 , 0 , bad
@@ -34,7 +35,7 @@ not a range
 	for ip, want := range map[string]bool{
 		"1.2.3.0": true, "1.2.3.255": true, "1.2.4.100": true, "1.2.5.0": false, "1.2.2.255": false,
 		"5.6.7.8": true, "5.6.7.9": false, "9.1.1.1": false,
-		"10.20.30.127": true, "10.20.30.128": false, "11.0.0.5": true,
+		"10.20.30.127": true, "10.20.30.128": false, "11.0.0.5": true, "12.0.0.9": true,
 		"::ffff:1.2.3.4": true, "2001:db8::1": false,
 	} {
 		if got := f.Blocked(netip.MustParseAddr(ip)); got != want {
@@ -42,7 +43,7 @@ not a range
 		}
 	}
 	// The two touching ranges are one.
-	if f.Len() != 4 {
+	if f.Len() != 5 {
 		t.Fatalf("%d ranges", f.Len())
 	}
 	if (*Filter)(nil).Blocked(netip.MustParseAddr("1.2.3.4")) {

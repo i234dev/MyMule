@@ -43,6 +43,12 @@ func (f connFlags) connect(ctx context.Context) (*server.Conn, error) {
 // connectWith is like connect but starts from base (listen port,
 // callbacks); identity and logging are filled in here.
 func (f connFlags) connectWith(ctx context.Context, cfg server.Config) (*server.Conn, error) {
+	if cfg.Blocked == nil {
+		// Commands without the daemon follow the IP filter too.
+		if dir, err := config.Dir(); err == nil {
+			cfg.Blocked = openIPFilter(dir, "", func(string, ...any) {}).holder.BlockedIP
+		}
+	}
 	return f.connectTo(ctx, cfg, *f.server, false)
 }
 

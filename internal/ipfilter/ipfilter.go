@@ -73,20 +73,18 @@ func Parse(r io.Reader) (*Filter, int, error) {
 
 // parseLine reads one range; allowed: an eMule range of an allowed level.
 func parseLine(line string) (s span, ok, allowed bool) {
-	// eMule: "a - b , level , description"
+	// eMule: "a - b , level , description". A P2P line whose description
+	// holds a '-' and a ',' looks alike: if it does not read as eMule's,
+	// it is read as P2P.
 	if fields := strings.SplitN(line, ",", 3); len(fields) >= 2 && strings.Contains(fields[0], "-") {
 		lo, hi, ok := parseRange(fields[0])
-		if !ok {
-			return span{}, false, false
-		}
 		level, err := strconv.Atoi(strings.TrimSpace(fields[1]))
-		if err != nil {
-			return span{}, false, false
+		if ok && err == nil {
+			if level >= Level {
+				return span{}, false, true
+			}
+			return span{lo, hi}, true, false
 		}
-		if level >= Level {
-			return span{}, false, true
-		}
-		return span{lo, hi}, true, false
 	}
 	// P2P: "description:a-b" (the description may hold ':').
 	if i := strings.LastIndexByte(line, ':'); i >= 0 {

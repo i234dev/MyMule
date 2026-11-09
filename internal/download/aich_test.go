@@ -99,11 +99,20 @@ func TestAICHRepairsCorruptPart(t *testing.T) {
 	if _, _, err := pf.AICHRecovered("peer:2", 0, root, bad); err == nil {
 		t.Fatal("bad recovery data taken")
 	}
-	// After bad data, another peer may be asked; the good data is taken.
-	if p, _, ok := pf.AICHAsk("peer:2", part0); !ok || p != 0 {
-		t.Fatal("not asked again after bad recovery data")
+	// After bad data, that peer is not asked again; another one is, and
+	// its good data is taken.
+	if _, _, ok := pf.AICHAsk("peer:2", part0); ok {
+		t.Fatal("a peer that sent bad recovery data asked again")
 	}
-	kept, total, err := pf.AICHRecovered("peer:2", 0, root, rec)
+	if p, _, ok := pf.AICHAsk("peer:5", part0); !ok || p != 0 {
+		t.Fatal("no other peer asked after bad recovery data")
+	}
+	pf.AICHNone("peer:5") // had none: not asked again either
+	if _, _, ok := pf.AICHAsk("peer:5", part0); ok {
+		t.Fatal("a peer without recovery data asked again")
+	}
+	pf.AICHAsk("peer:6", part0)
+	kept, total, err := pf.AICHRecovered("peer:6", 0, root, rec)
 	if err != nil || kept != total-2 || total != aich.PartBlocks(tree.Size, 0) {
 		t.Fatalf("kept %d of %d: %v", kept, total, err)
 	}
@@ -157,16 +166,25 @@ func TestAICHWrongHashTurnsOff(t *testing.T) {
 		t.Fatal("part not downloaded again")
 	}
 
-	// Repaired, and failing again: off.
+	// A repaired part failing again may be a peer sending bad blocks
+	// again: repaired again. Failing aichMaxRepairs times: off.
 	pf2, tree2 := aichSetup(t, data, other)
 	serve(t, pf2, "peer:1", part0, corruptBlocks(other, 9), 0)
-	pf2.AICHAsk("peer:2", part0)
-	if _, _, err := pf2.AICHRecovered("peer:2", 0, tree2.Root(), recoveryOf(t, tree2, other, 0)); err != nil {
-		t.Fatal(err)
+	for i := range aichMaxRepairs {
+		owner := fmt.Sprintf("peer:%d", 10+i)
+		if _, _, ok := pf2.AICHAsk(owner, part0); !ok {
+			t.Fatalf("round %d: not asked", i)
+		}
+		if _, _, err := pf2.AICHRecovered(owner, 0, tree2.Root(), recoveryOf(t, tree2, other, 0)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := pf2.AICHRoot(); !ok {
+			t.Fatalf("AICH off after %d failures of a repaired part", i)
+		}
+		serve(t, pf2, fmt.Sprintf("peer:%d", 20+i), part0, corruptBlocks(other, 9), 0) // block 9 bad again
 	}
-	serve(t, pf2, "peer:3", part0, other, 0) // block 9 as the AICH hash says: still not the eD2K part
 	if _, ok := pf2.AICHRoot(); ok {
-		t.Fatal("AICH still used after a repaired part failed again")
+		t.Fatal("AICH still used after a repaired part failed again and again")
 	}
 }
 

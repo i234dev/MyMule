@@ -37,10 +37,23 @@ var (
 
 // aichWait is a part waiting for recovery data.
 type aichWait struct {
-	since   time.Time
-	askedBy string // owner asked last
-	askedAt time.Time
+	since    time.Time
+	askedBy  string // owner asked last
+	askedAt  time.Time
+	declined map[string]bool // owners that had none, or sent bad data: not asked again
 }
+
+func (w *aichWait) decline(owner string) {
+	if w.declined == nil {
+		w.declined = map[string]bool{}
+	}
+	w.declined[owner] = true
+	w.askedAt = time.Time{} // ask another peer
+}
+
+// aichMaxRepairs: a part repaired with recovery data that fails again
+// this many times means the AICH hash is not the file's.
+const aichMaxRepairs = 2
 
 // aichState is the AICH part of a PartFile (guarded by its mutex).
 type aichState struct {
@@ -50,9 +63,12 @@ type aichState struct {
 	voters  int
 	wait    map[int]*aichWait
 	waiting atomic.Int32 // len(wait), read without the lock
-	// restored: parts restored with recovery data; if one fails its hash
-	// again, the trusted AICH hash is wrong: off, AICH is not used again.
+	// restored: parts restored with recovery data; refailed: how often
+	// such a part failed its hash again. That can be a peer sending bad
+	// blocks again, but aichMaxRepairs times means the trusted AICH hash
+	// is wrong: off, AICH is not used again.
 	restored map[int]bool
+	refailed map[int]int
 	off      bool
 }
 
@@ -124,12 +140,17 @@ func (pf *PartFile) AICHVote(ip net.IP, root aich.Hash) bool {
 func (pf *PartFile) aichFailedLocked(p int) {
 	a := &pf.aich
 	if a.restored[p] {
-		// Restored blocks that the AICH hash called good, and the part
-		// still fails: that hash is not the file's.
-		a.off = true
-		clear(a.wait)
-		a.waiting.Store(0)
-		return
+		delete(a.restored, p)
+		if a.refailed == nil {
+			a.refailed = map[int]int{}
+		}
+		a.refailed[p]++
+		if a.refailed[p] >= aichMaxRepairs {
+			a.off = true
+			clear(a.wait)
+			a.waiting.Store(0)
+			return
+		}
 	}
 	if !a.trusted || a.off || !aich.CanRecover(uint64(pf.Size), p) {
 		return
@@ -171,7 +192,7 @@ func (pf *PartFile) AICHAsk(owner string, avail []bool) (int, aich.Hash, bool) {
 	now := time.Now()
 	for p, w := range pf.aich.wait {
 		if !pf.aichHeldLocked(p, now) || (avail != nil && (p >= len(avail) || !avail[p])) ||
-			now.Sub(w.askedAt) < aichAskWait || pf.badPart[owner][p] > 0 || pf.banned[owner] {
+			now.Sub(w.askedAt) < aichAskWait || w.declined[owner] || pf.badPart[owner][p] > 0 || pf.banned[owner] {
 			continue
 		}
 		w.askedBy, w.askedAt = owner, now
@@ -187,7 +208,7 @@ func (pf *PartFile) AICHNone(owner string) {
 	defer pf.mu.Unlock()
 	for _, w := range pf.aich.wait {
 		if w.askedBy == owner {
-			w.askedAt = time.Time{}
+			w.decline(owner)
 		}
 	}
 }
@@ -197,22 +218,31 @@ func (pf *PartFile) AICHNone(owner string) {
 // again. It returns how many blocks were kept, of how many.
 func (pf *PartFile) AICHRecovered(owner string, p int, root aich.Hash, data []byte) (kept, total int, err error) {
 	pf.mu.Lock()
-	defer pf.mu.Unlock()
 	w := pf.aich.wait[p]
 	if w == nil || w.askedBy != owner || root != pf.aich.root || pf.f == nil {
+		pf.mu.Unlock()
 		return 0, 0, fmt.Errorf("recovery data not asked for")
 	}
 	blocks, err := aich.Verify(uint64(pf.Size), p, root, data)
 	if err != nil {
-		w.askedAt = time.Time{} // ask another peer
+		w.decline(owner)
+		pf.mu.Unlock()
 		return 0, 0, err
 	}
-	pf.aichDropLocked(p)
 	f := pf.f
+	pf.mu.Unlock()
+	// The part is read without the lock (9.28 MB): nothing writes into it
+	// while it waits, which is checked again after.
 	ours, err := aich.BlockHashes(uint64(pf.Size), p, func(b []byte, off int64) error {
 		_, err := f.ReadAt(b, off)
 		return err
 	})
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	if pf.aich.wait[p] != w {
+		return 0, len(blocks), fmt.Errorf("part %d no longer waiting for recovery data", p)
+	}
+	pf.aichDropLocked(p)
 	if err != nil {
 		return 0, len(blocks), err
 	}

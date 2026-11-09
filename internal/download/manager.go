@@ -313,6 +313,8 @@ func (m *Manager) Run(ctx context.Context) error {
 	m.mu.Lock()
 	m.ctx = ctx
 	m.mu.Unlock()
+	stopLimit := context.AfterFunc(ctx, m.dlLimit.Stop)
+	defer stopLimit()
 
 	if m.cfg.Port != 0 {
 		// IPv4 only: eD2K has no IPv6, and on IPv6 one customer's /64

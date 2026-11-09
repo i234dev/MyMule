@@ -2,6 +2,7 @@ package netutil
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -11,6 +12,16 @@ type Limiter struct {
 	rate   float64 // bytes per second; 0 = unlimited
 	tokens float64
 	last   time.Time
+
+	stopped atomic.Bool
+}
+
+// Stop makes Wait return at once from now on (when stopping: data still
+// read then is not worth waiting for).
+func (l *Limiter) Stop() {
+	if l != nil {
+		l.stopped.Store(true)
+	}
 }
 
 // NewLimiter returns a limiter of bytesPerSec (0 = unlimited).
@@ -25,7 +36,7 @@ func (l *Limiter) Wait(n int) time.Duration {
 		return 0
 	}
 	var waited time.Duration
-	for {
+	for !l.stopped.Load() {
 		l.mu.Lock()
 		now := time.Now()
 		// The bucket holds at least one packet: with a limit below the
@@ -40,7 +51,10 @@ func (l *Limiter) Wait(n int) time.Duration {
 		}
 		wait := time.Duration((float64(n) - l.tokens) / l.rate * float64(time.Second))
 		l.mu.Unlock()
+		// In short steps, so that Stop is seen.
+		wait = min(wait, 100*time.Millisecond)
 		time.Sleep(wait)
 		waited += wait
 	}
+	return waited
 }

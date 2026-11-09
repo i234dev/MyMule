@@ -378,6 +378,8 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		if len(ports) > 0 {
 			pm = portmap.New(portmap.Config{Ports: ports, Log: logf})
 			dc.Router = func() *portmap.State { s := pm.State(); return &s }
+		} else {
+			dc.Router = func() *portmap.State { return &portmap.State{Error: "no port to open (port is 0 and Kad is off)"} }
 		}
 	}
 	m = download.NewManager(dc)

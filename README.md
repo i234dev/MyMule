@@ -291,8 +291,14 @@ It has five tabs:
 - **Sharing**: shared files, upload speed and who is downloading from you.
 - **Settings**: how files for movies and series are chosen (audio
   languages in order of preference, original version with subtitles,
-  preferred resolution, maximum size, hide cam copies) and the movie and
-  series library (see below).
+  preferred resolution, maximum size, hide cam copies), the movie and
+  series library (see below), and **Advanced settings**: everything in
+  `mymule.conf` (ports, Kad, UPnP, folders, sharing, speed limits, the IP
+  filter list...), written into the file and applied when MyMule
+  restarts. Who can reach MyMule (`api_listen`, `api_key`, `api_hosts`,
+  `network_hosts`, `web_ui`) is shown but only changed in the file. It
+  also says which ports UPnP / NAT-PMP opened on the router, as does a
+  chip at the top and `mymule status`.
 
 Click the server name at the top to see the server list, sorted by users
 or files: connect to another server, choose one to always use (the others

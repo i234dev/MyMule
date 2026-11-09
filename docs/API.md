@@ -75,6 +75,8 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | DELETE | `/api/v1/downloads/{hash}` | Cancel (deletes partial data); for a finished download, only removes it from the list |
 | POST | `/api/v1/downloads/clear` | Remove finished downloads from the list |
 | GET | `/api/v1/search` | Search the eD2K network |
+| GET | `/api/v1/settings` | Every setting of `mymule.conf` (with the web interface on) |
+| PUT | `/api/v1/settings` | Change settings in `mymule.conf` (with the web interface on) |
 
 `{hash}` is the 32-character ed2k hash of the file, as returned in `hash`.
 
@@ -175,6 +177,37 @@ next to `mymule.conf`, across restarts):
 | `serving_buddy` | Relaying callbacks for a firewalled node |
 | `searches` | Kad lookups running |
 | `stored_keywords`, `stored_sources`, `stored_notes` | What other nodes published to you (only when your Kad port is reachable) |
+
+### Router in the status
+
+`GET /api/v1/status` includes `router` when `upnp = true`: which ports
+MyMule opened on the router with UPnP or NAT-PMP.
+
+| Field | Meaning |
+|---|---|
+| `method` | `UPnP` or `NAT-PMP` when the ports are open |
+| `ports` | The ports open, such as `TCP 4662` and `UDP 4672` |
+| `error` | Why none could be opened (forward them by hand) |
+
+No `method` and no `error`: still trying.
+
+### Settings
+
+`GET /api/v1/settings` returns `file` (the path of `mymule.conf`) and
+`settings`, one entry per setting: `key`, `value` (as written in the
+file), `default`, `comment` (its explanation), `kind` (`bool`, `int` or
+`text`), `locked` and `env`.
+
+`PUT /api/v1/settings` with `{"values": {"upload_limit": "300"}}` writes
+those values into `mymule.conf`, keeping the rest of the file and its
+comments. If any value is wrong, nothing is written (`400`). Changes take
+effect when MyMule restarts.
+
+Settings with `locked` (`api_listen`, `api_key`, `api_hosts`,
+`network_hosts`, `web_ui`) decide who can reach MyMule, so they are only
+changed in `mymule.conf` itself (`403`); `api_key` is never sent. With
+`env`, a `MYMULE_` environment variable overrides the file, so a change
+there does not apply while it is set.
 
 ## Examples
 

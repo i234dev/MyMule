@@ -29,6 +29,7 @@
     <div class="chips">
       <button id="chip-server" class="chip chip-button" type="button"></button>
       <span id="chip-kad" class="chip" title="" hidden></span>
+      <span id="chip-router" class="chip" title="" hidden></span>
       <span id="chip-down" class="chip" title=""></span>
       <span id="chip-up" class="chip" title=""></span>
     </div>
@@ -195,6 +196,19 @@
 
         <p id="lib-msg" class="msg" hidden></p>
         <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
+      </form>
+
+      <form id="adv-form" class="card settings">
+        <h2 data-t="adv.title">Advanced settings (mymule.conf)</h2>
+        <p class="muted" data-t="adv.hint">Everything in mymule.conf.</p>
+        <p class="hint"><strong data-t="adv.router">Router</strong>: <span id="adv-router"></span></p>
+        <div><button type="button" id="adv-toggle" class="ghost small" data-t="adv.show">Show advanced settings</button></div>
+        <div id="adv-body" class="settings" hidden>
+          <p id="adv-file" class="hint mono"></p>
+          <div id="adv-fields"></div>
+          <p id="adv-msg" class="msg" hidden></p>
+          <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
+        </div>
       </form>
     </section>
   </main>

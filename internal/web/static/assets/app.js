@@ -73,6 +73,31 @@ const STRINGS = {
     "set.titlelang": "Title in the file name", "set.titlelocal": "In your language", "set.titleorig": "Original title",
     "set.share": "Share the movie and series folders (with their subfolders)",
     "set.save": "Save", "set.saved": "Saved.",
+    "adv.title": "Advanced settings (mymule.conf)",
+    "adv.hint": "Everything in mymule.conf: ports, folders, speeds… Changes are written to the file and take effect when MyMule restarts.",
+    "adv.show": "Show advanced settings", "adv.hide": "Hide advanced settings",
+    "adv.saved": "Saved in mymule.conf. Restart MyMule to apply the changes.",
+    "adv.nochange": "Nothing changed.",
+    "adv.locked": "Change it in mymule.conf itself (it decides who can reach MyMule).",
+    "adv.env": "Set by the environment variable {v}: the file's value is not used while it is set.",
+    "adv.default": "Default: {v}", "adv.file": "File: {f}",
+    "adv.g.net": "Network", "adv.g.dirs": "Folders and sharing", "adv.g.speed": "Speed and slots",
+    "adv.g.other": "Other", "adv.g.access": "Access to MyMule (only in mymule.conf)",
+    "adv.router": "Router", "adv.router.off": "MyMule does not open the ports (upnp = false): forward them by hand.",
+    "adv.router.open": "Opened with {m}: {p}.", "adv.router.fail": "Could not open the ports automatically: {e}. Forward them by hand for HighID.",
+    "adv.router.trying": "Trying UPnP / NAT-PMP…",
+    "router.ok": "Router · {m}", "router.bad": "Router: ports by hand", "router.trying": "Router…",
+    "key.port": "TCP port", "key.kad": "Kad network", "key.kad_port": "Kad UDP port", "key.kad_nodes_url": "Kad nodes.dat URL",
+    "key.upnp": "Open the ports on the router (UPnP / NAT-PMP)", "key.ip_filter_url": "IP filter list URL",
+    "key.server": "Server (ip:port, empty = automatic)", "key.nick": "Nickname", "key.temp_dir": "Folder for partial downloads",
+    "key.download_dir": "Folder for completed downloads", "key.max_conns": "Maximum connections",
+    "key.obfuscation": "Protocol obfuscation", "key.sharing": "Share files", "key.share_downloads": "Share the downloads folder",
+    "key.shared_dirs": "More shared folders (separated by ;)", "key.upload_slots": "Upload slots",
+    "key.upload_limit": "Upload limit (KB/s, 0 = none)", "key.download_limit": "Download limit (KB/s, 0 = none)",
+    "key.api_listen": "API and web address", "key.api_key": "API key", "key.api_hosts": "Extra host names",
+    "key.network_hosts": "Allowed network folder hosts", "key.web_ui": "Web interface",
+    "key.tmdb_api_key": "TMDB key", "key.arr_support": "Radarr/Sonarr support", "key.search_languages": "Extra search languages",
+    "obf.true": "When the other side supports it", "obf.required": "Always (fewer sources)", "obf.false": "Never",
     "add.placeholder": "Paste ed2k:// links here",
     "add.submit": "Add",
     "add.done": "Added: {n}",
@@ -187,6 +212,31 @@ const STRINGS = {
     "set.titlelang": "Título en el nombre del fichero", "set.titlelocal": "En tu idioma", "set.titleorig": "Título original",
     "set.share": "Compartir las carpetas de películas y series (con sus subcarpetas)",
     "set.save": "Guardar", "set.saved": "Guardado.",
+    "adv.title": "Ajustes avanzados (mymule.conf)",
+    "adv.hint": "Todo lo de mymule.conf: puertos, carpetas, velocidades… Los cambios se escriben en el fichero y se aplican al reiniciar MyMule.",
+    "adv.show": "Mostrar ajustes avanzados", "adv.hide": "Ocultar ajustes avanzados",
+    "adv.saved": "Guardado en mymule.conf. Reinicia MyMule para aplicar los cambios.",
+    "adv.nochange": "No has cambiado nada.",
+    "adv.locked": "Se cambia en el propio mymule.conf (decide quién puede entrar en MyMule).",
+    "adv.env": "Lo fija la variable de entorno {v}: el valor del fichero no se usa mientras exista.",
+    "adv.default": "Por defecto: {v}", "adv.file": "Fichero: {f}",
+    "adv.g.net": "Red", "adv.g.dirs": "Carpetas y compartir", "adv.g.speed": "Velocidad y slots",
+    "adv.g.other": "Otros", "adv.g.access": "Acceso a MyMule (solo en mymule.conf)",
+    "adv.router": "Router", "adv.router.off": "MyMule no abre los puertos (upnp = false): ábrelos a mano.",
+    "adv.router.open": "Abiertos con {m}: {p}.", "adv.router.fail": "No se pudieron abrir los puertos automáticamente: {e}. Ábrelos a mano para tener HighID.",
+    "adv.router.trying": "Probando UPnP / NAT-PMP…",
+    "router.ok": "Router · {m}", "router.bad": "Router: puertos a mano", "router.trying": "Router…",
+    "key.port": "Puerto TCP", "key.kad": "Red Kad", "key.kad_port": "Puerto UDP de Kad", "key.kad_nodes_url": "URL del nodes.dat de Kad",
+    "key.upnp": "Abrir los puertos en el router (UPnP / NAT-PMP)", "key.ip_filter_url": "URL de la lista de filtro de IPs",
+    "key.server": "Servidor (ip:puerto, vacío = automático)", "key.nick": "Apodo", "key.temp_dir": "Carpeta de descargas a medias",
+    "key.download_dir": "Carpeta de descargas terminadas", "key.max_conns": "Conexiones máximas",
+    "key.obfuscation": "Ofuscación del protocolo", "key.sharing": "Compartir archivos", "key.share_downloads": "Compartir la carpeta de descargas",
+    "key.shared_dirs": "Más carpetas compartidas (separadas por ;)", "key.upload_slots": "Slots de subida",
+    "key.upload_limit": "Límite de subida (KB/s, 0 = sin límite)", "key.download_limit": "Límite de descarga (KB/s, 0 = sin límite)",
+    "key.api_listen": "Dirección de la API y la web", "key.api_key": "Clave de la API", "key.api_hosts": "Nombres de host extra",
+    "key.network_hosts": "Equipos de carpetas de red permitidos", "key.web_ui": "Interfaz web",
+    "key.tmdb_api_key": "Clave de TMDB", "key.arr_support": "Soporte de Radarr/Sonarr", "key.search_languages": "Idiomas de búsqueda extra",
+    "obf.true": "Cuando el otro lado la admite", "obf.required": "Siempre (menos fuentes)", "obf.false": "Nunca",
     "add.placeholder": "Pega aquí enlaces ed2k://",
     "add.submit": "Añadir",
     "add.done": "Añadidos: {n}",
@@ -368,6 +418,7 @@ function selectTab(name, how = "push") {
   if (name === "search") $("#s-q").focus();
   if (name === "media" && $("#work").hidden) $("#m-q").focus();
   if (name === "settings" && !prefsLoaded) loadSettings();
+  if (name === "settings") renderAdvRouter();
   try { localStorage.setItem("mymule.tab", name); } catch {}
   render();
 }
@@ -437,6 +488,27 @@ function renderKad(k) {
   }
 }
 
+// renderRouter shows whether MyMule opened its ports on the router.
+function renderRouter(r) {
+  renderAdvRouter();
+  const chip = $("#chip-router");
+  if (!r) { chip.hidden = true; return; }
+  chip.hidden = false;
+  if (r.method) {
+    chip.textContent = t("router.ok", { m: r.method });
+    chip.className = "chip ok";
+    chip.title = t("adv.router.open", { m: r.method, p: (r.ports || []).join(", ") });
+  } else if (r.error) {
+    chip.textContent = t("router.bad");
+    chip.className = "chip warn";
+    chip.title = t("adv.router.fail", { e: r.error });
+  } else {
+    chip.textContent = t("router.trying");
+    chip.className = "chip";
+    chip.title = "";
+  }
+}
+
 function renderHeader() {
   const s = status.server || {};
   const chip = $("#chip-server");
@@ -450,6 +522,7 @@ function renderHeader() {
     chip.title = (s.high_id ? s.address : t("server.lowhint")) + " · " + t("srv.title");
   }
   renderKad(status.kad);
+  renderRouter(status.router);
   $("#chip-down").textContent = "↓ " + speed(status.download_speed);
   $("#chip-up").textContent = "↑ " + speed(status.upload ? status.upload.speed : 0);
   $("#version").textContent = "MyMule " + status.version;
@@ -1228,3 +1301,99 @@ async function start() {
 
 translatePage();
 start();
+
+// ---------- Advanced settings (mymule.conf) ----------
+const ADV_GROUPS = [
+  ["net", ["port", "kad", "kad_port", "upnp", "obfuscation", "max_conns", "server", "kad_nodes_url", "ip_filter_url"]],
+  ["dirs", ["temp_dir", "download_dir", "sharing", "share_downloads", "shared_dirs"]],
+  ["speed", ["upload_slots", "upload_limit", "download_limit"]],
+  ["other", ["nick", "tmdb_api_key", "arr_support", "search_languages"]],
+  ["access", ["api_listen", "api_key", "api_hosts", "network_hosts", "web_ui"]],
+];
+let advLoaded = {}; // key -> value as loaded
+
+function renderAdvRouter() {
+  const line = $("#adv-router");
+  if (!status || !line) return;
+  const r = status.router;
+  if (!r) line.textContent = t("adv.router.off");
+  else if (r.method) line.textContent = t("adv.router.open", { m: r.method, p: (r.ports || []).join(", ") });
+  else if (r.error) line.textContent = t("adv.router.fail", { e: r.error });
+  else line.textContent = t("adv.router.trying");
+}
+
+function advInput(s) {
+  const id = "adv-" + s.key;
+  const dis = s.locked ? true : undefined;
+  if (s.kind === "bool") {
+    const box = el("input", { id, type: "checkbox", "data-key": s.key, disabled: dis });
+    box.checked = s.value === "true";
+    return el("label", { class: "inline" }, box, el("span", { text: t("key." + s.key) }));
+  }
+  let input;
+  if (s.key === "obfuscation") {
+    input = el("select", { id, "data-key": s.key, disabled: dis },
+      ["true", "required", "false"].map(v => el("option", { value: v, text: t("obf." + v) })));
+  } else {
+    input = el("input", { id, type: s.kind === "int" ? "number" : "text", min: s.kind === "int" ? "0" : undefined,
+      autocomplete: "off", spellcheck: "false", "data-key": s.key, disabled: dis });
+  }
+  input.value = s.value;
+  return el("label", { class: "field" }, el("span", { text: t("key." + s.key) }), input);
+}
+
+function advField(s) {
+  const hints = [];
+  if (s.locked) hints.push(t("adv.locked"));
+  if (s.env) hints.push(t("adv.env", { v: "MYMULE_" + s.key.toUpperCase() }));
+  hints.push(s.comment.replaceAll("\n", " "));
+  if (s.default !== "" && s.default !== s.value) hints.push(t("adv.default", { v: s.default }));
+  return el("div", { class: "adv-field" + (s.locked ? " locked" : "") }, advInput(s),
+    el("p", { class: "hint", text: hints.join(" ") }));
+}
+
+async function loadAdvanced() {
+  const box = $("#adv-fields");
+  try {
+    const r = await api("GET", "/api/v1/settings");
+    const byKey = Object.fromEntries(r.settings.map(s => [s.key, s]));
+    advLoaded = Object.fromEntries(r.settings.map(s => [s.key, s.value]));
+    const used = new Set();
+    const groups = ADV_GROUPS.map(([g, keys]) => {
+      const list = keys.filter(k => byKey[k]).map(k => { used.add(k); return byKey[k]; });
+      if (g === "other") list.push(...r.settings.filter(s => !ADV_GROUPS.some(([, ks]) => ks.includes(s.key))));
+      return el("fieldset", { class: "adv-group" }, el("legend", { text: t("adv.g." + g) }), list.map(advField));
+    });
+    box.replaceChildren(...groups);
+    $("#adv-file").textContent = t("adv.file", { f: r.file });
+    renderAdvRouter();
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#adv-msg"), err.message, "bad");
+  }
+}
+
+$("#adv-toggle").addEventListener("click", () => {
+  const body = $("#adv-body");
+  body.hidden = !body.hidden;
+  $("#adv-toggle").textContent = t(body.hidden ? "adv.show" : "adv.hide");
+  if (!body.hidden) loadAdvanced();
+});
+
+$("#adv-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("#adv-msg");
+  const values = {};
+  document.querySelectorAll("#adv-fields [data-key]").forEach(n => {
+    if (n.disabled) return;
+    const v = n.type === "checkbox" ? String(n.checked) : n.value.trim();
+    if (v !== advLoaded[n.dataset.key]) values[n.dataset.key] = v;
+  });
+  if (!Object.keys(values).length) { showMsg(msg, t("adv.nochange"), ""); return; }
+  try {
+    await api("PUT", "/api/v1/settings", { values });
+    Object.assign(advLoaded, values);
+    showMsg(msg, t("adv.saved"), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+});

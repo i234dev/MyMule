@@ -169,6 +169,12 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .field > span, .field legend { font-weight: 600; }
 .inline { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .hint { font-size: 13px; color: var(--muted); }
+.adv-group { display: grid; gap: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; min-width: 0; }
+.adv-group legend { font-weight: 700; padding: 0 6px; }
+.adv-field { display: grid; gap: 4px; min-width: 0; }
+.adv-field.locked { opacity: .7; }
+.adv-field input[type=text], .adv-field input[type=number], .adv-field select { max-width: 100%; }
+#adv-file { word-break: break-all; }
 .preview { font-size: 13px; color: var(--muted); }
 .preview code, .hint code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
 .preview code.error { color: var(--bad); }

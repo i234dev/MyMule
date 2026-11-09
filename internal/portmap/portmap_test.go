@@ -139,13 +139,17 @@ func TestNATPMP(t *testing.T) {
 // the mapping is undone and the error said.
 func TestNATPMPRefused(t *testing.T) {
 	r := newFakeNATPMP(t)
+	r.mu.Lock()
 	r.giveOther = true
+	r.mu.Unlock()
 	m := New(Config{Ports: ports()[:1]})
 	_, err := m.natpmpOpen(context.Background(), r.addr())
 	if err == nil || !strings.Contains(err.Error(), "gave TCP port 4663") {
 		t.Fatalf("other port: %v", err)
 	}
+	r.mu.Lock()
 	r.giveOther, r.code = false, 2
+	r.mu.Unlock()
 	if _, err := m.natpmpOpen(context.Background(), r.addr()); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("refused: %v", err)
 	}
@@ -267,7 +271,9 @@ func TestUPnP(t *testing.T) {
 // port is another computer's says so.
 func TestUPnPRouterAnswers(t *testing.T) {
 	r := newFakeIGD(t)
+	r.mu.Lock()
 	r.onlyPerm = true
+	r.mu.Unlock()
 	g, err := discover(context.Background(), r.ssdp.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +281,9 @@ func TestUPnPRouterAnswers(t *testing.T) {
 	if lease, err := g.add(context.Background(), "tcp", 4662, 3600, "MyMule"); err != nil || lease != 0 || !r.has("TCP 4662") {
 		t.Fatalf("permanent only: lease %d, %v", lease, err)
 	}
+	r.mu.Lock()
 	r.conflict = true
+	r.mu.Unlock()
 	if _, err := g.add(context.Background(), "udp", 4672, 3600, "MyMule"); err == nil || !strings.Contains(err.Error(), "another computer") {
 		t.Fatalf("conflict: %v", err)
 	}

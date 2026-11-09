@@ -83,6 +83,9 @@ type partMeta struct {
 	Finishing string `json:"finishing,omitempty"`
 	// AICH is the file's AICH hash, once trusted.
 	AICH string `json:"aich,omitempty"`
+	// AICHOff: the AICH hash turned out wrong, AICH is not used again
+	// (nor a hash from peers trusted) for this download.
+	AICHOff bool `json:"aich_off,omitempty"`
 }
 
 // NumParts is the number of 9.28 MB parts (as peers count them).
@@ -228,6 +231,7 @@ func Open(metaPath string) (*PartFile, error) {
 			pf.trustLinkAICH(h)
 		}
 	}
+	pf.aich.off = m.AICHOff
 	if pf.hashSet == nil && !pf.rootIsPartHash() {
 		// Verified against what? Without the hash set they cannot be
 		// checked again, nor uploaded: they wait for it like the others.
@@ -343,6 +347,7 @@ func (pf *PartFile) saveLocked() error {
 	if pf.aich.trusted && !pf.aich.off {
 		m.AICH = pf.aich.root.String()
 	}
+	m.AICHOff = pf.aich.off
 	for _, h := range pf.hashSet {
 		m.HashSet = append(m.HashSet, h.String())
 	}

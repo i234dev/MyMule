@@ -196,6 +196,18 @@ func TestAICHWrongHashTurnsOff(t *testing.T) {
 	if len(pf.Reserve("peer:3", part0, 1)) != 1 {
 		t.Fatal("part not downloaded again")
 	}
+	// After a restart too: neither the link's hash nor one from peers.
+	if err := pf.Save(); err != nil {
+		t.Fatal(err)
+	}
+	re, err := Open(pf.metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer re.Close()
+	if _, ok := re.AICHRoot(); ok || re.NeedsAICHRoot() {
+		t.Fatal("AICH used again after a restart")
+	}
 
 	// A repaired part failing again may be a peer sending bad blocks
 	// again: repaired again. Failing aichMaxRepairs times: off.

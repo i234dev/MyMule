@@ -147,6 +147,7 @@ func (pf *PartFile) aichFailedLocked(p int) {
 		a.refailed[p]++
 		if a.refailed[p] >= aichMaxRepairs {
 			a.off = true
+			pf.dirty = true
 			clear(a.wait)
 			a.waiting.Store(0)
 			return
@@ -259,6 +260,7 @@ func (pf *PartFile) AICHRecovered(owner string, p int, root aich.Hash, data []by
 		// its eD2K hash: the two do not describe the same file. Download
 		// the part again whole, and use AICH no more.
 		pf.aich.off = true
+		pf.dirty = true
 		return 0, len(blocks), fmt.Errorf("the AICH hash does not fit the file's eD2K hash")
 	}
 	if pf.aich.restored == nil {

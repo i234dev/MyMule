@@ -71,7 +71,7 @@
   "faq_why_q": "Por que mais um cliente eMule?",
   "faq_why_a": "O MyMule é um único programa pequeno e sem dependências que roda em qualquer lugar, até sem tela: em um NAS, um Raspberry Pi ou no Docker, controlado pelo navegador do celular. Ele também leva o eD2K para o Radarr, o Sonarr e o Prowlarr, e encontra filmes e séries pelo título no seu idioma.",
   "faq_missing_q": "O que ele ainda não faz?",
-  "faq_missing_a": "A troca de fontes entre clientes, as transferências comprimidas e o AICH (recuperar uma parte danificada sem baixá-la inteira de novo) ainda não foram implementados. Ideias e relatos de bugs são bem-vindos no <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
+  "faq_missing_a": "As transferências comprimidas e o AICH (recuperar uma parte danificada sem baixá-la inteira de novo) ainda não foram implementados. Ideias e relatos de bugs são bem-vindos no <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
   "faq_free_q": "É gratuito?",
   "faq_free_a": "Sim: é software livre sob a GNU GPL v3, sem anúncios e sem conta para criar. O código-fonte está no <a href=\"https://github.com/i234dev/MyMule\">GitHub</a>.",
 

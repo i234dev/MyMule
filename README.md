@@ -45,6 +45,9 @@ Python, cron, home automation).
   corrupt parts are thrown away and downloaded again, and a peer that
   keeps sending bad data is not used for that file any more
 - Sources from every server in the list (UDP), not only the connected one
+- Source exchange with other eMule clients: the peers you download from
+  tell you where else the file is, and you tell them (only sources that
+  answered, with a public address, a limited number and not too often)
 - Kad, eMule's network without servers: searches and sources there too,
   your shared files published, and a full Kad node for others (see
   [Kad](#kad))

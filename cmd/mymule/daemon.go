@@ -31,6 +31,7 @@ import (
 	"mymule/internal/prefs"
 	"mymule/internal/server"
 	"mymule/internal/share"
+	"mymule/internal/stats"
 	"mymule/internal/upload"
 	"mymule/internal/web"
 )
@@ -80,6 +81,7 @@ type engine struct {
 	items *library.Store // downloads that are movies or episodes
 	kad   *kadEngine     // nil when Kad is off
 	cred  *credit.Store  // credits and our secure identification key
+	stats *stats.Store   // all-time upload and download totals
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -207,6 +209,7 @@ func (e *engine) start(ctx context.Context) {
 		e.kad.run(ctx, e.ListenPortWanted())
 	}
 	go e.cred.Run(ctx)
+	go e.stats.Run(ctx)
 }
 
 // obfuscation is the protocol obfuscation we offer, as crypt options,
@@ -221,8 +224,12 @@ func obfuscation() byte {
 	return obfus.Supports | obfus.Requests
 }
 
-// saveCredits writes the credits when the engine stops.
-func (e *engine) saveCredits() { e.cred.Save() }
+// saveCredits writes the credits, and the all-time totals, when the
+// engine stops.
+func (e *engine) saveCredits() {
+	e.cred.Save()
+	e.stats.Save()
+}
 
 func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, error) {
 	uh, err := config.UserHash()
@@ -249,6 +256,20 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		return nil, err
 	}
 	cred.Debug = debug
+	statsPath, err := config.Path("stats.json")
+	if err != nil {
+		return nil, err
+	}
+	totals := stats.Open(statsPath, func() (int64, int64) {
+		var sent int64
+		if up != nil {
+			sent = up.TotalSent()
+		}
+		if m == nil {
+			return sent, 0
+		}
+		return sent, m.Received()
+	}, logf)
 	if settings.Sharing {
 		var dirs []string
 		if settings.ShareDownloads {
@@ -314,6 +335,7 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		Library:     lib,
 		Upload:      up,
 		Credits:     cred,
+		Totals:      totals.Totals,
 		Obfuscation: obfuscation(),
 	}
 	var kadEng *kadEngine
@@ -321,7 +343,7 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		kadEng = setupKad(&dc, &m, lib, uh)
 	}
 	m = download.NewManager(dc)
-	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred,
+	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals,
 		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
 	eng.prefs.Protect(tmp)

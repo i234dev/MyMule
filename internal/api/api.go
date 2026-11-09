@@ -10,6 +10,7 @@ import (
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/share"
+	"mymule/internal/stats"
 	"mymule/internal/upload"
 )
 
@@ -30,6 +31,7 @@ type Status struct {
 	Upload *upload.Status        `json:"upload,omitempty"`
 	Shared *share.Status         `json:"shared,omitempty"`
 	Kad    *KadInfo              `json:"kad,omitempty"`
+	Totals *stats.Totals         `json:"totals,omitempty"`
 }
 
 // AddRequest is the body of POST /v1/add.

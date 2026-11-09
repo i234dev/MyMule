@@ -260,8 +260,12 @@ func renderBody(st *api.Status, lines []string, w, h int) []string {
 			limit = fmt.Sprintf("limit %d KB/s", u.LimitKB)
 		}
 		tadd()
-		tadd(seg{fmt.Sprintf(" UPLOADS (%d/%d slots, %d in queue, %s, %s sent)",
-			len(u.Slots), u.MaxSlots, u.Queue, limit, humanSize(uint64(u.Total))), sBold + sCyan})
+		sent := humanSize(uint64(u.Total)) + " sent"
+		if st.Totals != nil {
+			sent += ", " + humanSize(uint64(st.Totals.Uploaded)) + " all time"
+		}
+		tadd(seg{fmt.Sprintf(" UPLOADS (%d/%d slots, %d in queue, %s, %s)",
+			len(u.Slots), u.MaxSlots, u.Queue, limit, sent), sBold + sCyan})
 		if len(u.Slots) == 0 {
 			tadd(seg{"  Nobody is downloading from you right now.", sDim})
 		}

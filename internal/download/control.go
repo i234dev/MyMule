@@ -16,6 +16,7 @@ import (
 	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
+	"mymule/internal/stats"
 	"mymule/internal/upload"
 )
 
@@ -453,6 +454,19 @@ func (m *Manager) PublicIP() netip.Addr {
 
 // SharingStatus returns the upload and shared-library state, if sharing
 // is enabled.
+// Received is how many bytes of file data peers have sent us since start.
+func (m *Manager) Received() int64 { return m.received.Load() }
+
+// Totals returns the all-time upload and download totals, or nil when
+// they are not kept.
+func (m *Manager) Totals() *stats.Totals {
+	if m.cfg.Totals == nil {
+		return nil
+	}
+	t := m.cfg.Totals()
+	return &t
+}
+
 func (m *Manager) SharingStatus() (*upload.Status, *share.Status) {
 	var us *upload.Status
 	var ss *share.Status

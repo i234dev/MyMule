@@ -102,4 +102,8 @@ func TestCreditsOnlyForNewBytes(t *testing.T) {
 	if got.Downloaded != uint64(len(chunk)) {
 		t.Fatalf("credited %d bytes for %d new ones sent 20 times", got.Downloaded, len(chunk))
 	}
+	// The all-time count is of what was received, resent bytes too.
+	if m.Received() != int64(20*len(chunk)) {
+		t.Fatalf("received %d", m.Received())
+	}
 }

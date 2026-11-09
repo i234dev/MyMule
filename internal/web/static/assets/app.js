@@ -104,7 +104,8 @@ const STRINGS = {
     "share.files": "Shared files", "share.upload": "Upload", "share.slots": "Upload slots",
     "share.uploading": "Uploading now",
     "share.partial": "{n} partial", "share.hashing": "hashing {f} ({p}%)", "share.tohash": "{n} to hash",
-    "share.total": "{s} sent in total", "share.limit": "limit {s}/s", "share.nolimit": "no limit",
+    "share.total": "{s} sent since MyMule started", "share.limit": "limit {s}/s", "share.nolimit": "no limit",
+    "share.alltime": "All time", "share.since": "↓ {d} downloaded · since {t}",
     "share.queue": "{n} waiting in queue", "share.none": "Nobody is downloading from you right now.",
     "share.off": "Sharing is off (sharing = false in mymule.conf).",
     "server.none": "not connected", "server.high": "HighID", "server.low": "LowID",
@@ -217,7 +218,8 @@ const STRINGS = {
     "share.files": "Ficheros compartidos", "share.upload": "Subida", "share.slots": "Huecos de subida",
     "share.uploading": "Subiendo ahora",
     "share.partial": "{n} a medias", "share.hashing": "calculando hash de {f} ({p}%)", "share.tohash": "{n} pendientes de hash",
-    "share.total": "{s} enviados en total", "share.limit": "límite {s}/s", "share.nolimit": "sin límite",
+    "share.total": "{s} enviados desde que arrancó MyMule", "share.limit": "límite {s}/s", "share.nolimit": "sin límite",
+    "share.alltime": "En total", "share.since": "↓ {d} descargados · desde el {t}",
     "share.queue": "{n} esperando en la cola", "share.none": "Ahora mismo nadie te está descargando.",
     "share.off": "Compartir está desactivado (sharing = false en mymule.conf).",
     "server.none": "sin conexión", "server.high": "HighID", "server.low": "LowID",
@@ -1033,6 +1035,10 @@ function renderSharing() {
   $("#sh-speed").textContent = speed(up.speed);
   $("#sh-speed-sub").textContent = t("share.total", { s: size(up.total) }) + " · " +
     (up.limit_kb ? t("share.limit", { s: size(up.limit_kb * 1024) }) : t("share.nolimit"));
+  const all = status.totals;
+  $("#sh-all").textContent = all ? "↑ " + size(all.uploaded) : "—";
+  $("#sh-all-sub").textContent = all ? t("share.since", { d: size(all.downloaded),
+    t: new Date(all.since).toLocaleDateString(LANG) }) : "";
   const slots = up.slots || [];
   $("#sh-slots").textContent = slots.length + " / " + up.max_slots;
   $("#sh-slots-sub").textContent = t("share.queue", { n: up.queue });

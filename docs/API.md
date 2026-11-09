@@ -144,6 +144,20 @@ Results are sorted by number of sources:
 
 Pass `link` to `POST /api/v1/downloads` to download a result.
 
+### All-time totals in the status
+
+`GET /api/v1/status` includes `totals`: what MyMule has sent and
+received since it started counting them (they are kept in `stats.json`,
+next to `mymule.conf`, across restarts):
+
+| Field | Meaning |
+|---|---|
+| `uploaded` | Bytes sent to other users, all time |
+| `downloaded` | Bytes received from them, all time |
+| `since` | When counting started (RFC 3339 time) |
+
+`upload.total` is only since MyMule last started.
+
 ### Kad in the status
 
 `GET /api/v1/status` includes `kad` when Kad is on (`kad = true` in

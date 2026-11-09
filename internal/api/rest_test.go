@@ -14,6 +14,7 @@ import (
 
 	"mymule/internal/authlimit"
 	"mymule/internal/download"
+	"mymule/internal/stats"
 )
 
 const restKey = "test-key-0123456789abcdef"
@@ -316,5 +317,37 @@ func TestRESTBasicAuthIsNotAKey(t *testing.T) {
 	}
 	if c := get(map[string]string{"Authorization": "bearer " + weakKey}); c != 200 {
 		t.Fatalf("lower-case bearer refused: %d", c)
+	}
+}
+
+// The status carries the all-time totals when they are kept, and none
+// otherwise.
+func TestRESTStatusTotals(t *testing.T) {
+	since := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	m := download.NewManager(download.Config{Totals: func() stats.Totals {
+		return stats.Totals{Uploaded: 123456789, Downloaded: 987654321, Since: since}
+	}})
+	srv := httptest.NewServer(NewREST(m, restKey, "x"))
+	defer srv.Close()
+	get := func(srv *httptest.Server) map[string]any {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/status", nil)
+		req.Header.Set("X-Api-Key", restKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var v map[string]any
+		json.NewDecoder(resp.Body).Decode(&v)
+		return v
+	}
+	tot, ok := get(srv)["totals"].(map[string]any)
+	if !ok || tot["uploaded"] != float64(123456789) || tot["downloaded"] != float64(987654321) || tot["since"] != "2026-01-02T03:04:05Z" {
+		t.Fatalf("totals %v", tot)
+	}
+	none := httptest.NewServer(NewREST(download.NewManager(download.Config{}), restKey, "x"))
+	defer none.Close()
+	if _, ok := get(none)["totals"]; ok {
+		t.Fatal("totals without a store")
 	}
 }

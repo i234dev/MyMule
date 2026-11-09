@@ -645,6 +645,9 @@ func (m *Manager) Run(ctx context.Context) {
 
 // TryLock and Unlock let a recovered panic check that the upload lock
 // was not left held (see package safe).
+// TotalSent is how many bytes have been sent to peers since start.
+func (m *Manager) TotalSent() int64 { return m.total.Load() }
+
 func (m *Manager) TryLock() bool { return m.mu.TryLock() }
 func (m *Manager) Unlock()       { m.mu.Unlock() }
 

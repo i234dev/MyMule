@@ -22,6 +22,7 @@ import (
 	"mymule/internal/safe"
 	"mymule/internal/server"
 	"mymule/internal/share"
+	"mymule/internal/stats"
 	"mymule/internal/upload"
 )
 
@@ -59,6 +60,9 @@ type Config struct {
 	// Credits, when set, runs eMule's secure identification with every
 	// peer and counts what each one uploads to us.
 	Credits *credits.Store
+	// Totals, when set, gives the all-time upload and download totals,
+	// for the status.
+	Totals func() stats.Totals
 	// Obfuscation is the protocol obfuscation we offer, as crypt options
 	// (obfus.Supports, Requests, Requires): with Supports, connections to
 	// peers that support it are obfuscated, and obfuscated connections
@@ -240,6 +244,8 @@ type Manager struct {
 	callbacks callbackGate // server callback requests we act on
 
 	sx sxState // source exchange
+
+	received atomic.Int64 // bytes of file data received from peers since start
 
 	// kadCalled is when we last asked each address (a buddy, or a type 6
 	// source) for a Kad callback.

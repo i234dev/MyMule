@@ -599,6 +599,7 @@ func (s *session) store(off int64, data []byte) error {
 		s.deadline = limit
 	}
 	s.f.bytes.Add(n)
+	s.m.received.Add(n)
 	if cr := s.m.cfg.Credits; cr != nil {
 		// Only what is new to us: bytes sent again would let a peer earn
 		// the best place in our upload queue for nothing.

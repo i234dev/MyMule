@@ -11,6 +11,22 @@ The *arr apps don't know about eD2K. They only talk to **indexers**
 
 Everything runs inside the MyMule daemon, only when `arr_support = true`,
 and uses the same `api_listen` and `api_key` as the [HTTP API](API.md).
+With it off, none of these endpoints exist.
+
+If you already run the *arr apps, this adds the eD2K network as one more
+source. It is most useful for what is hard to find on torrents: dubbed
+versions, older films and series, rare releases. The apps don't need any
+plugin: MyMule speaks the protocols they already know.
+
+## What is supported
+
+| Feature | Details |
+|---|---|
+| **Torznab indexer** (`/torznab/api`) | Movie, TV (season/episode), music, audio, book and general searches over all known eD2K servers; Newznab categories (Movies, TV, Audio, Books, PC, Other). Works in Prowlarr ("Generic Torznab") or directly in each app ("Torznab", custom). |
+| **qBittorrent-compatible download client** (`/api/v2`) | Login, add (stand-in `.torrent` or plain `ed2k://` links), categories, pause/resume, remove (with or without files), progress and save path until the app imports the file. |
+| **Search in your language** | With `search_languages` (e.g. `es`, `it`, `fr`), searches also use the title in those languages, looked up on Wikidata from the IMDb/TMDB/TVDB id. Off by default. |
+| **Cleaner results** | Results nobody shares are left out; server prefixes such as `[kad example.org]` are removed; short language tags (`Spa`, `ESP-ING`, `[ita, eng]`...) get the full name added so the apps detect the language. Files keep their real name. |
+| **Safe by default** | Same address and `api_key` as the HTTP API, only on this computer unless you change `api_listen`. Download links in the results are signed for their own file and don't contain the `api_key`. Changes (add, remove, pause) need POST. Removing with files only deletes inside `download_dir`. |
 
 ## 1. Turn it on and make MyMule reachable from the apps
 
@@ -146,7 +162,7 @@ In the app, also set the language you want in the quality profile
   sources come from Kad, which MyMule uses by default (`kad = true`).
   Searches from the apps ask Kad too, so they take about 15 seconds.
 - Downloads can take a while to start: peers serve uploads in queues
-  (see `mymule top`). HighID (an open port, see the README) helps a lot.
+  (see `mymule top`). HighID (an open port, see [HighID](CONFIG.md#highid)) helps a lot.
 - One file per download (eD2K links are single files).
 
 Only download content you have the right to.

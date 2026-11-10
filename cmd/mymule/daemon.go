@@ -1047,7 +1047,7 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 }
 
 // maxLogSize is when "mymule start" starts a new log. (Under a service
-// manager the log belongs to it; see the README for logrotate.)
+// manager the log belongs to it; see docs/INSTALL.md for logrotate.)
 const maxLogSize = 20 << 20
 
 // rotateLog keeps one previous log: path is renamed to path.1 when it is

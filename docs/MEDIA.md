@@ -25,6 +25,7 @@ titles and files in the examples are made up.
 - [How the files are chosen](#how-the-files-are-chosen)
 - [Spotting fakes](#spotting-fakes)
 - [Downloading into your library](#downloading-into-your-library)
+- [Library folders and file names](#library-folders-and-file-names)
 - [The wish list](#the-wish-list)
 - [Notifications and your media server](#notifications-and-your-media-server)
 - [For scripts: the API](#for-scripts-the-api)
@@ -39,7 +40,8 @@ titles and files in the examples are made up.
    ```
 
 2. Open `http://127.0.0.1:4711/` (or `http://<computer-ip>:4711/` with
-   `api_listen = 0.0.0.0:4711`; see the README) and log in with the
+   `api_listen = 0.0.0.0:4711`; see
+   [Using it from other devices](WEBUI.md#using-it-from-other-devices)) and log in with the
    `api_key` from `mymule.conf`.
 
 3. In **Settings**, check **Choosing files for movies and series**: the
@@ -54,9 +56,16 @@ titles and files in the examples are made up.
 5. Keep **Kad** on (`kad = true`, the default): it finds more files, and
    it is where the ratings that spot fakes come from.
 
-Movie and series data and posters come from [TMDB](https://www.themoviedb.org),
-with [Wikidata](https://www.wikidata.org) as a fallback. MyMule includes
-its own TMDB key: nothing to set up.
+Movie and series data and posters come from
+[TMDB](https://www.themoviedb.org), with
+[Wikidata](https://www.wikidata.org) as a fallback. MyMule includes its
+own TMDB key, so there is nothing to set up; you can use your own key
+(`tmdb_api_key`) or `tmdb_api_key = off` to use only Wikidata, without
+posters. Only search words and ids are sent; posters are fetched by
+MyMule (your browser never contacts TMDB) and kept in a small cache
+(`cache/posters`, at most 100 MB).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## Finding a movie or series
 
@@ -173,9 +182,9 @@ Series/Example Show/Season 01/Example Show - S01E02.mkv
 ```
 
 The names come from templates you choose in **Settings** (with a live
-example), using the title in your language or the original one. The
-README's [Movie and series library](../README.md#movie-and-series-library)
-section lists every tag. Files keep being shared after they are moved,
+example), using the title in your language or the original one.
+[Library folders and file names](#library-folders-and-file-names) lists
+every tag. Files keep being shared after they are moved,
 without hashing them again, if you choose to share those folders.
 
 Other ways to steer a download, on each download of the **Downloads**
@@ -189,6 +198,36 @@ tab:
 ![Downloads with their priority and preview buttons](webui-downloads.png)
 
 <sub>Made-up downloads: one with high priority and preview on, one with low priority.</sub>
+
+## Library folders and file names
+
+Files downloaded from the **Movies & series** tab can be renamed and moved
+into their own folders when they finish, ready for Plex, Jellyfin or Kodi.
+It is off until you turn on **Organize movies and series** in **Settings**;
+when you download a file, the web interface tells you where it will go.
+Then choose:
+
+- **Movies folder** and **Series folder** on the computer where MyMule
+  runs. Leave one empty to rename those files inside `download_dir`
+  instead (only the last part of the template is used there, so they
+  stay in that folder and keep being shared). MyMule must be able to
+  write in the folders: on Linux, give them to the user it runs as.
+- **File names** from ready-made templates or your own, with a live
+  example. Templates use tags: `{title}`, `{original_title}`, `{year}`,
+  `{quality}`, `{language}`, `{season}`, `{episode}`, `{episode_title}`;
+  `/` makes a folder and `{season:2}` adds a leading zero. For example
+  `{title} ({year})/{title} ({year})` gives
+  `Example Movie (1999)/Example Movie (1999).mkv`, and
+  `{title}/Season {season:2}/{title} - S{season:2}E{episode:2}` gives
+  `Example Show/Season 01/Example Show - S01E02.mkv`.
+- Whether file names use the **title in your language or the original**.
+- Whether to **share** those folders (with their subfolders). Moved files
+  keep being shared without hashing them again.
+
+Only video, audio and subtitle files are organised. Names are made safe
+for Windows, macOS and Linux, files are never overwritten (a ` (2)` is
+added) and nothing is ever written outside the chosen folders. Settings
+are kept in `preferences.json`.
 
 ## The wish list
 

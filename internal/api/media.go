@@ -27,6 +27,7 @@ func (r *REST) EnableMedia(src meta.Source) {
 	r.mux.HandleFunc("GET /api/v1/media/{id}/releases", r.mediaReleases)
 	r.mux.HandleFunc("GET /api/v1/media/{id}", r.mediaGet)
 	r.mux.HandleFunc("GET /api/v1/media/{id}/season/{n}", r.mediaSeason)
+	r.mux.HandleFunc("GET /api/v1/files/{hash}/notes", r.getNotes)
 }
 
 // mediaGet returns a work with its details (seasons of a series).

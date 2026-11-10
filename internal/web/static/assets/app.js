@@ -64,6 +64,9 @@ const STRINGS = {
     "want.done": "Downloaded: {f}",
     "want.searchnow": "Search now", "want.remove": "Remove",
     "want.searching": "It will be searched for in a moment.",
+    "notes.fake": "⚠ fake? {f} of {n} say so",
+    "notes.rating": "★ {r} ({n} votes)",
+    "notes.comments": "What users say:",
     "srv.title": "Servers", "srv.close": "Close",
     "srv.hint": "The server you are connected to. Global searches and sources use all of them anyway.",
     "srv.auto": "Server choice: automatic (the best one available)",
@@ -225,6 +228,9 @@ const STRINGS = {
     "want.done": "Descargada: {f}",
     "want.searchnow": "Buscar ahora", "want.remove": "Quitar",
     "want.searching": "Se buscará en un momento.",
+    "notes.fake": "⚠ ¿fake? lo dicen {f} de {n}",
+    "notes.rating": "★ {r} ({n} votos)",
+    "notes.comments": "Lo que dicen los usuarios:",
     "srv.title": "Servidores", "srv.close": "Cerrar",
     "srv.hint": "El servidor al que estás conectado. Las búsquedas globales y la búsqueda de fuentes usan todos igualmente.",
     "srv.auto": "Elección de servidor: automática (el mejor disponible)",
@@ -925,6 +931,7 @@ async function findReleases() {
     if (!releases.length) showMsg(msg, t("media.nofiles"));
     renderReleases();
     showWantButton(w, r.available);
+    loadReleaseNotes(w);
   } catch (err) {
     if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
   } finally {
@@ -956,12 +963,46 @@ function releaseTags(r) {
   tags.push(el("span", { text: size(r.size) }));
   tags.push(el("span", { text: t("meta.sources", { n: r.complete + (r.sources > r.complete ? "/" + r.sources : "") }) }));
   if (r.hidden) tags.push(el("span", { class: "tag warn", text: t("media.why." + r.hidden_why) }));
+  const n = notesByHash.get(r.hash.toUpperCase());
+  if (n && n.votes) {
+    const tip = n.comments.length
+      ? [t("notes.comments"), ...n.comments.map(c => (c.rating ? "★" + c.rating + " " : "") + c.comment)].join("\n")
+      : null;
+    tags.push(n.suspect
+      ? el("span", { class: "tag bad", text: t("notes.fake", { f: n.fake, n: n.votes }), title: tip })
+      : el("span", { class: "tag", text: t("notes.rating", { r: n.average.toLocaleString(LANG, { maximumFractionDigits: 1 }), n: n.votes }), title: tip }));
+  }
   return tags;
 }
 
+// What users say about the first files found (their ratings and comments,
+// from Kad), asked once the list is shown.
+const notesByHash = new Map();
+const NOTES_FOR = 6;
+async function loadReleaseNotes(w) {
+  const first = releases.filter(r => !r.hidden).slice(0, NOTES_FOR);
+  await Promise.all(first.map(async r => {
+    const h = r.hash.toUpperCase();
+    if (notesByHash.has(h)) return;
+    try {
+      const res = await api("GET", "/api/v1/files/" + h + "/notes?" + new URLSearchParams({ size: r.size }));
+      notesByHash.set(h, res.notes);
+      if (currentWork === w && res.notes.votes) renderReleases();
+    } catch { /* no notes then */ }
+  }));
+}
+
+// suspect: users call this file fake (see loadReleaseNotes).
+const suspect = r => !!(notesByHash.get(r.hash.toUpperCase()) || {}).suspect;
+
 function renderReleases() {
   const hidden = releases.filter(r => r.hidden).length;
-  const shown = releases.filter(r => showHidden || !r.hidden);
+  // Files called fake go after the others, and the recommendation goes to
+  // the best one that is not.
+  const shown = releases.filter(r => (showHidden || !r.hidden) && !suspect(r))
+    .concat(releases.filter(r => (showHidden || !r.hidden) && suspect(r)));
+  const best = shown.find(r => !r.hidden && !suspect(r));
+  for (const r of releases) r.recommended = r === best;
   $("#rel-bar").hidden = releases.length === 0;
   $("#rel-summary").textContent = t("media.summary", { n: releases.length - hidden });
   const hb = $("#rel-hidden");

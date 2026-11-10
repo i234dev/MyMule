@@ -141,6 +141,10 @@ type Config struct {
 	// KadSearch searches Kad for files, calling found for each, until the
 	// search ends or ctx is done. Nil when Kad is off.
 	KadSearch func(ctx context.Context, q server.Query, found func(server.Result)) error
+	// KadNotes asks Kad for the comments and ratings of a file, calling
+	// found for each, until the search ends or ctx is done. Nil when Kad
+	// is off.
+	KadNotes func(ctx context.Context, hash ed2k.Hash, size uint64, found func(kad.Note)) error
 
 	// SkipFreeSpaceCheck adds downloads even if the disk has no room for
 	// them. Only for tests that use large made-up downloads.

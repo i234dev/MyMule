@@ -217,13 +217,8 @@ func (r *REST) searchWantedEntry(ctx context.Context, e wanted.Entry) {
 		r.wanted.Searched(e.ID, time.Now())
 		return
 	}
-	pick, ok := pickWanted(found.releases, e)
+	link, ok := r.chooseWanted(ctx, found.releases, e)
 	if !ok {
-		r.wanted.Searched(e.ID, time.Now())
-		return
-	}
-	link, err := ed2k.ParseLink(pick.Link)
-	if err != nil {
 		r.wanted.Searched(e.ID, time.Now())
 		return
 	}
@@ -236,17 +231,47 @@ func (r *REST) searchWantedEntry(ctx context.Context, e wanted.Entry) {
 	r.wanted.Found(e.ID, link.Hash.String(), link.Name, time.Now())
 }
 
-// pickWanted is the file to download for e: the best one that the search
-// preferences do not hide, has sources and was not cancelled before.
-// Never a cinema copy (cam, telesync, screener), even if the preferences
-// show them: nobody is there to look at it before it downloads.
-func pickWanted(list []Release, e wanted.Entry) (Release, bool) {
+// wantedNotesWait is how long Kad is asked about a file the wish list is
+// about to download (no one is waiting for it).
+var wantedNotesWait = 30 * time.Second
+
+// maxWantedChecks bounds the files whose notes are asked per search.
+const maxWantedChecks = 3
+
+// chooseWanted is the file to download for e: the first good one (see
+// wantedChoices) that users do not call fake.
+func (r *REST) chooseWanted(ctx context.Context, list []Release, e wanted.Entry) (ed2k.Link, bool) {
+	for i, x := range wantedChoices(list, e) {
+		if i == maxWantedChecks {
+			break
+		}
+		link, err := ed2k.ParseLink(x.Link)
+		if err != nil {
+			continue
+		}
+		n, err := r.fileNotes(ctx, link.Hash, uint64(link.Size), wantedNotesWait)
+		if err == nil && n.Suspect {
+			r.logf("wish list: %s: skipping %s: %d of %d users call it fake", e.Title, link.Name, n.Fake, n.Votes)
+			continue
+		}
+		return link, true
+	}
+	return ed2k.Link{}, false
+}
+
+// wantedChoices are the files that could be downloaded for e, best first:
+// those the search preferences do not hide, with sources, not cancelled
+// before, and never a cinema copy (cam, telesync, screener), even if the
+// preferences show them: nobody is there to look at it before it
+// downloads.
+func wantedChoices(list []Release, e wanted.Entry) []Release {
+	var out []Release
 	for _, x := range list {
 		cinema := x.Info.Source == "cam" || x.Info.Source == "screener"
 		if x.Hidden || cinema || x.Sources == 0 || slices.Contains(e.Skip, strings.ToUpper(x.Hash)) {
 			continue
 		}
-		return x, true
+		out = append(out, x)
 	}
-	return Release{}, false
+	return out
 }

@@ -197,6 +197,9 @@ func setupKad(dc *download.Config, m **download.Manager, lib *share.Library, uh 
 	dc.KadSearch = func(ctx context.Context, q server.Query, found func(server.Result)) error {
 		return node.SearchKeyword(ctx, kadQuery(q), func(r kad.KeywordResult) { found(kadResult(r)) })
 	}
+	dc.KadNotes = func(ctx context.Context, h ed2k.Hash, size uint64, found func(kad.Note)) error {
+		return node.SearchNotes(ctx, h, size, found)
+	}
 	dc.KadUDPCheckRequest = func(ip net.IP, p []byte) { node.TestUDPFor(addrOf(ip), p) }
 	dc.KadIncomingBuddy = func(ip net.IP, user ed2k.Hash, send func(byte, []byte) bool) bool {
 		return node.IncomingBuddy(addrOf(ip), user, send)

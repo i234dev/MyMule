@@ -182,6 +182,29 @@ func (m *Manager) Has(h ed2k.Hash) (present, finished bool) {
 	return true, f.finished
 }
 
+// ErrNoKad is returned for what needs Kad when it is off.
+var ErrNoKad = errors.New("Kad is off")
+
+// FileNotes asks Kad for what users say about a file (its comments and
+// ratings), for at most wait.
+func (m *Manager) FileNotes(ctx context.Context, h ed2k.Hash, size uint64, wait time.Duration) ([]kad.Note, error) {
+	if m.cfg.KadNotes == nil {
+		return nil, ErrNoKad
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	var mu sync.Mutex
+	var out []kad.Note
+	err := m.cfg.KadNotes(ctx, h, size, func(n kad.Note) {
+		mu.Lock()
+		out = append(out, n)
+		mu.Unlock()
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	return out, err
+}
+
 // SetFinishedPath records that a completed file was moved (e.g. renamed
 // into a movie library), so the status shows where it is now.
 func (m *Manager) SetFinishedPath(h ed2k.Hash, path string) {

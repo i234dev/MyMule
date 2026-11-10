@@ -165,6 +165,7 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .tag.lang { color: var(--accent); border-color: currentColor; }
 .tag.best { color: var(--ok); border-color: currentColor; }
 .tag.warn { color: var(--warn); border-color: currentColor; }
+.tag.bad { color: var(--bad); border-color: currentColor; font-weight: 600; }
 
 /* Settings */
 .settings { display: grid; gap: 12px; max-width: 760px; margin-bottom: 14px; }

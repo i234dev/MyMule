@@ -133,22 +133,22 @@ func TestWishList(t *testing.T) {
 
 // Files without sources, hidden by the preferences or cancelled before
 // are not taken.
-func TestPickWanted(t *testing.T) {
+func TestWantedChoices(t *testing.T) {
 	list := []Release{
 		{Hash: "11", Candidate: candidate(true, 9)},
 		{Hash: "22", Candidate: candidate(false, 0)},
 		{Hash: "33", Candidate: candidate(false, 5)},
 		{Hash: "44", Candidate: candidate(false, 3)},
 	}
-	if x, ok := pickWanted(list, wanted.Entry{Skip: []string{"33"}}); !ok || x.Hash != "44" {
-		t.Fatalf("picked %+v %v", x, ok)
+	if c := wantedChoices(list, wanted.Entry{Skip: []string{"33"}}); len(c) != 1 || c[0].Hash != "44" {
+		t.Fatalf("choices %+v", c)
 	}
 	cam := Release{Hash: "55", Candidate: candidate(false, 9)}
 	cam.Info.Source = "cam"
-	if x, ok := pickWanted(append([]Release{cam}, list[3:]...), wanted.Entry{}); !ok || x.Hash != "44" {
-		t.Fatalf("picked %+v: a cinema copy", x)
+	if c := wantedChoices(append([]Release{cam}, list[3:]...), wanted.Entry{}); len(c) != 1 || c[0].Hash != "44" {
+		t.Fatalf("choices %+v: a cinema copy", c)
 	}
-	if _, ok := pickWanted(list[:2], wanted.Entry{}); ok {
+	if c := wantedChoices(list[:2], wanted.Entry{}); len(c) != 0 {
 		t.Fatal("picked a hidden file or one without sources")
 	}
 }

@@ -56,6 +56,9 @@ Python, cron, home automation).
   want and downloads them when a good file shows up, starting the day they
   come out at home (digital or disc) or air, not while they are only in
   cinemas
+- Ratings and comments that eMule users leave on files (from Kad) shown
+  next to the files found for a movie or series, so fakes stand out; the
+  wish list never downloads a file people call fake
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from

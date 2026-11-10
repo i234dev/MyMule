@@ -13,6 +13,7 @@ import (
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
+	"mymule/internal/kad"
 	"mymule/internal/library"
 	"mymule/internal/meta"
 	"mymule/internal/prefs"
@@ -44,6 +45,8 @@ type REST struct {
 	logf        func(string, ...any)     // MyMule's log (wish list)
 	// testSearch replaces the eD2K searches of movies and series in tests.
 	testSearch func(context.Context, server.Query) ([]SearchResult, error)
+	notes      notesCache                          // what users say about files
+	testNotes  func(ed2k.Hash) ([]kad.Note, error) // replaces Kad in tests
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

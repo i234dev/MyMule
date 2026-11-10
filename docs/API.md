@@ -81,6 +81,7 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/wanted` | Add a movie, episode or season to the wish list |
 | POST | `/api/v1/wanted/{id}/search` | Search for a wish list entry now |
 | DELETE | `/api/v1/wanted/{id}` | Remove a wish list entry |
+| GET | `/api/v1/files/{hash}/notes?size=N` | What users say about a file: ratings and comments, from Kad |
 
 `{hash}` is the 32-character ed2k hash of the file, as returned in `hash`.
 
@@ -234,6 +235,16 @@ an episode, or `estimated` from the cinema release). That date is checked
 again every day. `POST /api/v1/wanted/{id}/search` searches for it now
 anyway. If its download is cancelled, the entry is searched for again and
 that file is never taken again.
+
+### File ratings and comments
+
+`GET /api/v1/files/{hash}/notes?size=N` (`N`: the file size in bytes)
+asks Kad what eMule users said about the file: `votes` (ratings given),
+`fake` (of them, "fake or corrupt"), `average` (1 to 5), `suspect` (at
+least half of the ratings say fake) and some `comments` (`rating`,
+`comment`). It takes up to about 12 seconds; the answer is kept for an
+hour. With Kad off, `kad` is false and there is nothing. The wish list
+does not download a file that is `suspect`.
 
 ## Examples
 

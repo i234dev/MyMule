@@ -60,7 +60,7 @@ var (
 		name string
 		re   *regexp.Regexp
 	}{
-		{"cam", wordRe(`cam|camrip|hdcam|ts|telesync|hdts|tc|telecine`)},
+		{"cam", wordRe(`cam|camrip|hdcam|hqcam|ts|telesync|hdts|hd-ts|tc|hdtc|hd-tc|tcrip|telecine|pdvd|predvd`)},
 		{"screener", wordRe(`screener|scr|dvdscr|bdscr|r5`)},
 		{"remux", wordRe(`remux|bdremux`)},
 		{"bluray", wordRe(`bluray|blu-ray|bdrip|brrip|bd|bdr|m2ts`)},

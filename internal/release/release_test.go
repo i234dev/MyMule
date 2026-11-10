@@ -17,6 +17,10 @@ func TestParse(t *testing.T) {
 			Languages: []string{"es-419"}, Resolution: "480p", Source: "dvd", Year: 2009, Video: true},
 		"Example Movie (V.O.Sub.Español) 2009 Telesync HQ Xvid.avi": {
 			Languages: []string{"es"}, Subs: true, Resolution: "480p", Source: "cam", Year: 2009, Video: true},
+		// Recorded in a cinema, even if the name also says "digital".
+		"Example.Movie.(2026).1080p.IMAX.HDTC.DUAL.DIGITAL.H.264.mkv": {
+			Resolution: "1080p", Dual: true, Source: "cam", Year: 2026, Video: true},
+		"Example Movie 2026 HD-TS x264.mp4": {Source: "cam", Year: 2026, Video: true},
 		"Example Show S02E05 720p WEB-DL.mkv": {
 			Resolution: "720p", Source: "web", Season: 2, Episode: 5, Video: true},
 		"Example Show - 3x07 - Episode Title.avi":   {Season: 3, Episode: 7, Video: true},

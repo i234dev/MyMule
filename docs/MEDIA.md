@@ -66,7 +66,9 @@ original title and synopsis tell remakes and namesakes apart).
 
 - **A movie**: MyMule searches at once.
 - **A series**: choose a season and an episode (with their titles), or
-  the whole season, and press **Search**.
+  the whole season, and press **Search**. For a whole season you get the
+  best file of each episode, and a **Download N episodes** button that
+  downloads them all; **All files** lists every file found instead.
 
 MyMule then searches every known eD2K server and Kad, by every title the
 work has: yours, the original one and alternative ones (other countries,
@@ -224,6 +226,17 @@ finds one, the file downloads and is organised like any other, and the
 entry shows **Found, downloading**, then **Downloaded** when it finishes.
 If you cancel that download, the entry goes back to the list, is searched
 for again in the next few minutes, and that file is never taken again.
+
+**Following a series.** On a series' page, **★ Follow the series from
+season N** (the season chosen in the list) gets every episode from that
+season on: the ones already aired, and the ones to come as they air.
+MyMule keeps the list of episodes from the movie database (checked again
+every day, so new seasons and episodes join by themselves), searches for
+a season at a time (one search, not one per episode), and downloads the
+best file of each aired episode it still needs, with the same rules as
+above. In the wish list, a followed series shows what is downloaded,
+downloading and still missing, and the next episode to air. Remove it to
+stop following.
 
 The wish list is kept in `wanted.json` in the data folder, and holds up
 to 200 entries.

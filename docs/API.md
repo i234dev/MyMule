@@ -86,6 +86,8 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/wanted/{id}/date` | `{"date": "2026-12-24"}`: start searching for it that day; `{"date": ""}`: when it comes out |
 | DELETE | `/api/v1/wanted/{id}` | Remove a wish list entry |
 | GET | `/api/v1/files/{hash}/notes?size=N` | What users say about a file: ratings and comments, from Kad |
+| GET | `/api/v1/ratings` | Your ratings of files |
+| PUT | `/api/v1/files/{hash}/rating` | Rate a file: `{"rating": 4, "comment": "...", "name": "...", "size": N}` (1 fake or corrupt ... 5 excellent; 0 removes it); published in Kad |
 | POST | `/api/v1/notify/test` | Send a test notification and ask the media server for a scan |
 
 `{hash}` is the 32-character ed2k hash of the file, as returned in `hash`.

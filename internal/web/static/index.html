@@ -284,5 +284,27 @@
     </div>
   </form>
 </dialog>
+<dialog id="rate">
+  <form method="dialog" class="rate-form">
+    <h3 data-t="rate.title">Rate this file</h3>
+    <p id="rate-name" class="mono"></p>
+    <p class="muted" data-t="rate.hint">Your rating and comment are published in Kad, as eMule does, so other users can tell good files from fakes.</p>
+    <label class="field"><span data-t="rate.label">Rating</span>
+      <select id="rate-val">
+        <option value="5" data-t="rate.5">Excellent</option>
+        <option value="4" data-t="rate.4">Good</option>
+        <option value="3" data-t="rate.3">Fair</option>
+        <option value="2" data-t="rate.2">Poor</option>
+        <option value="1" data-t="rate.1">Fake or corrupt</option>
+      </select></label>
+    <label class="field"><span data-t="rate.comment">Comment (optional)</span>
+      <input id="rate-comment" type="text" maxlength="128" autocomplete="off"></label>
+    <div class="dialog-buttons">
+      <button value="remove" id="rate-remove" class="ghost" data-t="rate.remove">Remove my rating</button>
+      <button value="cancel" class="ghost" data-t="rate.cancel">Cancel</button>
+      <button value="ok" class="primary" data-t="rate.save">Rate</button>
+    </div>
+  </form>
+</dialog>
 </body>
 </html>

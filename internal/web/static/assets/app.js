@@ -159,6 +159,12 @@ const STRINGS = {
     "dl.summary": "{n} downloads · {active} active",
     "dl.empty": "No downloads. Search for something or paste an ed2k:// link.",
     "dl.pause": "Pause", "dl.resume": "Resume", "dl.cancel": "Cancel", "dl.remove": "Remove",
+    "dl.rate": "Rate", "dl.rated": "★ {r}: {l}",
+    "rate.title": "Rate this file", "rate.label": "Rating", "rate.comment": "Comment (optional)",
+    "rate.hint": "Your rating and comment are published in Kad, as eMule does, so other users can tell good files from fakes.",
+    "rate.5": "Excellent", "rate.4": "Good", "rate.3": "Fair", "rate.2": "Poor", "rate.1": "Fake or corrupt",
+    "rate.save": "Rate", "rate.cancel": "Cancel", "rate.remove": "Remove my rating",
+    "rate.saved": "Rating saved and published in Kad.", "rate.savedlater": "Rating saved; it will be published in Kad when Kad is connected.",
     "add.file": "Collection…", "add.filehint": "Add every file of an eMule collection (.emulecollection) or a text file with ed2k links",
     "add.collection": "Collection “{c}”",
     "prio.normal": "Priority: normal", "prio.high": "Priority: high", "prio.low": "Priority: low",
@@ -358,6 +364,12 @@ const STRINGS = {
     "dl.summary": "{n} descargas · {active} activas",
     "dl.empty": "No hay descargas. Busca algo o pega un enlace ed2k://.",
     "dl.pause": "Pausar", "dl.resume": "Reanudar", "dl.cancel": "Cancelar", "dl.remove": "Quitar",
+    "dl.rate": "Valorar", "dl.rated": "★ {r}: {l}",
+    "rate.title": "Valorar este archivo", "rate.label": "Valoración", "rate.comment": "Comentario (opcional)",
+    "rate.hint": "Tu valoración y tu comentario se publican en Kad, como hace eMule, para que los demás distingan los buenos archivos de los fakes.",
+    "rate.5": "Excelente", "rate.4": "Bueno", "rate.3": "Regular", "rate.2": "Malo", "rate.1": "Fake o corrupto",
+    "rate.save": "Valorar", "rate.cancel": "Cancelar", "rate.remove": "Quitar mi valoración",
+    "rate.saved": "Valoración guardada y publicada en Kad.", "rate.savedlater": "Valoración guardada; se publicará en Kad cuando Kad esté conectado.",
     "add.file": "Colección…", "add.filehint": "Añadir todos los archivos de una colección de eMule (.emulecollection) o de un texto con enlaces ed2k",
     "add.collection": "Colección “{c}”",
     "prio.normal": "Prioridad: normal", "prio.high": "Prioridad: alta", "prio.low": "Prioridad: baja",
@@ -690,6 +702,12 @@ function downloadRow(d) {
   if (d.state === "paused") actions.push(el("button", { class: "icon", text: t("dl.resume"), onclick: () => act("POST", d, "resume") }));
   else if (d.state !== "finished") actions.push(el("button", { class: "icon", text: t("dl.pause"), onclick: () => act("POST", d, "pause") }));
   const finished = d.state === "finished";
+  if (finished) {
+    const mine = myRatings[d.hash.toUpperCase()];
+    actions.push(el("button", { class: "icon" + (mine ? " on" : ""),
+      text: mine ? t("dl.rated", { r: mine.rating, l: t("rate." + mine.rating) }) : t("dl.rate"),
+      onclick: () => rateFile(d) }));
+  }
   actions.push(el("button", {
     class: "icon", text: finished ? t("dl.remove") : t("dl.cancel"),
     onclick: () => confirmAction(finished ? t("confirm.remove") : t("confirm.cancel"), d.name,
@@ -702,6 +720,38 @@ function downloadRow(d) {
       el("span", { class: "dl-actions" }, actions)),
     el("div", { class: "bar" }, el("span", { style: { width: Math.min(100, d.progress * 100) + "%" } })),
     el("div", { class: "dl-meta" }, meta));
+}
+
+// The user's ratings of files (published in Kad), by hash.
+let myRatings = {};
+async function loadRatings() {
+  try { myRatings = (await api("GET", "/api/v1/ratings")).ratings || {}; } catch { /* no ratings then */ }
+}
+
+// rateFile asks for a rating of a finished download, in a dialog (the list
+// is drawn again every few seconds).
+function rateFile(d) {
+  const dlg = $("#rate");
+  const mine = myRatings[d.hash.toUpperCase()];
+  $("#rate-name").textContent = d.name;
+  $("#rate-val").value = String(mine ? mine.rating : 4);
+  $("#rate-comment").value = mine ? mine.comment : "";
+  $("#rate-remove").hidden = !mine;
+  dlg.returnValue = "";
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== "ok" && dlg.returnValue !== "remove") return;
+    const rating = dlg.returnValue === "remove" ? 0 : Number($("#rate-val").value);
+    try {
+      const r = await api("PUT", "/api/v1/files/" + d.hash + "/rating",
+        { rating, comment: $("#rate-comment").value, name: d.name, size: d.size });
+      if (rating) showMsg($("#add-msg"), t(r.published ? "rate.saved" : "rate.savedlater"), "ok");
+    } catch (err) {
+      if (!(err instanceof AuthError)) showMsg($("#add-msg"), err.message, "bad");
+    }
+    await loadRatings();
+    refresh();
+  };
+  dlg.showModal();
 }
 
 async function setDownload(d, what, body) {
@@ -1749,6 +1799,7 @@ async function start() {
   selectTab(TABS.includes(tab) ? tab : "downloads", "replace");
   startPolling();
   loadWanted();
+  loadRatings();
   if (!termsAccepted()) showTerms(true);
 }
 

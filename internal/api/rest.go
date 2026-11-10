@@ -18,6 +18,7 @@ import (
 	"mymule/internal/library"
 	"mymule/internal/meta"
 	"mymule/internal/prefs"
+	"mymule/internal/ratings"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/stats"
@@ -49,6 +50,7 @@ type REST struct {
 	// testSearch replaces the eD2K searches of movies and series in tests.
 	testSearch func(context.Context, server.Query) ([]SearchResult, error)
 	notes      notesCache                          // what users say about files
+	ratings    *ratings.Store                      // the user's ratings of files; nil = disabled
 	testNotes  func(ed2k.Hash) ([]kad.Note, error) // replaces Kad in tests
 }
 

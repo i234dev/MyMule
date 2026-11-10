@@ -63,7 +63,8 @@ Python, cron, home automation).
   of an episode before it airs
 - Ratings and comments that eMule users leave on files (from Kad) shown
   next to the files found for a movie or series, so fakes stand out; the
-  wish list never downloads a file people call fake
+  wish list never downloads a file people call fake; rate your own downloads too,
+  and your rating is published in Kad for others, as eMule does
 - Notifications when a download finishes, the wish list finds something
   or something fails: ntfy, Telegram, Discord or any webhook; and
   Jellyfin, Emby or Plex told to scan their libraries when files arrive

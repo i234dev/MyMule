@@ -2,10 +2,14 @@ package api
 
 import (
 	"context"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
+	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/kad"
+	"mymule/internal/ratings"
 	"mymule/internal/wanted"
 )
 
@@ -59,5 +63,28 @@ func TestNotes(t *testing.T) {
 	rest.searchWantedEntry(context.Background(), e)
 	if e, _ = ws.Get(e.ID); e.Status != wanted.Downloading || e.Hash != "BBBB456789ABCDEF0123456789ABCDEF" {
 		t.Fatalf("took %+v, want the file not called fake", e)
+	}
+}
+
+// The user rates a file; without Kad it is kept to be published later.
+func TestRateFile(t *testing.T) {
+	m := download.NewManager(download.Config{TempDir: t.TempDir()})
+	rest := NewREST(m, restKey, "test")
+	store := ratings.Open(filepath.Join(t.TempDir(), "ratings.json"))
+	rest.EnableRatings(store)
+	srv := httptest.NewServer(rest)
+	defer srv.Close()
+	path := "/api/v1/files/0123456789ABCDEF0123456789ABCDEF/rating"
+	var out struct{ Saved, Published bool }
+	if code := call(t, srv, "PUT", path, "application/json", `{"rating":1,"comment":"another film","name":"Example.Film.mkv","size":1000}`, &out); code != 200 || !out.Saved || out.Published {
+		t.Fatalf("%d %+v", code, out)
+	}
+	if code := call(t, srv, "PUT", path, "application/json", `{"rating":7,"name":"x","size":1}`, nil); code != 400 {
+		t.Fatalf("rating 7: %d", code)
+	}
+	var list struct{ Ratings map[string]ratings.Rating }
+	call(t, srv, "GET", "/api/v1/ratings", "", "", &list)
+	if r := list.Ratings["0123456789ABCDEF0123456789ABCDEF"]; r.Rating != 1 || r.Comment != "another film" {
+		t.Fatalf("%+v", list)
 	}
 }

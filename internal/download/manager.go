@@ -148,6 +148,9 @@ type Config struct {
 	// found for each, until the search ends or ctx is done. Nil when Kad
 	// is off.
 	KadNotes func(ctx context.Context, hash ed2k.Hash, size uint64, found func(kad.Note)) error
+	// KadPublishNote publishes our rating and comment of a file in Kad.
+	// Nil when Kad is off.
+	KadPublishNote func(hash ed2k.Hash, size uint64, name string, rating int, comment string) error
 
 	// SkipFreeSpaceCheck adds downloads even if the disk has no room for
 	// them. Only for tests that use large made-up downloads.

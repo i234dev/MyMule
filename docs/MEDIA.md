@@ -146,6 +146,11 @@ Kad for the notes of the first six:
 - **⚠ fake? 2 of 3 say so**: at least half of the ratings say fake. The
   file goes to the end of the list and is never recommended.
 
+You can add yours: a finished download has a **Rate** button (*fake or
+corrupt*, *poor*, *fair*, *good*, *excellent*, and a comment). It is
+published in Kad as eMule does, and again every 12 hours (Kad keeps notes
+for a day), so other users see it too.
+
 Only the rating counts, not the words of the comment (a comment saying
 "fake" with no rating changes nothing; you can read it and decide). Many
 files have no notes at all; then there is simply nothing to show. Answers

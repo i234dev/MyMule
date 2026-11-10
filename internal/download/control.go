@@ -255,6 +255,14 @@ func (m *Manager) FileNotes(ctx context.Context, h ed2k.Hash, size uint64, wait 
 	return out, err
 }
 
+// PublishNote publishes our rating and comment of a file in Kad.
+func (m *Manager) PublishNote(h ed2k.Hash, size uint64, name string, rating int, comment string) error {
+	if m.cfg.KadPublishNote == nil {
+		return ErrNoKad
+	}
+	return m.cfg.KadPublishNote(h, size, name, rating, comment)
+}
+
 // SetFinishedPath records that a completed file was moved (e.g. renamed
 // into a movie library), so the status shows where it is now.
 func (m *Manager) SetFinishedPath(h ed2k.Hash, path string) {

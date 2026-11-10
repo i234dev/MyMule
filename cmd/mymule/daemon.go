@@ -34,6 +34,7 @@ import (
 	"mymule/internal/obfus"
 	"mymule/internal/portmap"
 	"mymule/internal/prefs"
+	"mymule/internal/ratings"
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/stats"
@@ -97,6 +98,9 @@ type engine struct {
 	// web interface).
 	wanted    *wanted.Store
 	runWanted func(context.Context)
+
+	// ratings: the user's ratings of files, published in Kad.
+	ratings *ratings.Store
 
 	// notify sends notifications; media asks the media server to scan.
 	// Both do nothing when not configured.
@@ -246,6 +250,9 @@ func (e *engine) start(ctx context.Context) {
 	}
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
+	if e.kad != nil {
+		go e.ratings.Run(ctx, e.PublishNote, time.Minute)
+	}
 	go e.ipf.run(ctx)
 	if e.portmap != nil {
 		e.portmapDone = make(chan struct{})
@@ -419,9 +426,10 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	}
 	m = download.NewManager(dc)
 	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals, ipf: ipf, portmap: pm,
-		prefs:  prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
-		items:  library.OpenStore(filepath.Join(dataDir, "library.json")),
-		wanted: wanted.Open(filepath.Join(dataDir, "wanted.json"))}
+		prefs:   prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
+		items:   library.OpenStore(filepath.Join(dataDir, "library.json")),
+		wanted:  wanted.Open(filepath.Join(dataDir, "wanted.json")),
+		ratings: ratings.Open(filepath.Join(dataDir, "ratings.json"))}
 	if n, err := notify.New(settings.NotifyURLs, settings.NotifyOn, logf); err != nil {
 		logf("notifications off: %v", err)
 	} else {
@@ -898,6 +906,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 			e.notify.Send(notify.Event{Kind: notify.Wanted, Title: "Wish list: " + title, Message: "Found " + file + ", downloading"})
 		}
 		rest.EnableNotifyTest(e.notify, e.media)
+		rest.EnableRatings(e.ratings)
 		e.runWanted = rest.RunWanted
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()

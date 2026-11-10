@@ -59,6 +59,7 @@ func Listen(m *download.Manager, dataDir string, stop func()) (*Server, error) {
 	mux.HandleFunc("POST /v1/pause", s.pause(true))
 	mux.HandleFunc("POST /v1/resume", s.pause(false))
 	mux.HandleFunc("POST /v1/cancel", s.cancel)
+	mux.HandleFunc("POST /v1/priority", s.priority)
 	mux.HandleFunc("POST /v1/clear", s.clear)
 	mux.HandleFunc("POST /v1/stop", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, struct{}{})
@@ -233,6 +234,32 @@ func (s *Server) pause(paused bool) http.HandlerFunc {
 		}
 		fail(w, errCode(err), err)
 	}
+}
+
+func (s *Server) priority(w http.ResponseWriter, r *http.Request) {
+	var req PriorityRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	h, err := s.m.Find(req.Query)
+	var name string
+	switch {
+	case err != nil:
+	case req.Preview != nil:
+		name, err = s.m.SetPreview(h, *req.Preview)
+	default:
+		var p int
+		if p, err = ParsePriority(req.Priority); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		name, err = s.m.SetPriority(h, p)
+	}
+	if err != nil {
+		fail(w, errCode(err), err)
+		return
+	}
+	reply(w, NameResponse{Name: name})
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {

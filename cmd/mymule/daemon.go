@@ -649,6 +649,17 @@ func printStatus(ss download.ServerStatus, files []download.FileStatus) {
 		if f.Speed > 1024 && !f.Finished && !f.Paused {
 			eta = " eta " + (time.Duration(float64(f.Size-f.Done)/f.Speed) * time.Second).Round(time.Second).String()
 		}
+		if !f.Finished {
+			switch f.Priority {
+			case download.High:
+				eta += " [high]"
+			case download.Low:
+				eta += " [low]"
+			}
+			if f.Preview {
+				eta += " [preview]"
+			}
+		}
 		fmt.Printf("%.8s [%5.1f%%] %10s/s  %-22s %s%s\n", f.Hash, pct, humanSize(uint64(f.Speed)), state, f.Name, eta)
 	}
 }
@@ -689,6 +700,45 @@ func cmdAdd(args []string) error {
 	}
 	if len(r.Errors) > 0 {
 		return errors.New("some links were not added")
+	}
+	return nil
+}
+
+func cmdPriority(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: mymule priority <hash-prefix or name> high|normal|low")
+	}
+	if _, err := api.ParsePriority(args[1]); err != nil {
+		return err
+	}
+	c, err := mustDaemon()
+	if err != nil {
+		return err
+	}
+	name, err := c.SetPriority(args[0], args[1])
+	if err != nil {
+		return err
+	}
+	fmt.Println(name + ": priority " + strings.ToLower(args[1]))
+	return nil
+}
+
+func cmdPreview(args []string) error {
+	if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+		return errors.New("usage: mymule preview <hash-prefix or name> on|off")
+	}
+	c, err := mustDaemon()
+	if err != nil {
+		return err
+	}
+	name, err := c.SetPreview(args[0], args[1] == "on")
+	if err != nil {
+		return err
+	}
+	if args[1] == "on" {
+		fmt.Println(name + ": first and last parts first")
+	} else {
+		fmt.Println(name + ": parts in the usual order")
 	}
 	return nil
 }

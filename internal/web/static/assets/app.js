@@ -138,6 +138,10 @@ const STRINGS = {
     "dl.summary": "{n} downloads · {active} active",
     "dl.empty": "No downloads. Search for something or paste an ed2k:// link.",
     "dl.pause": "Pause", "dl.resume": "Resume", "dl.cancel": "Cancel", "dl.remove": "Remove",
+    "prio.normal": "Priority: normal", "prio.high": "Priority: high", "prio.low": "Priority: low",
+    "prio.hint": "Downloads with a higher priority get sources first. Click to change.",
+    "dl.preview": "Preview", "dl.previewon": "Preview: on",
+    "dl.previewhint": "Download the first and last parts first, so a video can be played before it is complete.",
     "state.downloading": "downloading", "state.queued": "queued", "state.stalled": "waiting for sources",
     "state.paused": "paused", "state.finished": "finished",
     "meta.sources": "{n} sources", "meta.from": "from {n}", "meta.queue": "queued at {n}", "meta.rank": "best place #{n}",
@@ -310,6 +314,10 @@ const STRINGS = {
     "dl.summary": "{n} descargas · {active} activas",
     "dl.empty": "No hay descargas. Busca algo o pega un enlace ed2k://.",
     "dl.pause": "Pausar", "dl.resume": "Reanudar", "dl.cancel": "Cancelar", "dl.remove": "Quitar",
+    "prio.normal": "Prioridad: normal", "prio.high": "Prioridad: alta", "prio.low": "Prioridad: baja",
+    "prio.hint": "Las descargas con más prioridad cogen fuentes antes. Pulsa para cambiarla.",
+    "dl.preview": "Vista previa", "dl.previewon": "Vista previa: sí",
+    "dl.previewhint": "Descargar primero la primera y la última parte, para poder ver un vídeo antes de que termine.",
     "state.downloading": "descargando", "state.queued": "en cola", "state.stalled": "esperando fuentes",
     "state.paused": "en pausa", "state.finished": "terminada",
     "meta.sources": "{n} fuentes", "meta.from": "de {n}", "meta.queue": "en cola en {n}", "meta.rank": "mejor puesto #{n}",
@@ -621,6 +629,15 @@ function downloadRow(d) {
     meta.push(el("span", { text: src }));
   }
   const actions = [];
+  if (d.state !== "finished") {
+    // The list is drawn again every few seconds: buttons, not menus.
+    const next = { normal: "high", high: "low", low: "normal" }[d.priority || "normal"];
+    actions.push(el("button", { class: "icon" + (d.priority && d.priority !== "normal" ? " on" : ""),
+      text: t("prio." + (d.priority || "normal")), title: t("prio.hint"),
+      onclick: () => setDownload(d, "priority", { priority: next }) }));
+    actions.push(el("button", { class: "icon" + (d.preview ? " on" : ""), text: t(d.preview ? "dl.previewon" : "dl.preview"),
+      title: t("dl.previewhint"), onclick: () => setDownload(d, "preview", { preview: !d.preview }) }));
+  }
   if (d.state === "paused") actions.push(el("button", { class: "icon", text: t("dl.resume"), onclick: () => act("POST", d, "resume") }));
   else if (d.state !== "finished") actions.push(el("button", { class: "icon", text: t("dl.pause"), onclick: () => act("POST", d, "pause") }));
   const finished = d.state === "finished";
@@ -636,6 +653,15 @@ function downloadRow(d) {
       el("span", { class: "dl-actions" }, actions)),
     el("div", { class: "bar" }, el("span", { style: { width: Math.min(100, d.progress * 100) + "%" } })),
     el("div", { class: "dl-meta" }, meta));
+}
+
+async function setDownload(d, what, body) {
+  try {
+    await api("POST", "/api/v1/downloads/" + d.hash + "/" + what, body);
+  } catch (e) {
+    if (!(e instanceof AuthError)) alert(e.message);
+  }
+  refresh();
 }
 
 async function act(method, d, verb) {

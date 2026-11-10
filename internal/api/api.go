@@ -80,6 +80,13 @@ type MatchRequest struct {
 	Query string `json:"query"`
 }
 
+// PriorityRequest sets the priority or the preview of a download.
+type PriorityRequest struct {
+	Query    string `json:"query"`
+	Priority string `json:"priority,omitempty"` // low, normal, high
+	Preview  *bool  `json:"preview,omitempty"`
+}
+
 // NameResponse returns the name of the affected download.
 type NameResponse struct {
 	Name string `json:"name"`

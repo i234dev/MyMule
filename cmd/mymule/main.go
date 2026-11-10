@@ -28,6 +28,8 @@ Daemon (recommended):
   add [-source ip:port] <link>...  Add ed2k links
   search [flags] <keywords>   Search (through the daemon if it is running)
   pause|resume <hash|name>    Pause or resume a download
+  priority <hash|name> high|normal|low  Who gets sources first
+  preview <hash|name> on|off  Download the first and last parts first
   cancel <hash|name>          Cancel a download and delete its data
   clear                       Remove finished downloads from the list
   log [-n 50]                 Show the daemon log
@@ -120,6 +122,10 @@ func run() {
 		err = cmdAdd(args)
 	case "pause":
 		err = cmdPauseResume(true)(args)
+	case "priority":
+		err = cmdPriority(args)
+	case "preview":
+		err = cmdPreview(args)
 	case "resume":
 		err = cmdPauseResume(false)(args)
 	case "clear":

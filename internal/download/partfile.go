@@ -59,6 +59,12 @@ type PartFile struct {
 	badSets int                    // hash sets received that did not fit
 	aich    aichState              // see aich.go
 
+	// priority: Low, Normal or High (see Manager.SetPriority); preview:
+	// the first and last parts are downloaded first, so a video can be
+	// looked at before it is complete.
+	priority int
+	preview  bool
+
 	f        *os.File
 	dataPath string
 	metaPath string
@@ -86,6 +92,9 @@ type partMeta struct {
 	// AICHOff: the AICH hash turned out wrong, AICH is not used again
 	// (nor a hash from peers trusted) for this download.
 	AICHOff bool `json:"aich_off,omitempty"`
+	// Priority and Preview: see PartFile.
+	Priority int  `json:"priority,omitempty"`
+	Preview  bool `json:"preview,omitempty"`
 }
 
 // NumParts is the number of 9.28 MB parts (as peers count them).
@@ -232,6 +241,7 @@ func Open(metaPath string) (*PartFile, error) {
 		}
 	}
 	pf.aich.off = m.AICHOff
+	pf.priority, pf.preview = min(max(m.Priority, Low), High), m.Preview
 	if pf.hashSet == nil && !pf.rootIsPartHash() {
 		// Verified against what? Without the hash set they cannot be
 		// checked again, nor uploaded: they wait for it like the others.
@@ -348,6 +358,7 @@ func (pf *PartFile) saveLocked() error {
 		m.AICH = pf.aich.root.String()
 	}
 	m.AICHOff = pf.aich.off
+	m.Priority, m.Preview = pf.priority, pf.preview
 	for _, h := range pf.hashSet {
 		m.HashSet = append(m.HashSet, h.String())
 	}
@@ -553,7 +564,12 @@ func (pf *PartFile) Reserve(owner string, avail []bool, n int) []Range {
 		}
 		cands = append(cands, cand{p, pf.done.Covered(pf.partRange(p)) + inFlight[p], rand.IntN(1 << 30)})
 	}
+	last := len(pf.verified) - 1
+	ends := func(p int) bool { return pf.preview && (p == 0 || p == last) }
 	sort.Slice(cands, func(i, j int) bool {
+		if ei, ej := ends(cands[i].part), ends(cands[j].part); ei != ej {
+			return ei // preview: the first and last parts before the rest
+		}
 		if cands[i].done != cands[j].done {
 			return cands[i].done > cands[j].done
 		}
@@ -1263,4 +1279,39 @@ func (pf *PartFile) ReadVerified(p []byte, off int64) (int, error) {
 		}
 	}
 	return pf.f.ReadAt(p, off)
+}
+
+// Download priorities.
+const (
+	Low    = -1
+	Normal = 0
+	High   = 1
+)
+
+// Priority returns the download's priority (Low, Normal or High).
+func (pf *PartFile) Priority() int {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	return pf.priority
+}
+
+// SetPriority sets the download's priority.
+func (pf *PartFile) SetPriority(p int) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	pf.priority, pf.dirty = min(max(p, Low), High), true
+}
+
+// Preview reports whether the first and last parts go first.
+func (pf *PartFile) Preview() bool {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	return pf.preview
+}
+
+// SetPreview makes the first and last parts go first (or not).
+func (pf *PartFile) SetPreview(on bool) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	pf.preview, pf.dirty = on, true
 }

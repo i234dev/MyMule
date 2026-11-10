@@ -228,6 +228,7 @@ type File struct {
 	finished     bool
 	finishTry    time.Time // last attempt to finish (move the file)
 	finishFailed bool      // an attempt failed (OnError was told)
+	priority     int       // pf's priority, read under m.mu
 	paused       bool
 	path         string
 
@@ -308,10 +309,11 @@ func NewManager(cfg Config) *Manager {
 
 // Add registers a part file for downloading.
 func (m *Manager) Add(pf *PartFile) {
+	prio := pf.Priority()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.files[pf.Hash]; !ok {
-		m.files[pf.Hash] = &File{pf: pf, sources: map[string]*Source{}, speedTime: time.Now()}
+		m.files[pf.Hash] = &File{pf: pf, sources: map[string]*Source{}, speedTime: time.Now(), priority: prio}
 		if m.cfg.Library != nil {
 			m.cfg.Library.SetPartial(pf.Hash, sharedPart{pf})
 		}
@@ -856,7 +858,7 @@ func (m *Manager) schedule(ctx context.Context) {
 	m.mu.Lock()
 	srv := m.srv
 	high := srv != nil && srv.Status().HighID
-	for _, f := range m.files {
+	for _, f := range m.byPriorityLocked() {
 		if f.finished || f.paused {
 			continue
 		}
@@ -1513,6 +1515,8 @@ type FileStatus struct {
 	Finished    bool
 	Paused      bool
 	Path        string
+	Priority    int  // Low, Normal or High
+	Preview     bool // first and last parts first
 }
 
 // ServerStatus describes the current server connection.
@@ -1537,7 +1541,8 @@ func (m *Manager) Status() (ServerStatus, []FileStatus) {
 	var out []FileStatus
 	var pfs []*PartFile
 	for _, f := range m.files {
-		fs := FileStatus{Hash: f.pf.Hash, Name: f.pf.Name, Size: f.pf.Size, Finished: f.finished, Paused: f.paused, Path: f.path}
+		fs := FileStatus{Hash: f.pf.Hash, Name: f.pf.Name, Size: f.pf.Size, Finished: f.finished, Paused: f.paused, Path: f.path,
+			Priority: f.priority}
 		if dt := now.Sub(f.speedTime).Seconds(); dt >= 1 {
 			b := f.bytes.Load()
 			inst := float64(b-f.speedBytes) / dt
@@ -1568,6 +1573,7 @@ func (m *Manager) Status() (ServerStatus, []FileStatus) {
 	// hashing must not hold up the whole manager.
 	for i, pf := range pfs {
 		out[i].Corrupt = pf.Corrupt()
+		out[i].Preview = pf.Preview()
 		if out[i].Finished {
 			out[i].Done = out[i].Size
 		} else {

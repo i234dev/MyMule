@@ -65,6 +65,8 @@ func NewREST(m *download.Manager, key, version string) *REST {
 	r.mux.HandleFunc("POST /api/v1/downloads/clear", r.clearFinished)
 	r.mux.HandleFunc("GET /api/v1/downloads/{hash}", r.getDownload)
 	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/pause", r.pause(true))
+	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/priority", r.setPriority)
+	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/preview", r.setPreview)
 	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/resume", r.pause(false))
 	r.mux.HandleFunc("DELETE /api/v1/downloads/{hash}", r.cancel)
 	r.mux.HandleFunc("GET /api/v1/search", r.search)
@@ -130,6 +132,21 @@ type RDownload struct {
 	State       string  `json:"state"` // downloading, queued, stalled, paused, finished
 	Path        string  `json:"path,omitempty"`
 	Link        string  `json:"link"`
+	Priority    string  `json:"priority"` // low, normal or high
+	Preview     bool    `json:"preview"`  // first and last parts first
+}
+
+// priorityNames are the API's names of download priorities.
+var priorityNames = map[int]string{download.Low: "low", download.Normal: "normal", download.High: "high"}
+
+// ParsePriority reads a priority name (low, normal, high).
+func ParsePriority(s string) (int, error) {
+	for p, n := range priorityNames {
+		if strings.EqualFold(s, n) {
+			return p, nil
+		}
+	}
+	return 0, errors.New("priority must be low, normal or high")
 }
 
 // RServer describes the server connection.
@@ -160,6 +177,7 @@ func ToRDownload(f download.FileStatus) RDownload {
 		Hash: f.Hash.String(), Name: f.Name, Size: f.Size, Done: f.Done, Speed: f.Speed, ETA: -1,
 		Sources: f.Sources, Downloading: f.Downloading, Queued: f.Queued, BestRank: f.BestRank,
 		Path: f.Path, Link: ed2k.Link{Name: f.Name, Size: f.Size, Hash: f.Hash}.String(),
+		Priority: priorityNames[f.Priority], Preview: f.Preview,
 	}
 	if f.Size > 0 {
 		d.Progress = float64(f.Done) / float64(f.Size)
@@ -303,6 +321,51 @@ func (r *REST) pause(paused bool) http.HandlerFunc {
 		}
 		reply(w, map[string]any{"ok": true, "name": name})
 	}
+}
+
+// setPriority: {"priority": "high"}.
+func (r *REST) setPriority(w http.ResponseWriter, req *http.Request) {
+	f, ok := r.find(w, req)
+	if !ok {
+		return
+	}
+	var body struct {
+		Priority string `json:"priority"`
+	}
+	if !decode(w, req, &body) {
+		return
+	}
+	p, err := ParsePriority(body.Priority)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	name, err := r.m.SetPriority(f.Hash, p)
+	if err != nil {
+		fail(w, errCode(err), err)
+		return
+	}
+	reply(w, map[string]any{"ok": true, "name": name})
+}
+
+// setPreview: {"preview": true}.
+func (r *REST) setPreview(w http.ResponseWriter, req *http.Request) {
+	f, ok := r.find(w, req)
+	if !ok {
+		return
+	}
+	var body struct {
+		Preview bool `json:"preview"`
+	}
+	if !decode(w, req, &body) {
+		return
+	}
+	name, err := r.m.SetPreview(f.Hash, body.Preview)
+	if err != nil {
+		fail(w, errCode(err), err)
+		return
+	}
+	reply(w, map[string]any{"ok": true, "name": name})
 }
 
 func (r *REST) cancel(w http.ResponseWriter, req *http.Request) {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -147,6 +149,54 @@ func (m *Manager) SetPaused(h ed2k.Hash, paused bool) (string, error) {
 		f.lastSrcReq = time.Time{}
 	}
 	return f.pf.Name, nil
+}
+
+// SetPriority sets a download's priority (Low, Normal or High): when
+// there are more sources than connections, those of downloads with a
+// higher priority are asked first.
+func (m *Manager) SetPriority(h ed2k.Hash, p int) (string, error) {
+	if p < Low || p > High {
+		return "", fmt.Errorf("priority must be %d, %d or %d", Low, Normal, High)
+	}
+	m.mu.Lock()
+	f := m.files[h]
+	if f == nil {
+		m.mu.Unlock()
+		return "", ErrNotFound
+	}
+	if f.finished {
+		m.mu.Unlock()
+		return f.pf.Name, ErrFinishedYet
+	}
+	f.priority = p
+	m.mu.Unlock()
+	f.pf.SetPriority(p)
+	return f.pf.Name, nil
+}
+
+// SetPreview makes a download take its first and last parts first, so
+// that a video can be played before it is complete (or not).
+func (m *Manager) SetPreview(h ed2k.Hash, on bool) (string, error) {
+	m.mu.Lock()
+	f := m.files[h]
+	m.mu.Unlock()
+	if f == nil {
+		return "", ErrNotFound
+	}
+	f.pf.SetPreview(on)
+	return f.pf.Name, nil
+}
+
+// byPriorityLocked lists the downloads, higher priorities first, in a
+// random order within each (so none is always served last).
+func (m *Manager) byPriorityLocked() []*File {
+	out := make([]*File, 0, len(m.files))
+	for _, f := range m.files {
+		out = append(out, f)
+	}
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].priority > out[j].priority })
+	return out
 }
 
 // Cancel stops a download and deletes its data. Finished downloads are

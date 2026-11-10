@@ -122,6 +122,18 @@ func (c *Client) Pause(query string) (string, error)  { return c.named("/v1/paus
 func (c *Client) Resume(query string) (string, error) { return c.named("/v1/resume", query) }
 func (c *Client) Cancel(query string) (string, error) { return c.named("/v1/cancel", query) }
 
+// SetPriority sets a download's priority (low, normal, high).
+func (c *Client) SetPriority(query, priority string) (string, error) {
+	var r NameResponse
+	return r.Name, c.do("POST", "/v1/priority", PriorityRequest{Query: query, Priority: priority}, &r)
+}
+
+// SetPreview makes a download take its first and last parts first.
+func (c *Client) SetPreview(query string, on bool) (string, error) {
+	var r NameResponse
+	return r.Name, c.do("POST", "/v1/priority", PriorityRequest{Query: query, Preview: &on}, &r)
+}
+
 func (c *Client) named(path, query string) (string, error) {
 	var r NameResponse
 	return r.Name, c.do("POST", path, MatchRequest{Query: query}, &r)

@@ -62,6 +62,8 @@ Python, cron, home automation).
 - Notifications when a download finishes, the wish list finds something
   or something fails: ntfy, Telegram, Discord or any webhook; and
   Jellyfin, Emby or Plex told to scan their libraries when files arrive
+- Download priorities (high, normal, low), and "first and last parts
+  first" to watch a video before it is complete
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from
@@ -150,6 +152,8 @@ mymule start                 # start the engine in the background
 mymule search -links ubuntu  # search; -links prints ed2k:// links
 mymule add "ed2k://|file|...|/"
 mymule top                   # live view (q to quit)
+mymule priority <name> high  # high, normal or low: who gets sources first
+mymule preview <name> on     # first and last parts first (watch it sooner)
 mymule stop
 ```
 
@@ -317,7 +321,8 @@ with the `api_key` from `mymule.conf`.
 It has five tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
-  resume, cancel, clear finished, and add `ed2k://` links.
+  resume, cancel, priority, preview (first and last parts first), clear
+  finished, and add `ed2k://` links.
 - **Movies & series**: search a movie or series by title, in your
   browser's language, and pick it from a list with posters (title, year,
   original title, synopsis). MyMule then searches eD2K by all its titles

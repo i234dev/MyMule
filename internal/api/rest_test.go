@@ -351,3 +351,27 @@ func TestRESTStatusTotals(t *testing.T) {
 		t.Fatal("totals without a store")
 	}
 }
+
+// A download's priority and preview are set and shown.
+func TestRESTPriority(t *testing.T) {
+	srv, _ := newTestREST(t)
+	link := "ed2k://|file|Example.Film.mkv|20000000|0123456789ABCDEF0123456789ABCDEF|/"
+	if code := call(t, srv, "POST", "/api/v1/downloads", "application/json", `{"links":["`+link+`"]}`, nil); code != 200 {
+		t.Fatalf("add: %d", code)
+	}
+	path := "/api/v1/downloads/0123456789ABCDEF0123456789ABCDEF"
+	if code := call(t, srv, "POST", path+"/priority", "application/json", `{"priority":"high"}`, nil); code != 200 {
+		t.Fatalf("priority: %d", code)
+	}
+	if code := call(t, srv, "POST", path+"/priority", "application/json", `{"priority":"urgent"}`, nil); code != 400 {
+		t.Fatalf("bad priority: %d", code)
+	}
+	if code := call(t, srv, "POST", path+"/preview", "application/json", `{"preview":true}`, nil); code != 200 {
+		t.Fatalf("preview: %d", code)
+	}
+	var d RDownload
+	call(t, srv, "GET", path, "", "", &d)
+	if d.Priority != "high" || !d.Preview {
+		t.Fatalf("%+v", d)
+	}
+}

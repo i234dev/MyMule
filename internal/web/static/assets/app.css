@@ -53,6 +53,7 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; f
 button.ghost { background: transparent; }
 button.small { padding: 5px 10px; font-size: 13px; }
 button.icon { padding: 4px 9px; font-size: 13px; }
+button.icon.on { color: var(--accent); border-color: currentColor; }
 input, select {
   border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; min-width: 0;
 }
@@ -100,7 +101,7 @@ h2 { font-size: 16px; margin: 22px 0 10px; }
 .dl { display: grid; gap: 6px; padding: 12px 14px; }
 .dl-head { display: flex; gap: 10px; align-items: flex-start; }
 .dl-name { flex: 1; font-weight: 600; word-break: break-word; }
-.dl-actions { display: flex; gap: 6px; }
+.dl-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .bar { height: 8px; border-radius: 999px; background: var(--bar); overflow: hidden; }
 .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s; }
 .dl.finished .bar > span { background: var(--ok); }

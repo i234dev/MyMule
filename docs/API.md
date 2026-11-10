@@ -72,6 +72,8 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/downloads` | Add ed2k links |
 | POST | `/api/v1/downloads/{hash}/pause` | Pause |
 | POST | `/api/v1/downloads/{hash}/resume` | Resume |
+| POST | `/api/v1/downloads/{hash}/priority` | `{"priority": "high"}`: `low`, `normal` or `high`; higher priorities get sources first |
+| POST | `/api/v1/downloads/{hash}/preview` | `{"preview": true}`: download the first and last parts first |
 | DELETE | `/api/v1/downloads/{hash}` | Cancel (deletes partial data); for a finished download, only removes it from the list |
 | POST | `/api/v1/downloads/clear` | Remove finished downloads from the list |
 | GET | `/api/v1/search` | Search the eD2K network |
@@ -103,7 +105,9 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
   "best_queue_rank": 14,
   "state": "downloading",
   "path": "",
-  "link": "ed2k://|file|example-distro-1.0-amd64.iso|734003200|0123456789ABCDEF0123456789ABCDEF|/"
+  "link": "ed2k://|file|example-distro-1.0-amd64.iso|734003200|0123456789ABCDEF0123456789ABCDEF|/",
+  "priority": "normal",
+  "preview": false
 }
 ```
 
@@ -111,6 +115,10 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
   `stalled` (no source sending data yet), `paused` or `finished`.
 - `speed` is in bytes per second; `eta` in seconds (`-1` = unknown).
 - `path` is set when the download is finished: where the file is.
+- `priority`: `low`, `normal` or `high`. When there are more sources than
+  connections, those of higher-priority downloads are asked first.
+- `preview`: the first and last parts are downloaded first, so a video
+  can be played before it is complete.
 
 ### Add downloads
 

@@ -71,6 +71,18 @@ func TestAPI(t *testing.T) {
 	if _, err := c.Pause("nothing-matches"); err == nil {
 		t.Fatal("pause of unknown download succeeded")
 	}
+	if _, err := c.SetPriority("test", "HIGH"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetPreview("test", true); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := c.Status(); st.Files[0].Priority != download.High || !st.Files[0].Preview {
+		t.Fatalf("priority/preview not set: %+v", st.Files[0])
+	}
+	if _, err := c.SetPriority("test", "urgent"); err == nil {
+		t.Fatal("bad priority accepted")
+	}
 	if _, err := c.Search(SearchRequest{Query: "x"}); err == nil || !strings.Contains(err.Error(), "server") {
 		t.Fatalf("search without server: %v", err)
 	}

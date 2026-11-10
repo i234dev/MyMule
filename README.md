@@ -75,6 +75,9 @@ Python, cron, home automation).
   that support it
 - eMule collections (`.emulecollection`): `mymule add` or the web
   interface adds every file in them
+- Categories: named folders (music, books, software...) for downloads
+  that are not movies or episodes; choose one when adding a download and
+  the file is moved there when it finishes
 - Download and upload speed limits, and a speed schedule (other limits
   at some hours, e.g. none at night); queue places asked over UDP, as eMule
   does, instead of a new connection each time
@@ -124,7 +127,7 @@ fits you:
 - **[aMule](https://github.com/amule-org/amule)** is the mature,
   long-standing eMule-compatible client, actively developed again. It has a
   desktop GUI, a headless daemon, a web UI and a REST API, and more of
-  eMule's classic features (priorities, categories, preview...). Together
+  eMule's classic features (friends, chat...). Together
   with **[aMuTorrent](https://github.com/got3nks/amutorrent)** you also get a
   modern web interface that manages aMule and your torrent clients
   together, with Sonarr/Radarr support.
@@ -338,8 +341,8 @@ with the `api_key` from `mymule.conf`.
 It has six tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
-  resume, cancel, priority, preview (first and last parts first), clear
-  finished, and add `ed2k://` links.
+  resume, cancel, priority, preview (first and last parts first),
+  category, clear finished, and add `ed2k://` links or a collection.
 - **Movies & series**: search a movie or series by title, in your
   browser's language, and pick it from a list with posters (title, year,
   original title, synopsis). MyMule then searches eD2K by all its titles
@@ -358,7 +361,8 @@ It has six tabs:
   public domain works, Creative Commons and the like (see the
   [terms of use](#terms-of-use-and-disclaimer)).
 - **Search**: search every known server, with type, size and extension
-  filters; sort and filter the results and download one or several.
+  filters; sort and filter the results and download one or several
+  (into a category, if you choose one).
 - **Sharing**: shared files, upload speed and who is downloading from you.
 - **Statistics**: download and upload speed over the last 24 hours or 30
   days, what was transferred each day, and totals for today, the last 30
@@ -368,7 +372,8 @@ It has six tabs:
 - **Settings**: how files for movies and series are chosen (audio
   languages in order of preference, original version with subtitles,
   preferred resolution, maximum size, hide cam copies), the movie and
-  series library (see below), and **Advanced settings**: everything in
+  series library (see below), the **categories** (a name and a folder
+  each, optionally shared), and **Advanced settings**: everything in
   `mymule.conf` (ports, Kad, UPnP, folders, sharing, speed limits, the IP
   filter list...), written into the file and applied when MyMule
   restarts. Who can reach MyMule (`api_listen`, `api_key`, `api_hosts`,

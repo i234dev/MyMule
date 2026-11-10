@@ -288,6 +288,87 @@ func (n *Node) SearchKeyword(ctx context.Context, q Query, found func(KeywordRes
 	return nil
 }
 
+// Note is what a user said about a file: its rating (eMule's: 1 fake or
+// corrupt, 2 poor, 3 fair, 4 good, 5 excellent; 0 none) and a comment.
+type Note struct {
+	UserHash [16]byte
+	Name     string // the file name that user has
+	Rating   int
+	Comment  string
+}
+
+// SearchNotes asks Kad for the notes on a file; found is called for each
+// one (not with the node locked, and never after SearchNotes returned). It
+// returns when the search ends (about 45 seconds) or ctx is done.
+func (n *Node) SearchNotes(ctx context.Context, hash [16]byte, size uint64, found func(Note)) error {
+	var mu sync.Mutex
+	stopped := false
+	n.mu.Lock()
+	if n.table.Len() == 0 {
+		n.mu.Unlock()
+		return ErrNotConnected
+	}
+	s := n.startSearch(searchNotes, ID(hash), n.now(), func(s *search) {
+		s.fileSize = size
+		s.onNote = func(nt Note) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !stopped {
+				found(nt)
+			}
+		}
+	})
+	n.mu.Unlock()
+	if s == nil {
+		return ErrBusy
+	}
+	select {
+	case <-s.done:
+	case <-ctx.Done():
+	}
+	n.mu.Lock()
+	if n.searches[s.target] == s {
+		delete(n.searches, s.target)
+		n.searchEnded(s)
+	}
+	n.mu.Unlock()
+	mu.Lock()
+	stopped = true
+	mu.Unlock()
+	return nil
+}
+
+func (n *Node) noteResult(s *search, answer ID, tags []proto.Tag) {
+	nt := Note{UserHash: [16]byte(answer)}
+	for _, t := range tags {
+		if t.Name != "" {
+			continue
+		}
+		switch t.ID {
+		case TagFileName:
+			nt.Name = netutil.CleanText(t.Str, 1024)
+		case TagFileRating:
+			if t.Int <= 5 {
+				nt.Rating = int(t.Int)
+			}
+		case TagDescription:
+			nt.Comment = netutil.CleanText(t.Str, 512)
+		}
+	}
+	if nt.Rating == 0 && nt.Comment == "" {
+		return
+	}
+	if s.seen[answer] { // one note per user
+		return
+	}
+	s.seen[answer] = true
+	s.answers++
+	if s.onNote != nil {
+		f := s.onNote
+		n.later(func() { f(nt) })
+	}
+}
+
 // storePacket asks a node close enough to the target for the value.
 func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {
 	if s.stopping || dist.Chunk(0) > searchTolerance || c.Version < 3 {
@@ -309,6 +390,10 @@ func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {
 			w.Bytes(s.terms)
 		}
 		n.sendTo(c, OpSearchKeyReq, w.B)
+	case searchNotes:
+		WriteID(&w, s.target)
+		w.U64(s.fileSize)
+		n.sendTo(c, OpSearchNotesReq, w.B)
 	case searchStoreFile:
 		n.storeFile(s, c)
 	case searchStoreKeyword:
@@ -363,6 +448,8 @@ func (n *Node) onSearchRes(in incoming, now time.Time) error {
 			n.fileResult(s, answer, tags)
 		case searchKeyword:
 			n.keywordResult(s, answer, tags)
+		case searchNotes:
+			n.noteResult(s, answer, tags)
 		}
 	}
 	return nil

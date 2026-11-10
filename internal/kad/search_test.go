@@ -555,3 +555,80 @@ func TestFindSourcesSkipsUs(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func noteAnswer(user ID, name string, rating int, comment string) func(*proto.Writer) {
+	return func(w *proto.Writer) {
+		WriteID(w, user)
+		tags := []proto.Tag{StrTag(TagFileName, name)}
+		if rating > 0 {
+			tags = append(tags, IntTag(TagFileRating, uint64(rating)))
+		}
+		if comment != "" {
+			tags = append(tags, StrTag(TagDescription, comment))
+		}
+		WriteTags(w, tags)
+	}
+}
+
+// The notes of a file are asked with its size; each user's note is
+// reported once, and empty notes not at all.
+func TestSearchNotes(t *testing.T) {
+	target := RandomID()
+	notes := make(chan Note, 10)
+	errc := make(chan error, 1)
+	fn, a, b := valueSearch(t, target, func(n *Node) {
+		go func() {
+			errc <- n.SearchNotes(context.Background(), target, 1<<33, func(nt Note) { notes <- nt })
+		}()
+		for range 2000 {
+			n.mu.Lock()
+			s := n.searches[target]
+			n.mu.Unlock()
+			if s != nil {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("search not started")
+	})
+	p, ok := lastSent(fn, addrOf(a), addrOf(b), OpSearchNotesReq, &b.keys)
+	if !ok {
+		t.Fatal("no notes request")
+	}
+	r := proto.NewReader(p.Payload)
+	if ReadID(r) != target || r.U64() != 1<<33 || r.Len() != 0 {
+		t.Fatalf("request % X", p.Payload)
+	}
+	u1, u2, u3 := RandomID(), RandomID(), RandomID()
+	fn.inject(addrOf(b), a, fromNode(a, b, searchRes(b.ID(), target,
+		noteAnswer(u1, "Example.Film.mkv", 1, "fake, it is another film"),
+		noteAnswer(u2, "Example.Film.mkv", 0, ""), // says nothing
+		noteAnswer(u3, "Example.Film.mkv", 9, "great"),
+		noteAnswer(u1, "Example.Film.mkv", 5, "again"),
+	)))
+	a.runDeferred()
+	var got []Note
+	for len(got) < 2 {
+		select {
+		case nt := <-notes:
+			got = append(got, nt)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("got %d notes", len(got))
+		}
+	}
+	if got[0].Rating != 1 || got[0].Comment != "fake, it is another film" || got[1].Rating != 0 || got[1].Comment != "great" {
+		t.Fatalf("%+v", got)
+	}
+	fn.now = fn.now.Add(time.Minute)
+	a.mu.Lock()
+	a.tickSearches(fn.now)
+	a.mu.Unlock()
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SearchNotes did not return")
+	}
+}

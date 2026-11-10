@@ -15,6 +15,7 @@ const (
 	TagFileSize       = 0x02
 	TagFileType       = 0x03
 	TagFileFormat     = 0x04
+	TagDescription    = 0x0B // a note's comment
 	TagSources        = 0x15
 	TagPublishInfo    = 0x33
 	TagFileSizeHi     = 0x3A

@@ -32,6 +32,7 @@ const (
 	searchNodeFWCheck                    // nodes to ask for the UDP test
 	searchFindBuddy                      // a buddy (we are firewalled)
 	searchFindSource                     // the buddy of a firewalled source
+	searchNotes                          // comments and ratings of a file
 )
 
 // maxAnswers is how many answers a value search collects before it stops
@@ -81,6 +82,7 @@ type search struct {
 	loadN    int
 	onSource func(Source)
 	onResult func(KeywordResult)
+	onNote   func(Note)
 	done     chan struct{} // closed when the search ends
 
 	possible      map[ID]Contact
@@ -292,7 +294,7 @@ func (n *Node) tickSearches(now time.Time) {
 			delete(n.searches, target)
 			n.searchEnded(s)
 		default:
-			if (s.typ == searchFile || s.typ == searchKeyword) &&
+			if (s.typ == searchFile || s.typ == searchKeyword || s.typ == searchNotes) &&
 				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) ||
 				(s.typ == searchStoreFile || s.typ == searchStoreKeyword || s.typ == searchFindBuddy) &&
 					(s.answers > storeAnswers || age > s.typ.lifetime()-20*time.Second) ||

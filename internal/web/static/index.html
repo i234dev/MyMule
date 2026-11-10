@@ -41,6 +41,7 @@
     <button role="tab" data-tab="media" data-t="tab.media">Movies &amp; series</button>
     <button role="tab" data-tab="search" data-t="tab.search">Search</button>
     <button role="tab" data-tab="sharing" data-t="tab.sharing">Sharing</button>
+    <button role="tab" data-tab="stats" data-t="tab.stats">Statistics</button>
     <button role="tab" data-tab="settings" data-t="tab.settings">Settings</button>
   </nav>
   </div>
@@ -160,6 +161,27 @@
       <h2 id="slots-title" data-t="share.uploading">Uploading now</h2>
       <div id="slots" class="list"></div>
     </section>
+    <section id="tab-stats" class="tab" hidden>
+      <div class="stat-tiles" id="stat-tiles"></div>
+      <div class="card chart-card">
+        <div class="chart-head">
+          <h2 data-t="stats.speed">Speed</h2>
+          <div class="seg" role="group">
+            <button class="ghost small" data-range="day" data-t="stats.day">24 hours</button>
+            <button class="ghost small" data-range="month" data-t="stats.month">30 days</button>
+          </div>
+        </div>
+        <div class="legend" id="speed-legend"></div>
+        <div class="chart" id="speed-chart"></div>
+      </div>
+      <div class="card chart-card">
+        <div class="chart-head"><h2 data-t="stats.daily">Transferred each day</h2></div>
+        <div class="legend" id="daily-legend"></div>
+        <div class="chart" id="daily-chart"></div>
+      </div>
+      <p id="stats-msg" class="msg" hidden></p>
+    </section>
+
     <section id="tab-settings" class="tab" hidden>
       <form id="search-prefs" class="card settings">
         <h2 data-t="set.search">Choosing files for movies and series</h2>

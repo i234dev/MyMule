@@ -103,6 +103,12 @@ const STRINGS = {
     "srv.autosaved": "Saved: MyMule will choose the server.",
     "srv.updating": "Downloading the server list…",
     "srv.updated": "{n} servers ({new} new).",
+    "tab.stats": "Statistics",
+    "stats.speed": "Speed", "stats.day": "24 hours", "stats.month": "30 days",
+    "stats.daily": "Transferred each day (last 30 days)",
+    "stats.down": "Download", "stats.up": "Upload",
+    "stats.today": "Today", "stats.last30": "Last 30 days", "stats.alltime": "Since {d}",
+    "stats.empty": "The charts fill in after MyMule has run for a few minutes.",
     "tab.settings": "Settings",
     "set.library": "Movie and series library",
     "set.libhint": "Movies and episodes you download from the Movies & series tab can be renamed, and moved to their own folders, when they finish.",
@@ -310,6 +316,12 @@ const STRINGS = {
     "srv.autosaved": "Guardado: MyMule elegirá el servidor.",
     "srv.updating": "Descargando la lista de servidores…",
     "srv.updated": "{n} servidores ({new} nuevos).",
+    "tab.stats": "Estadísticas",
+    "stats.speed": "Velocidad", "stats.day": "24 horas", "stats.month": "30 días",
+    "stats.daily": "Transferido cada día (últimos 30 días)",
+    "stats.down": "Bajada", "stats.up": "Subida",
+    "stats.today": "Hoy", "stats.last30": "Últimos 30 días", "stats.alltime": "Desde el {d}",
+    "stats.empty": "Las gráficas se llenan cuando MyMule lleva unos minutos en marcha.",
     "tab.settings": "Ajustes",
     "set.library": "Biblioteca de películas y series",
     "set.libhint": "Las películas y episodios que descargues desde la pestaña Películas y series se pueden renombrar, y mover a sus propias carpetas, al terminar.",
@@ -544,7 +556,7 @@ $("#logout").addEventListener("click", logout);
 // Back goes to the tab before, not out of MyMule, and a tab's address can
 // be bookmarked. how: "push" (a click), "replace" (on start) or
 // "history" (Back/Forward, already in the address).
-const TABS = ["downloads", "media", "search", "sharing", "settings"];
+const TABS = ["downloads", "media", "search", "sharing", "stats", "settings"];
 let currentTab = "downloads";
 function selectTab(name, how = "push") {
   if (how !== "history" && location.hash !== "#" + name) {
@@ -558,6 +570,11 @@ function selectTab(name, how = "push") {
   if (name === "media" && $("#work").hidden) $("#m-q").focus();
   if (name === "settings" && !prefsLoaded) loadSettings();
   if (name === "settings") renderAdvRouter();
+  clearInterval(statsTimer);
+  if (name === "stats") {
+    loadStats();
+    statsTimer = setInterval(() => { if (currentTab === "stats") loadStats(); }, 60000);
+  }
   try { localStorage.setItem("mymule.tab", name); } catch {}
   render();
 }
@@ -1476,6 +1493,180 @@ $("#wanted-open").addEventListener("click", () => {
     else loadWanted();
   }, 30000);
 });
+
+// ---------- Statistics ----------
+let statsRange = "day", statsData = null, statsTimer = null;
+
+async function loadStats() {
+  try {
+    statsData = await api("GET", "/api/v1/stats/history");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#stats-msg"), err.message, "bad");
+    return;
+  }
+  renderStats();
+}
+
+document.querySelectorAll("#tab-stats [data-range]").forEach(b => b.addEventListener("click", () => {
+  statsRange = b.dataset.range;
+  renderStats();
+}));
+window.addEventListener("resize", () => { if (currentTab === "stats" && statsData) renderStats(); });
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, ...kids) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  for (const k of kids) n.append(k);
+  return n;
+}
+
+// niceMax rounds a maximum up to a round number in the unit it is shown
+// in (KB, MB, GB: powers of 1024), so the axis reads 1, 2, 4, 5, 8 MB...
+function niceMax(v) {
+  if (v <= 0) return 1024;
+  const unit = Math.pow(1024, Math.max(0, Math.floor(Math.log(v) / Math.log(1024))));
+  const x = v / unit;
+  const p = Math.pow(10, Math.floor(Math.log10(x)));
+  for (const m of [1, 2, 4, 5, 8, 10]) if (x <= m * p) return m * p * unit;
+  return 10 * p * unit;
+}
+
+function legend(node, items) {
+  node.replaceChildren(...items.map(it => el("span", { class: "legend-item" },
+    el("span", { class: "swatch " + it.cls }), el("span", { text: it.label }), it.value ? el("span", { class: "muted", text: it.value }) : null)));
+}
+
+function renderStats() {
+  document.querySelectorAll("#tab-stats [data-range]").forEach(b => b.classList.toggle("on", b.dataset.range === statsRange));
+  const d = statsData || {};
+  const pts = (statsRange === "day" ? d.minutes : d.hours) || [];
+  const days = (d.days || []).slice(-30);
+  const msg = $("#stats-msg");
+  msg.hidden = true;
+  if (!pts.length && !days.length) showMsg(msg, t("stats.empty"));
+  renderTiles(days);
+  renderSpeedChart(pts, statsRange === "day" ? 60e3 : 3600e3);
+  renderDailyChart(days);
+}
+
+function renderTiles(days) {
+  const today = days.length ? days[days.length - 1] : null;
+  const sum = k => days.reduce((a, x) => a + x[k], 0);
+  const tiles = [
+    [t("stats.today"), today ? today.down : 0, today ? today.up : 0],
+    [t("stats.last30"), sum("down"), sum("up")],
+  ];
+  if (status && status.totals) {
+    tiles.push([t("stats.alltime", { d: new Date(status.totals.since).toLocaleDateString(LANG) }), status.totals.downloaded, status.totals.uploaded]);
+  }
+  $("#stat-tiles").replaceChildren(...tiles.map(([title, down, up]) => el("div", { class: "card stat-tile" },
+    el("div", { class: "muted", text: title }),
+    el("div", { class: "stat-big" }, el("span", { class: "stat-down", text: "↓ " + size(down) }), " ", el("span", { class: "stat-up", text: "↑ " + size(up) })))));
+}
+
+// renderSpeedChart draws the download and upload speed over time; step is
+// the time between points (a gap means MyMule was not running).
+function renderSpeedChart(pts, step) {
+  const box = $("#speed-chart");
+  const W = Math.max(320, box.clientWidth || 800), H = 220, L = 64, R = 12, T = 10, B = 26;
+  const last = pts.length ? pts[pts.length - 1] : null;
+  legend($("#speed-legend"), [
+    { cls: "s-down", label: t("stats.down"), value: last ? speed(last.down) : "" },
+    { cls: "s-up", label: t("stats.up"), value: last ? speed(last.up) : "" },
+  ]);
+  if (!pts.length) { box.replaceChildren(); return; }
+  const t0 = new Date(pts[0].t).getTime(), t1 = Math.max(new Date(last.t).getTime(), t0 + step);
+  const yMax = niceMax(Math.max(...pts.map(p => Math.max(p.down, p.up))));
+  const x = ms => L + (ms - t0) / (t1 - t0) * (W - L - R);
+  const y = v => T + (1 - v / yMax) * (H - T - B);
+  const g = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart-svg", role: "img" });
+  for (let i = 0; i <= 4; i++) {
+    const v = yMax * i / 4;
+    g.append(svg("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
+    g.append(svg("text", { x: L - 6, y: y(v) + 4, class: "axis", "text-anchor": "end" }, speed(v)));
+  }
+  // Time labels: every 3 hours, or every 5 days.
+  const tick = statsRange === "day" ? 3 * 3600e3 : 5 * 86400e3;
+  for (let ms = Math.ceil(t0 / tick) * tick; ms <= t1; ms += tick) {
+    const dt = new Date(ms);
+    const label = statsRange === "day" ? dt.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" }) : dt.toLocaleDateString(LANG, { day: "numeric", month: "short" });
+    g.append(svg("text", { x: x(ms), y: H - 8, class: "axis", "text-anchor": "middle" }, label));
+  }
+  for (const [k, cls] of [["down", "s-down"], ["up", "s-up"]]) {
+    let d = "", prev = null;
+    for (const p of pts) {
+      const ms = new Date(p.t).getTime();
+      d += (prev === null || ms - prev > 2.5 * step ? "M" : "L") + x(ms).toFixed(1) + "," + y(p[k]).toFixed(1);
+      prev = ms;
+    }
+    g.append(svg("path", { d, class: "series " + cls }));
+  }
+  // Hover: a line and the values at the nearest point.
+  const cross = svg("line", { y1: T, y2: H - B, class: "cross", visibility: "hidden" });
+  const tip = el("div", { class: "chart-tip", hidden: true });
+  const hit = svg("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" });
+  const move = ev => {
+    const r = g.getBoundingClientRect();
+    const ms = t0 + ((ev.clientX - r.left) * (W / r.width) - L) / (W - L - R) * (t1 - t0);
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(new Date(p.t) - ms) < Math.abs(new Date(best.t) - ms)) best = p;
+    const px = x(new Date(best.t).getTime());
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    const when = new Date(best.t).toLocaleString(LANG, statsRange === "day" ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    tip.replaceChildren(el("div", { class: "muted", text: when }),
+      el("div", { class: "stat-down", text: "↓ " + speed(best.down) }), el("div", { class: "stat-up", text: "↑ " + speed(best.up) }));
+    tip.hidden = false;
+    const left = px / W * r.width;
+    tip.style.left = Math.min(left + 12, r.width - 150) + "px";
+  };
+  hit.addEventListener("pointermove", move);
+  hit.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+  g.append(cross, hit);
+  box.replaceChildren(g, tip);
+}
+
+// renderDailyChart draws what was transferred each day, two bars a day.
+function renderDailyChart(days) {
+  const box = $("#daily-chart");
+  legend($("#daily-legend"), [{ cls: "s-down", label: t("stats.down") }, { cls: "s-up", label: t("stats.up") }]);
+  if (!days.length) { box.replaceChildren(); return; }
+  const W = Math.max(320, box.clientWidth || 800), H = 200, L = 64, R = 12, T = 10, B = 26;
+  const yMax = niceMax(Math.max(...days.map(d => Math.max(d.down, d.up))));
+  const y = v => T + (1 - v / yMax) * (H - T - B);
+  const slot = (W - L - R) / Math.max(days.length, 7);
+  const bw = Math.max(2, Math.min(14, (slot - 6) / 2));
+  const g = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart-svg", role: "img" });
+  for (let i = 0; i <= 4; i++) {
+    const v = yMax * i / 4;
+    g.append(svg("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
+    g.append(svg("text", { x: L - 6, y: y(v) + 4, class: "axis", "text-anchor": "end" }, size(v)));
+  }
+  const tip = el("div", { class: "chart-tip", hidden: true });
+  days.forEach((d, i) => {
+    const cx = L + slot * i + slot / 2;
+    const bar = (v, off, cls) => {
+      const h = Math.max(v > 0 ? 2 : 0, H - B - y(v));
+      return svg("rect", { x: cx + off, y: H - B - h, width: bw, height: h, rx: Math.min(4, bw / 2), class: "dbar " + cls });
+    };
+    g.append(bar(d.down, -bw - 1, "s-down"), bar(d.up, 1, "s-up"));
+    const day = new Date(d.day + "T12:00:00");
+    if (i % 5 === 0 || i === days.length - 1) {
+      g.append(svg("text", { x: cx, y: H - 8, class: "axis", "text-anchor": "middle" }, day.toLocaleDateString(LANG, { day: "numeric", month: "short" })));
+    }
+    const hit = svg("rect", { x: cx - slot / 2, y: T, width: slot, height: H - T - B, fill: "transparent" });
+    hit.addEventListener("pointerenter", () => {
+      tip.replaceChildren(el("div", { class: "muted", text: day.toLocaleDateString(LANG, { weekday: "short", day: "numeric", month: "short" }) }),
+        el("div", { class: "stat-down", text: "↓ " + size(d.down) }), el("div", { class: "stat-up", text: "↑ " + size(d.up) }));
+      tip.hidden = false;
+      const r = g.getBoundingClientRect();
+      tip.style.left = Math.min(cx / W * r.width + 12, r.width - 150) + "px";
+    });
+    hit.addEventListener("pointerleave", () => { tip.hidden = true; });
+    g.append(hit);
+  });
+  box.replaceChildren(g, tip);
+}
 
 // ---------- Settings ----------
 let presets = { movie: [], series: [] }, prefsLoaded = false, previewTimer = null;

@@ -335,7 +335,7 @@ with the `api_key` from `mymule.conf`.
 
 <sub>The Movies & series tab with demo data: the titles and files are made up.</sub>
 
-It has five tabs:
+It has six tabs:
 
 - **Downloads**: progress, speed, sources and queue position; pause,
   resume, cancel, priority, preview (first and last parts first), clear
@@ -360,6 +360,11 @@ It has five tabs:
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.
+- **Statistics**: download and upload speed over the last 24 hours or 30
+  days, what was transferred each day, and totals for today, the last 30
+  days and all time.
+
+  ![Statistics: speed over 30 days and what was transferred each day](docs/webui-stats.png)
 - **Settings**: how files for movies and series are chosen (audio
   languages in order of preference, original version with subtitles,
   preferred resolution, maximum size, hide cam copies), the movie and

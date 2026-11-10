@@ -252,3 +252,33 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .servers td.act > * { margin: 0; }
   .works { grid-template-columns: 1fr; }
 }
+
+/* Statistics */
+:root { --series-down: #2a78d6; --series-up: #eb6834; }
+@media (prefers-color-scheme: dark) { :root { --series-down: #3987e5; --series-up: #d95926; } }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.stat-tile { display: grid; gap: 4px; }
+.stat-big { font-size: 18px; font-weight: 600; }
+.stat-down, .stat-up { color: var(--text); }
+.chart-card { margin-bottom: 12px; position: relative; }
+.chart-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.chart-head h2 { margin: 0; font-size: 16px; }
+.seg { display: flex; gap: 4px; }
+.seg button.on { color: var(--accent); border-color: currentColor; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin: 8px 0 4px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+.swatch.s-down { background: var(--series-down); }
+.swatch.s-up { background: var(--series-up); }
+.chart { position: relative; width: 100%; overflow: hidden; }
+.chart-svg { display: block; width: 100%; height: auto; }
+.chart-svg .grid { stroke: var(--line); stroke-width: 1; }
+.chart-svg .axis { fill: var(--muted); font-size: 11px; }
+.chart-svg .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .series.s-down { stroke: var(--series-down); }
+.chart-svg .series.s-up { stroke: var(--series-up); }
+.chart-svg .dbar.s-down { fill: var(--series-down); }
+.chart-svg .dbar.s-up { fill: var(--series-up); }
+.chart-svg .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-tip { position: absolute; top: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; box-shadow: var(--shadow); pointer-events: none; min-width: 130px; }

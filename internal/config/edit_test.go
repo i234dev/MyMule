@@ -90,6 +90,11 @@ func TestUpdateSettingsFolders(t *testing.T) {
 		{"shared_dirs": "videos; " + other},
 		{"temp_dir": other},
 		{"download_dir": filepath.Join("..", "escape")},
+		// Quotes and spaces are taken off when the file is read: the
+		// folder used is the one checked.
+		{"download_dir": `"` + other + `"`},
+		{"temp_dir": ` "` + other + `" `},
+		{"shared_dirs": `"` + other + `"`},
 	} {
 		if err := UpdateSettings(vals, check); err == nil {
 			t.Errorf("%v: written", vals)
@@ -155,6 +160,33 @@ func TestSecretSettings(t *testing.T) {
 			if si.Value != "" || !si.Secret || si.Set {
 				t.Errorf("%+v", si)
 			}
+		case "tmdb_api_key":
+			if si.Value != "" || !si.Secret {
+				t.Errorf("%+v", si)
+			}
 		}
+	}
+}
+
+// The media server token goes only where it was sent with: a new address
+// needs the token again.
+func TestMediaServerTokenFollows(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	p := filepath.Join(home, SettingsFile)
+	os.WriteFile(p, []byte("media_server = jellyfin\nmedia_server_url = http://192.0.2.10:8096\nmedia_server_token = example-token\n"), 0o600)
+	for _, vals := range []map[string]string{
+		{"media_server_url": "http://203.0.113.66:8096"},
+		{"media_server": "plex"},
+	} {
+		if err := UpdateSettings(vals, okFolder); err == nil {
+			t.Errorf("%v: changed without the token", vals)
+		}
+	}
+	if err := UpdateSettings(map[string]string{"media_server_url": "http://192.0.2.11:8096", "media_server_token": "new-token"}, okFolder); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSettings(map[string]string{"media_server_url": "http://192.0.2.11:8096"}, okFolder); err != nil {
+		t.Fatal("unchanged address refused:", err)
 	}
 }

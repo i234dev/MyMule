@@ -152,7 +152,7 @@ type Notifier struct {
 // New makes a Notifier for notify_urls and notify_on (nil kinds: all). It
 // does nothing without addresses.
 func New(urls string, kinds []string, logf func(string, ...any)) (*Notifier, error) {
-	n := &Notifier{on: map[string]bool{Test: true}, client: &http.Client{Timeout: 15 * time.Second}, logf: logf}
+	n := &Notifier{on: map[string]bool{Test: true}, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirects}, logf: logf}
 	for _, s := range fields(urls) {
 		t, err := parseTarget(s)
 		if err != nil {
@@ -269,3 +269,7 @@ func jsonRequest(ctx context.Context, u string, body any) (*http.Request, error)
 	req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }
+
+// noRedirects keeps notifications (and the tokens in their addresses)
+// going only where notify_urls says.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

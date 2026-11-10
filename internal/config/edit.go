@@ -36,7 +36,7 @@ type SettingInfo struct {
 }
 
 // secretSettings hold tokens (notification addresses carry them).
-var secretSettings = map[string]bool{"notify_urls": true, "media_server_token": true}
+var secretSettings = map[string]bool{"notify_urls": true, "media_server_token": true, "tmdb_api_key": true}
 
 // lockedSettings cannot be changed through the API.
 var lockedSettings = map[string]bool{
@@ -77,7 +77,8 @@ func ReadSettingsForEdit() ([]SettingInfo, error) {
 		if st.key == "api_key" {
 			si.Value, si.Default = "", "" // never sent out
 		}
-		if secretSettings[st.key] {
+		// "off" (tmdb_api_key) is no secret.
+		if secretSettings[st.key] && !strings.EqualFold(si.Value, "off") {
 			si.Secret, si.Set = true, si.Value != ""
 			si.Value = ""
 		}
@@ -137,9 +138,6 @@ func UpdateSettings(values map[string]string, check FolderCheck) error {
 	if _, err := parseSettings(text, &cur); err != nil {
 		return fmt.Errorf("%s: %w", p, err)
 	}
-	if err := checkFolders(values, cur, filepath.Dir(p), check); err != nil {
-		return err
-	}
 	for _, st := range settingsDoc { // in a fixed order
 		v, ok := values[st.key]
 		if !ok {
@@ -151,45 +149,47 @@ func UpdateSettings(values map[string]string, check FolderCheck) error {
 	if _, err := parseSettings(text, &s); err != nil {
 		return err
 	}
+	// The folders as MyMule will read them (quotes and spaces taken off),
+	// not as they were sent.
+	if err := checkFolders(s, cur, filepath.Dir(p), check); err != nil {
+		return err
+	}
+	// The token is sent to the media server's address: whoever changes
+	// that must know the token, or could have it sent to them.
+	if _, sent := values["media_server_token"]; !sent && cur.MediaServerToken != "" &&
+		(s.MediaServer != cur.MediaServer || s.MediaServerURL != cur.MediaServerURL) {
+		return errors.New("media_server_token: type the token again when you change the media server or its address")
+	}
 	if err := checkSettings(s); err != nil {
 		return err
 	}
 	return fsutil.WriteFile(p, []byte(text), 0o600)
 }
 
-// checkFolders applies check to the folders values change (see
-// UpdateSettings). Folders inside the data folder are MyMule's own, as
-// the default temp and downloads are; folders already in mymule.conf were
-// put there by whoever edits it, and are not checked again.
-func checkFolders(values map[string]string, cur Settings, base string, check FolderCheck) error {
+// checkFolders applies check to the folders of next (the settings after
+// the change) that cur (before it) did not have (see UpdateSettings).
+// Folders inside the data folder are MyMule's own, as the default temp
+// and downloads are; folders already in mymule.conf were put there by
+// whoever edits it, and are not checked again.
+func checkFolders(next, cur Settings, base string, check FolderCheck) error {
 	had := map[string]bool{}
 	for _, d := range append([]string{cur.TempDir, cur.DownloadDir}, cur.SharedDirs...) {
 		had[absUnder(base, d)] = true
 	}
-	for _, key := range []string{"temp_dir", "download_dir", "shared_dirs"} {
-		v, ok := values[key]
-		if !ok {
-			continue
-		}
-		dirs := []string{strings.TrimSpace(v)}
-		if key == "shared_dirs" {
-			dirs = nil
-			for _, d := range strings.Split(v, ";") {
-				if d = strings.Trim(strings.TrimSpace(d), `"`); d != "" {
-					dirs = append(dirs, d)
-				}
-			}
-		}
-		for _, d := range dirs {
+	for _, f := range []struct {
+		key  string
+		dirs []string
+	}{{"temp_dir", []string{next.TempDir}}, {"download_dir", []string{next.DownloadDir}}, {"shared_dirs", next.SharedDirs}} {
+		for _, d := range f.dirs {
 			abs := absUnder(base, d)
 			if d == "" || had[abs] || insideDir(abs, base) {
 				continue
 			}
 			if check == nil {
-				return fmt.Errorf("%s: folders can only be changed in mymule.conf", key)
+				return fmt.Errorf("%s: folders can only be changed in mymule.conf", f.key)
 			}
 			if err := check(abs); err != nil {
-				return fmt.Errorf("%s: %s: %w", key, d, err)
+				return fmt.Errorf("%s: %s: %w", f.key, d, err)
 			}
 		}
 	}

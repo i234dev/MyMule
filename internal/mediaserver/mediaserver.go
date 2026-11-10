@@ -62,7 +62,7 @@ func New(kind, address, token string, logf func(string, ...any)) (*Refresher, er
 		return nil, err
 	}
 	return &Refresher{kind: kind, base: strings.TrimRight(address, "/"), token: token,
-		client: &http.Client{Timeout: 30 * time.Second}, logf: logf, Gap: 2 * time.Minute}, nil
+		client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: noRedirects}, logf: logf, Gap: 2 * time.Minute}, nil
 }
 
 // Refresh asks for a scan soon.
@@ -137,3 +137,7 @@ func (r *Refresher) RefreshNow(ctx context.Context) error {
 	}
 	return nil
 }
+
+// noRedirects keeps the token from being sent anywhere but the address in
+// mymule.conf.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

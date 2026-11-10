@@ -148,7 +148,7 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .work .wd { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .work-head { margin-top: 10px; display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: start; }
 .work-info { display: grid; gap: 4px; }
-#w-want { justify-self: start; margin-top: 6px; }
+#w-want, #w-follow { justify-self: start; margin-top: 6px; }
 .small-note { font-size: 12px; margin: 8px 2px 0; }
 .ep-group { display: grid; gap: 4px; }
 .ep-title { font-size: 13px; font-weight: 600; color: var(--muted); margin: 6px 2px 0; }

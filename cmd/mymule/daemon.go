@@ -948,6 +948,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		}
 		rest.EnableNotifyTest(e.notify, e.media)
 		rest.EnableRatings(e.ratings)
+		rest.EnableHistory(e.stats.History())
 		e.runWanted = rest.RunWanted
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()

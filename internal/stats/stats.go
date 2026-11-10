@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -31,6 +32,10 @@ type Store struct {
 
 	mu   sync.Mutex
 	base Totals // earlier runs
+
+	hist             *History // speeds over time (history.json)
+	lastUp, lastDown int64    // this run's counts at the last sample
+	lastSample       time.Time
 }
 
 // Open reads the totals from path (none yet: counting starts now).
@@ -53,7 +58,22 @@ func Open(path string, current func() (up, down int64), log func(string, ...any)
 	if s.base.Since.IsZero() {
 		s.base.Since = time.Now().UTC().Truncate(time.Second)
 	}
+	s.hist = openHistory(filepath.Join(filepath.Dir(path), "history.json"))
+	s.lastSample = time.Now()
 	return s
+}
+
+// History returns the speeds over time.
+func (s *Store) History() *History { return s.hist }
+
+// sample adds what was transferred since the last sample to the history.
+func (s *Store) sample(now time.Time) {
+	up, down := s.current()
+	s.mu.Lock()
+	dUp, dDown, secs := up-s.lastUp, down-s.lastDown, now.Sub(s.lastSample).Seconds()
+	s.lastUp, s.lastDown, s.lastSample = up, down, now
+	s.mu.Unlock()
+	s.hist.add(now, dDown, dUp, secs)
 }
 
 // Totals returns the all-time totals: earlier runs plus this one.
@@ -88,9 +108,14 @@ func (s *Store) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.Save()
+			s.hist.save()
 			return
-		case <-t.C:
+		case now := <-t.C:
 			s.Save()
+			s.sample(now)
+			if now.Minute()%10 == 0 { // the history is bigger: less often
+				s.hist.save()
+			}
 		}
 	}
 }

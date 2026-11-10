@@ -40,6 +40,11 @@
   "feature_highid": "HighID, con los puertos abiertos en el router automáticamente (UPnP o NAT-PMP), callbacks de servidor y buddies de Kad para llegar a usuarios detrás de un cortafuegos.",
   "feature_sx": "Intercambio de fuentes y consultas de cola por UDP con otros clientes eMule y aMule.",
   "feature_ipfilter": "Filtro de IPs: el ipfilter.dat de eMule, o una lista que se descarga cada semana.",
+  "feature_wanted": "Lista de deseos: MyMule busca por sí mismo las películas y episodios que quieres, desde el día en que salen para casa o se emiten, y los descarga cuando aparece un buen archivo.",
+  "feature_fakes": "Valoraciones y comentarios que los usuarios de eMule dejan en los archivos, para que los fakes se vean; la lista de deseos nunca los coge.",
+  "feature_notify": "Notificaciones (ntfy, Telegram, Discord o cualquier webhook), y aviso a Jellyfin, Emby o Plex para que escaneen sus bibliotecas cuando llegan archivos.",
+  "feature_prio": "Prioridades de descarga, primera y última parte primero para ver un vídeo antes, y colecciones de eMule.",
+  "feature_compress": "Transferencias comprimidas con clientes eMule y aMule.",
   "feature_checked": "Todo lo que envían otros usuarios y nodos se comprueba y se limita.",
 
   "install_title": "Instalar",
@@ -73,7 +78,7 @@
   "faq_why_q": "¿Por qué MyMule y no aMule?",
   "faq_why_a": "MyMule empezó como un proyecto personal, antes de saber que aMule se estaba retomando. Hoy hay muy buenas opciones: <a href=\"https://github.com/amule-org/amule\">aMule</a> es el cliente maduro de toda la vida, de nuevo en desarrollo activo y con más funciones clásicas de eMule; con <a href=\"https://github.com/got3nks/amutorrent\">aMuTorrent</a> tienes además una interfaz web moderna y soporte para Sonarr y Radarr. MyMule es un cliente más pequeño e independiente, escrito desde cero: te puede encajar si quieres un solo programa sin nada más que instalar ni conectar, una biblioteca que encuentra películas y series por su título y las renombra por ti, y un consumo mínimo. Si necesitas algo que MyMule no tiene, aMule es una gran elección. Los dos comparten la misma red, así que con cualquiera ayudas a mantenerla viva.",
   "faq_missing_q": "¿Qué no hace todavía?",
-  "faq_missing_a": "Todavía no tiene transferencias comprimidas ni prioridades de descarga. Las ideas y los avisos de fallos son bienvenidos en <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
+  "faq_missing_a": "Algunos extras de eMule, como las categorías, los amigos y el chat, no están implementados. Las ideas y los avisos de fallos son bienvenidos en <a href=\"https://github.com/i234dev/MyMule/issues\">GitHub</a>.",
   "faq_free_q": "¿Es gratis?",
   "faq_free_a": "Sí: es software libre bajo la GNU GPL v3, sin anuncios y sin cuentas que crear. Su código está en <a href=\"https://github.com/i234dev/MyMule\">GitHub</a>.",
 

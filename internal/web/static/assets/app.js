@@ -22,6 +22,13 @@ const STRINGS = {
     "media.finding": "Searching eD2K for: {q}. This takes about 10 seconds.",
     "media.nofiles": "No files found for this one on eD2K right now.",
     "media.summary": "{n} files",
+    "media.ep": "Episode {n}",
+    "media.epnone": "No good file for this episode yet",
+    "media.seasonsummary": "Best file for {have} of {n} episodes",
+    "media.allfiles": "All files",
+    "media.byepisode": "Best per episode",
+    "media.dlall": "Download {n} episodes",
+    "media.dlalldone": "Added {n} episodes to the downloads",
     "media.showhidden": "Show {n} hidden",
     "media.hidehidden": "Hide {n} hidden",
     "media.best": "recommended",
@@ -70,6 +77,14 @@ const STRINGS = {
     "want.date": "Date…", "want.datehint": "Choose the day to start searching for it",
     "want.save": "Save", "want.cancel": "Cancel", "want.dateauto": "When it comes out",
     "want.searching": "It will be searched for in a moment.",
+    "follow.btn": "★ Follow the series from season {s}",
+    "follow.on": "★ Following this series",
+    "follow.added": "Following: MyMule gets every episode from season {s} on, those already aired and those to come.",
+    "follow.title": "{t} · following from season {s}",
+    "follow.status": "{done} downloaded · {dl} downloading · {missing} aired, still looking · {next}",
+    "follow.next": "next: S{s}E{e} on {d}",
+    "follow.nonext": "no new episode announced",
+    "follow.listing": "Getting the list of episodes…",
     "notes.fake": "⚠ fake? {f} of {n} say so",
     "notes.rating": "★ {r} ({n} votes)", "notes.rating1": "★ {r} (1 vote)",
     "notes.comments": "What users say:",
@@ -206,6 +221,13 @@ const STRINGS = {
     "media.finding": "Buscando en eD2K: {q}. Tarda unos 10 segundos.",
     "media.nofiles": "Ahora mismo no hay ficheros de esto en eD2K.",
     "media.summary": "{n} ficheros",
+    "media.ep": "Episodio {n}",
+    "media.epnone": "Aún no hay un buen fichero de este episodio",
+    "media.seasonsummary": "Mejor fichero de {have} de {n} episodios",
+    "media.allfiles": "Todos los ficheros",
+    "media.byepisode": "Mejor por episodio",
+    "media.dlall": "Descargar {n} episodios",
+    "media.dlalldone": "Añadidos {n} episodios a las descargas",
     "media.showhidden": "Mostrar {n} ocultos",
     "media.hidehidden": "Ocultar {n} ocultos",
     "media.best": "recomendado",
@@ -254,6 +276,14 @@ const STRINGS = {
     "want.date": "Fecha…", "want.datehint": "Elige el día desde el que buscarla",
     "want.save": "Guardar", "want.cancel": "Cancelar", "want.dateauto": "Cuando salga",
     "want.searching": "Se buscará en un momento.",
+    "follow.btn": "★ Seguir la serie desde la temporada {s}",
+    "follow.on": "★ Sigues esta serie",
+    "follow.added": "Siguiendo: MyMule consigue cada episodio desde la temporada {s}, los ya emitidos y los que vengan.",
+    "follow.title": "{t} · siguiendo desde la temporada {s}",
+    "follow.status": "{done} descargados · {dl} descargando · {missing} emitidos aún por encontrar · {next}",
+    "follow.next": "próximo: T{s}E{e} el {d}",
+    "follow.nonext": "ningún episodio nuevo anunciado",
+    "follow.listing": "Consultando la lista de episodios…",
     "notes.fake": "⚠ ¿fake? lo dicen {f} de {n}",
     "notes.rating": "★ {r} ({n} votos)", "notes.rating1": "★ {r} (1 voto)",
     "notes.comments": "Lo que dicen los usuarios:",
@@ -860,6 +890,9 @@ async function download(list, msg) {
 // ---------- Movies & series ----------
 const LANG_NAMES = { es: "ES", "es-419": "LAT", en: "EN", fr: "FR", de: "DE", it: "IT", ca: "CA", pt: "PT" };
 let works = [], currentWork = null, releases = [], showHidden = false, findingReleases = false;
+// seasonPick: a whole season was searched for ({season, episodes: [{number,
+// name}]}); then the best file of each episode is shown, unless allFiles.
+let seasonPick = null, allFiles = false;
 
 $("#media-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -928,6 +961,7 @@ function openWork(w) {
   $("#wanted").hidden = true;
   $("#w-avail").hidden = true;
   $("#w-want").hidden = true;
+  $("#w-follow").hidden = true;
   const series = w.kind === "series";
   $("#episode-form").hidden = !series;
   if (series) {
@@ -954,6 +988,7 @@ async function loadSeasons(w) {
     seasons = (r.work && r.work.seasons) || [];
   } catch { /* numbers then */ }
   if (currentWork !== w) return;
+  showFollowButton(w, 1);
   if (!seasons.length) { setPickers(false); $("#w-season").focus(); return; }
   $("#w-season-sel").replaceChildren(...seasons.map(s => el("option", { value: s.number,
     text: (s.name || t("media.seasonn", { n: s.number })) + (s.episodes ? " · " + t("media.episodes", { n: s.episodes }) : "") })));
@@ -973,7 +1008,11 @@ async function loadEpisodes(w) {
   } catch { /* the whole season can still be searched */ }
 }
 
-$("#w-season-sel").addEventListener("change", () => { if (currentWork) loadEpisodes(currentWork); });
+$("#w-season-sel").addEventListener("change", () => {
+  if (!currentWork) return;
+  loadEpisodes(currentWork);
+  showFollowButton(currentWork, Number($("#w-season-sel").value) || 1);
+});
 
 // pickedEpisode is the season and episode chosen (0 = any).
 function pickedEpisode() {
@@ -989,10 +1028,17 @@ async function findReleases() {
   if (!currentWork || findingReleases) return;
   const w = currentWork;
   const params = new URLSearchParams({ lang: MEDIA_LANG });
+  seasonPick = null;
+  allFiles = false;
   if (w.kind === "series") {
     const p = pickedEpisode();
     if (p.season) params.set("season", p.season);
     if (p.episode) params.set("episode", p.episode);
+    if (p.season && !p.episode) {
+      const eps = [...document.querySelectorAll("#w-episode-sel option")].filter(o => o.value)
+        .map(o => ({ number: Number(o.value), name: o.textContent.replace(/^\d+( · )?/, "") }));
+      seasonPick = { season: p.season, episodes: eps };
+    }
   }
   const titles = [w.title, w.original_title].filter((x, i, a) =>
     x && a.findIndex(y => y && y.toLowerCase() === x.toLowerCase()) === i);
@@ -1060,7 +1106,9 @@ function releaseTags(r) {
 const notesByHash = new Map();
 const NOTES_FOR = 6;
 async function loadReleaseNotes(w) {
-  const first = releases.filter(r => !r.hidden).slice(0, NOTES_FOR);
+  // A whole season: the best file of each episode (at most 30).
+  const first = seasonPick ? seasonBest().filter(e => e.best).map(e => e.best).slice(0, 30)
+    : releases.filter(r => !r.hidden).slice(0, NOTES_FOR);
   await Promise.all(first.map(async r => {
     const h = r.hash.toUpperCase();
     if (notesByHash.has(h)) return;
@@ -1075,7 +1123,82 @@ async function loadReleaseNotes(w) {
 // suspect: users call this file fake (see loadReleaseNotes).
 const suspect = r => !!(notesByHash.get(r.hash.toUpperCase()) || {}).suspect;
 
+// seasonBest is, for each episode of the season searched for, its best
+// file: not hidden, not called fake (null when there is none).
+function seasonBest() {
+  const s = seasonPick.season;
+  const inSeason = r => !r.info.season || r.info.season === s;
+  let eps = seasonPick.episodes.map(e => e.number);
+  if (!eps.length) { // no episode list: the episodes the files name
+    eps = [...new Set(releases.filter(r => r.info.episode && inSeason(r)).map(r => r.info.episode))].sort((a, b) => a - b);
+  }
+  return eps.map(n => ({
+    number: n,
+    name: (seasonPick.episodes.find(e => e.number === n) || {}).name || "",
+    best: releases.find(r => !r.hidden && !suspect(r) && r.info.episode === n && inSeason(r)) || null,
+  }));
+}
+
+function releaseCard(r, have, episode) {
+  const inDl = have.has(r.hash.toUpperCase());
+  return el("div", { class: "card rel" + (r.recommended ? " recommended" : "") + (r.hidden ? " hidden" : ""), "data-hash": r.hash.toUpperCase() },
+    el("div", { class: "rel-head" },
+      el("span", { class: "rel-name", text: r.name, title: r.name }),
+      el("button", {
+        class: inDl ? "icon" : "primary small", disabled: inDl,
+        text: inDl ? t("results.have") : t("results.download"),
+        onclick: () => downloadRelease(r, episode),
+      })),
+    el("div", { class: "tags" }, releaseTags(r)));
+}
+
+// renderSeason shows the best file of each episode of a season.
+function renderSeason() {
+  const have = haveHashes();
+  const eps = seasonBest();
+  for (const r of releases) r.recommended = eps.some(e => e.best === r);
+  const found = eps.filter(e => e.best);
+  $("#rel-bar").hidden = false;
+  $("#rel-summary").textContent = t("media.seasonsummary", { have: found.length, n: eps.length });
+  const todo = found.filter(e => !have.has(e.best.hash.toUpperCase()));
+  const dl = $("#rel-dlall");
+  dl.hidden = todo.length === 0;
+  dl.textContent = t("media.dlall", { n: todo.length });
+  dl.onclick = () => downloadSeason(todo);
+  $("#rel-hidden").hidden = true;
+  $("#releases").replaceChildren(...eps.map(e => el("div", { class: "ep-group" },
+    el("div", { class: "ep-title", text: t("media.ep", { n: e.number }) + (e.name ? " · " + e.name : "") }),
+    e.best ? releaseCard(e.best, have, e.number) : el("p", { class: "muted ep-none", text: t("media.epnone") }))));
+}
+
+// downloadSeason adds the best file of each episode, one after the other.
+async function downloadSeason(list) {
+  const w = currentWork, msg = $("#rel-msg");
+  $("#rel-dlall").disabled = true;
+  let n = 0;
+  for (const e of list) {
+    try {
+      await api("POST", "/api/v1/media/download", { link: e.best.link, work_id: w.id, lang: MEDIA_LANG, season: seasonPick.season, episode: e.number });
+      n++;
+    } catch (err) {
+      if (err instanceof AuthError) return;
+      showMsg(msg, t("media.ep", { n: e.number }) + ": " + err.message, "bad");
+    }
+  }
+  $("#rel-dlall").disabled = false;
+  if (n) showMsg(msg, t("media.dlalldone", { n }), "ok");
+  await refresh();
+  renderReleases();
+}
+
+$("#rel-all").addEventListener("click", () => { allFiles = !allFiles; renderReleases(); });
+
 function renderReleases() {
+  const ra = $("#rel-all");
+  ra.hidden = !seasonPick;
+  ra.textContent = t(allFiles ? "media.byepisode" : "media.allfiles");
+  if (seasonPick && !allFiles) { renderSeason(); return; }
+  $("#rel-dlall").hidden = true;
   const hidden = releases.filter(r => r.hidden).length;
   // Files called fake go after the others, and the recommendation goes to
   // the best one that is not.
@@ -1089,29 +1212,18 @@ function renderReleases() {
   hb.hidden = hidden === 0;
   hb.textContent = t(showHidden ? "media.hidehidden" : "media.showhidden", { n: hidden });
   const have = haveHashes();
-  $("#releases").replaceChildren(...shown.map(r => {
-    const inDl = have.has(r.hash.toUpperCase());
-    return el("div", { class: "card rel" + (r.recommended ? " recommended" : "") + (r.hidden ? " hidden" : ""), "data-hash": r.hash.toUpperCase() },
-      el("div", { class: "rel-head" },
-        el("span", { class: "rel-name", text: r.name, title: r.name }),
-        el("button", {
-          class: inDl ? "icon" : "primary small", disabled: inDl,
-          text: inDl ? t("results.have") : t("results.download"),
-          onclick: () => downloadRelease(r),
-        })),
-      el("div", { class: "tags" }, releaseTags(r)));
-  }));
+  $("#releases").replaceChildren(...shown.map(r => releaseCard(r, have)));
 }
 
 // downloadRelease adds a file of the open movie or series, telling MyMule
 // what it is so it can be renamed into the library when it finishes.
-async function downloadRelease(r) {
+async function downloadRelease(r, episode) {
   const w = currentWork, msg = $("#rel-msg");
   const body = { link: r.link, work_id: w.id, lang: MEDIA_LANG };
   if (w.kind === "series") {
     const p = pickedEpisode();
     body.season = p.season;
-    body.episode = p.episode;
+    body.episode = episode || p.episode || r.info.episode || 0;
   }
   try {
     const res = await api("POST", "/api/v1/media/download", body);
@@ -1164,6 +1276,7 @@ function showWantButton(w, available) {
     avail.hidden = true;
   }
   const p = w.kind === "series" ? pickedEpisode() : { season: 0, episode: 0 };
+  showFollowButton(w, p.season || 1);
   const id = wantedID(w.id, p.season, p.episode);
   const b = $("#w-want");
   const have = wantedList.some(e => e.id === id);
@@ -1183,6 +1296,27 @@ function showWantButton(w, available) {
   };
 }
 
+// showFollowButton offers to follow a series from the season chosen.
+function showFollowButton(w, season) {
+  const b = $("#w-follow");
+  if (w.kind !== "series") { b.hidden = true; return; }
+  const on = wantedList.some(e => e.id === w.id + ":follow");
+  b.textContent = on ? t("follow.on") : t("follow.btn", { s: season });
+  b.disabled = on;
+  b.hidden = false;
+  b.onclick = async () => {
+    try {
+      await api("POST", "/api/v1/wanted", { work_id: w.id, lang: MEDIA_LANG, follow: true, from_season: season });
+      b.textContent = t("follow.on");
+      b.disabled = true;
+      showMsg($("#rel-msg"), t("follow.added", { s: season }), "ok");
+      loadWanted();
+    } catch (err) {
+      if (!(err instanceof AuthError)) showMsg($("#rel-msg"), err.message, "bad");
+    }
+  };
+}
+
 async function loadWanted() {
   try {
     const r = await api("GET", "/api/v1/wanted");
@@ -1193,7 +1327,21 @@ async function loadWanted() {
   if (!$("#wanted").hidden && !editingWanted) renderWanted();
 }
 
+function followStatus(e) {
+  const now = new Date();
+  const eps = e.episodes || [];
+  if (!eps.length) return t("follow.listing");
+  const aired = x => x.airs && new Date(x.airs) <= now;
+  const done = eps.filter(x => x.status === "done").length;
+  const dl = eps.filter(x => x.status === "downloading").length;
+  const missing = eps.filter(x => x.status === "wanted" && aired(x)).length;
+  const next = eps.find(x => x.status === "wanted" && !aired(x));
+  const nx = next && next.airs ? t("follow.next", { s: next.season, e: next.episode, d: day(next.airs) }) : t("follow.nonext");
+  return t("follow.status", { done, dl, missing, next: nx });
+}
+
 function wantedStatus(e) {
+  if (e.follow) return followStatus(e);
   if (e.status === "downloading") return t("want.downloading", { f: e.file });
   if (e.status === "done") return t("want.done", { f: e.file });
   if (e.not_before && new Date(e.not_before) > new Date() && !e.force) {
@@ -1211,7 +1359,8 @@ function renderWanted() {
   }
   list.replaceChildren(...wantedList.map(e => {
     let title = e.title + (e.year ? " (" + e.year + ")" : "");
-    if (e.season) title += " · " + t("media.seasonn", { n: e.season }) + (e.episode ? " · " + t("media.episode") + " " + e.episode : "");
+    if (e.follow) title = t("follow.title", { t: title, s: e.from_season });
+    else if (e.season) title += " · " + t("media.seasonn", { n: e.season }) + (e.episode ? " · " + t("media.episode") + " " + e.episode : "");
     const text = el("div", { class: "wanted-text" },
       el("strong", { text: title }),
       el("span", { class: "muted", text: wantedStatus(e) }));
@@ -1220,7 +1369,7 @@ function renderWanted() {
       text,
       el("div", { class: "wanted-actions" },
         e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.date"), title: t("want.datehint"), onclick: () => editWantedDate(e, text) }) : null,
-        e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
+        e.status === "wanted" || e.follow ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
         el("button", { class: "ghost small", text: t("want.remove"), onclick: () => wantedAction("DELETE", e.id, "") })));
   }));
 }

@@ -150,6 +150,9 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .work-info { display: grid; gap: 4px; }
 #w-want { justify-self: start; margin-top: 6px; }
 .small-note { font-size: 12px; margin: 8px 2px 0; }
+.ep-group { display: grid; gap: 4px; }
+.ep-title { font-size: 13px; font-weight: 600; color: var(--muted); margin: 6px 2px 0; }
+.ep-none { margin: 0 2px 4px; font-size: 13px; }
 .wanted-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; padding: 10px; }
 .wanted-row .poster { width: 56px; }
 .wanted-text { display: grid; gap: 3px; min-width: 0; }

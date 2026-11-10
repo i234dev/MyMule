@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -284,4 +285,115 @@ func TestWishListManualDate(t *testing.T) {
 		got.Entry.NotBeforeIs != "digital" || got.Entry.NotBefore.Before(time.Now()) {
 		t.Fatalf("%d %+v", code, got.Entry)
 	}
+}
+
+// seriesSource is fakeSource with seasons: season 1 aired, season 2 half.
+type seriesSource struct{ fakeSource }
+
+func (seriesSource) Get(ctx context.Context, id, lang string) (meta.Work, error) {
+	w, err := fakeSource{}.Get(ctx, id, lang)
+	w.Seasons = []meta.Season{{Number: 1, Episodes: 3}, {Number: 2, Episodes: 2}}
+	return w, err
+}
+
+func (seriesSource) SeasonEpisodes(_ context.Context, _ string, season int, _ string) ([]meta.Episode, error) {
+	past, future := time.Now().AddDate(0, -1, 0).Format(time.DateOnly), time.Now().AddDate(0, 0, 7).Format(time.DateOnly)
+	if season == 1 {
+		return []meta.Episode{{Number: 1, AirDate: past}, {Number: 2, AirDate: past}, {Number: 3, AirDate: past}}, nil
+	}
+	return []meta.Episode{{Number: 1, AirDate: past}, {Number: 2, AirDate: future}}, nil
+}
+
+// A followed series gets every aired episode, a season per search, the
+// best file of each (never a cinema copy); one not aired yet waits; a
+// cancelled one is searched for again and its file not taken again.
+func TestFollowSeries(t *testing.T) {
+	rest, m, ws, srv := wantedSetup(t, []SearchResult{
+		result("The.Show.S01E01.1080p.mkv", "A1A1456789ABCDEF0123456789ABCDEF", 9),
+		result("The.Show.S01E01.720p.mkv", "A2A2456789ABCDEF0123456789ABCDEF", 5),
+		result("The.Show.S01E02.CAM.mkv", "B1B1456789ABCDEF0123456789ABCDEF", 30),
+		result("The.Show.S01E02.1080p.mkv", "B2B2456789ABCDEF0123456789ABCDEF", 4),
+		result("The.Show.S02E01.1080p.mkv", "C1C1456789ABCDEF0123456789ABCDEF", 7),
+		result("The.Show.S02E02.1080p.mkv", "D1D1456789ABCDEF0123456789ABCDEF", 7), // not aired: a fake
+	})
+	rest.media = seriesSource{}
+	var got struct{ Entry wanted.Entry }
+	if code := call(t, srv, "POST", "/api/v1/wanted", "application/json", `{"work_id":"tmdb-tv-1","follow":true}`, &got); code != 200 ||
+		!got.Entry.Follow || len(got.Entry.Episodes) != 5 {
+		t.Fatalf("%d %+v", code, got.Entry)
+	}
+	id := got.Entry.ID
+	searchDue := func() int {
+		t.Helper()
+		e, season, ok := ws.FollowDue(time.Now(), time.Hour)
+		if !ok {
+			return 0
+		}
+		rest.searchFollowSeason(context.Background(), e, season)
+		return season
+	}
+	if s := searchDue(); s != 1 {
+		t.Fatalf("searched season %d first", s)
+	}
+	if s := searchDue(); s != 2 {
+		t.Fatalf("then season %d", s)
+	}
+	if s := searchDue(); s != 0 {
+		t.Fatalf("season %d searched again too soon", s)
+	}
+	e, _ := ws.Get(id)
+	want := map[string]string{"1x1": "A1A1456789ABCDEF0123456789ABCDEF", "1x2": "B2B2456789ABCDEF0123456789ABCDEF", "1x3": "", "2x1": "C1C1456789ABCDEF0123456789ABCDEF", "2x2": ""}
+	for _, ep := range e.Episodes {
+		k := fmt.Sprintf("%dx%d", ep.Season, ep.Episode)
+		if ep.Hash != want[k] {
+			t.Errorf("%s: took %q, want %q (%s)", k, ep.Hash, want[k], ep.Status)
+		}
+	}
+
+	// A season on the air: the aired episode's file is there, the next
+	// one's (it airs next week) is a fake.
+	found, err := rest.findReleases(context.Background(), "tmdb-tv-1", "en", 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range found.releases {
+		if aired := x.Info.Episode == 1; aired == (x.HiddenWhy == tooEarly) {
+			t.Errorf("%s: hidden %q", x.Name, x.HiddenWhy)
+		}
+	}
+
+	// Cancelled: wanted again, its season searched again, the other file
+	// taken.
+	h, _ := ed2k.ParseHash("A1A1456789ABCDEF0123456789ABCDEF")
+	m.Cancel(h)
+	rest.checkWantedDownloads()
+	if s := searchDue(); s != 1 {
+		t.Fatalf("season %d searched after a cancel", s)
+	}
+	e, _ = ws.Get(id)
+	if e.Episodes[0].Hash != "A2A2456789ABCDEF0123456789ABCDEF" {
+		t.Fatalf("after cancelling: %+v", e.Episodes[0])
+	}
+	// A finished download marks its episode done.
+	rest.WantedCompleted(ed2k.Hash(mustHash(t, "C1C1456789ABCDEF0123456789ABCDEF")))
+	if e, _ = ws.Get(id); e.Episodes[3].Status != wanted.Done {
+		t.Fatalf("not done: %+v", e.Episodes[3])
+	}
+}
+
+func mustHash(t *testing.T, s string) ed2k.Hash {
+	t.Helper()
+	h, err := ed2k.ParseHash(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// Available: like TMDB, season 2 "airs" when its last episode does.
+func (seriesSource) Available(_ context.Context, _ string, season, episode int) (meta.Availability, bool, error) {
+	if season == 2 && (episode == 0 || episode == 2) {
+		return meta.Availability{Date: time.Now().AddDate(0, 0, 7), Kind: "aired"}, true, nil
+	}
+	return meta.Availability{}, false, nil
 }

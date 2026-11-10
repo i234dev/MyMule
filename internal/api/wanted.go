@@ -56,6 +56,10 @@ type addWantedRequest struct {
 	// NotBefore: a date (YYYY-MM-DD) chosen by the user to start
 	// searching; empty = when it comes out (from the movie database).
 	NotBefore string `json:"not_before"`
+	// Follow a series: every episode from FromSeason (1 by default) on,
+	// aired or to come.
+	Follow     bool `json:"follow"`
+	FromSeason int  `json:"from_season"`
 }
 
 // parseDay reads a YYYY-MM-DD date for the wish list ("" = none).
@@ -94,6 +98,22 @@ func (r *REST) addWanted(w http.ResponseWriter, req *http.Request) {
 	}
 	e := wanted.Entry{WorkID: work.ID, Kind: work.Kind, Title: work.Title, Year: work.Year,
 		Poster: work.Poster, Lang: ar.Lang}
+	if ar.Follow {
+		if work.Kind != "series" || ar.FromSeason < 0 || ar.FromSeason > 1000 {
+			fail(w, http.StatusBadRequest, errors.New("only a series can be followed"))
+			return
+		}
+		e.Follow, e.FromSeason = true, ar.FromSeason
+		if e, err = r.wanted.Add(e); err != nil {
+			fail(w, http.StatusConflict, err)
+			return
+		}
+		r.listEpisodes(req.Context(), e)
+		e, _ = r.wanted.Get(e.ID)
+		r.wake()
+		reply(w, map[string]any{"entry": e})
+		return
+	}
 	if work.Kind == "series" {
 		e.Season, e.Episode = ar.Season, ar.Episode
 	}
@@ -198,9 +218,17 @@ func (r *REST) RunWanted(ctx context.Context) {
 		}
 		r.checkWantedDownloads()
 		r.checkWantedDate(ctx)
+		if e, ok := r.wanted.FollowListDue(time.Now(), wantedDates); ok {
+			r.listEpisodes(ctx, e)
+		}
+		// One search at a time: an entry, or else a season of a followed
+		// series.
 		if e, ok := r.wanted.Due(time.Now(), wantedEvery); ok {
 			last = time.Now()
 			r.searchWantedEntry(ctx, e)
+		} else if e, season, ok := r.wanted.FollowDue(time.Now(), wantedEvery); ok {
+			last = time.Now()
+			r.searchFollowSeason(ctx, e, season)
 		}
 		timer.Reset(wantedTick)
 	}
@@ -240,6 +268,18 @@ func (r *REST) checkWantedDate(ctx context.Context) {
 // checkWantedDownloads follows the downloads started for the list: done
 // when they finished, wanted again when they were cancelled.
 func (r *REST) checkWantedDownloads() {
+	for _, d := range r.wanted.FollowDownloads() {
+		h, err := ed2k.ParseHash(d[1])
+		if err != nil {
+			continue
+		}
+		switch present, finished := r.m.Has(h); {
+		case finished:
+			r.wanted.Completed(d[1])
+		case !present:
+			r.wanted.EpisodeDropped(d[0], d[1])
+		}
+	}
 	for _, e := range r.wanted.Downloading() {
 		h, err := ed2k.ParseHash(e.Hash)
 		if err != nil {

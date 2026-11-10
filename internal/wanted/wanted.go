@@ -21,6 +21,7 @@ const (
 	Wanted      = "wanted"      // still being looked for
 	Downloading = "downloading" // a file was found and is downloading
 	Done        = "done"        // the download finished
+	Following   = "following"   // a followed series (see follow.go)
 )
 
 // Entry is a movie, an episode or a season the user wants.
@@ -54,6 +55,13 @@ type Entry struct {
 	File string `json:"file,omitempty"`
 	// Skip: files of this entry the user cancelled, not taken again.
 	Skip []string `json:"skip,omitempty"`
+
+	// A followed series (Follow): every episode from FromSeason on, the
+	// ones already aired and those to come (see follow.go).
+	Follow     bool              `json:"follow,omitempty"`
+	FromSeason int               `json:"from_season,omitempty"`
+	Episodes   []Episode         `json:"episodes,omitempty"`
+	Searched   map[int]time.Time `json:"season_searched,omitempty"` // by season
 }
 
 // MakeID is the identifier of a work, season and episode.
@@ -93,7 +101,10 @@ func Open(path string) *Store {
 func (s *Store) List() []Entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := slices.Clone(s.list)
+	out := make([]Entry, len(s.list))
+	for i, e := range s.list {
+		out[i] = cloneEntry(e) // the episodes change in place
+	}
 	slices.SortStableFunc(out, func(a, b Entry) int { return b.Added.Compare(a.Added) })
 	return out
 }
@@ -104,6 +115,9 @@ func (s *Store) Add(e Entry) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e.ID = MakeID(e.WorkID, e.Season, e.Episode)
+	if e.Follow {
+		e.ID, e.Season, e.Episode = FollowID(e.WorkID), 0, 0
+	}
 	for _, x := range s.list {
 		if x.ID == e.ID {
 			return x, nil
@@ -114,6 +128,10 @@ func (s *Store) Add(e Entry) (Entry, error) {
 	}
 	e.Status, e.Hash, e.File, e.Skip, e.Searches, e.Force = Wanted, "", "", nil, 0, false
 	e.LastSearch = time.Time{}
+	if e.Follow {
+		e.Status, e.Episodes, e.Searched = Following, nil, nil
+		e.FromSeason = max(e.FromSeason, 1)
+	}
 	if e.Added.IsZero() {
 		e.Added = time.Now()
 	}
@@ -138,7 +156,7 @@ func (s *Store) Get(id string) (Entry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i := s.indexLocked(id); i >= 0 {
-		return s.list[i], true
+		return cloneEntry(s.list[i]), true
 	}
 	return Entry{}, false
 }
@@ -222,7 +240,7 @@ func (s *Store) SetDate(id string, day time.Time) error {
 // SearchNow makes an entry due at once, even if it is not out yet.
 func (s *Store) SearchNow(id string) error {
 	ok := s.update(id, func(e *Entry) {
-		if e.Status == Wanted {
+		if e.Status == Wanted || e.Follow {
 			e.Force = true
 		}
 	})
@@ -252,6 +270,13 @@ func (s *Store) Completed(hash string) {
 		if s.list[i].Status == Downloading && s.list[i].Hash == hash {
 			s.list[i].Status = Done
 			changed = true
+		}
+		for j := range s.list[i].Episodes {
+			ep := &s.list[i].Episodes[j]
+			if ep.Status == Downloading && ep.Hash == hash {
+				ep.Status = Done
+				changed = true
+			}
 		}
 	}
 	if changed {

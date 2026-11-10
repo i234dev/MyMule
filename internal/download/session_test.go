@@ -9,10 +9,10 @@ import (
 	"mymule/internal/proto"
 )
 
-// A peer that sends a compressed block claiming 4 GB of packed data used
-// to make us buffer everything it sent until that size was reached. We do
-// not announce compression, so the session must end on the first such
-// packet, with nothing buffered or written.
+// A peer that sends a compressed block claiming 4 GB of packed data would
+// make us buffer everything it sent until that size was reached: a
+// compressed size above what the block can take ends the session on the
+// first such packet, with nothing buffered or written.
 func TestCompressedBlockEndsSession(t *testing.T) {
 	data := testData(ed2k.PartSize + 5000)
 	link, _ := linkFor(t, "packed.bin", data)
@@ -35,9 +35,10 @@ func TestCompressedBlockEndsSession(t *testing.T) {
 		w.U32(0xFFFFFFFF) // claimed packed size: 4 GB
 		w.Bytes(make([]byte, 10240))
 		err := s.onData(&proto.Packet{Proto: proto.ProtoEMule, Opcode: op, Payload: w.B})
-		if !errors.Is(err, errCompressed) {
-			t.Fatalf("opcode 0x%02X: err = %v, want errCompressed", op, err)
+		if !errors.Is(err, peer.ErrBadCompressed) {
+			t.Fatalf("opcode 0x%02X: err = %v, want ErrBadCompressed", op, err)
 		}
+		s.packed = nil
 	}
 	if done, _ := pf.Progress(); done != 0 {
 		t.Fatalf("compressed data was written: %d bytes", done)

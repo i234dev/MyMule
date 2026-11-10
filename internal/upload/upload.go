@@ -59,6 +59,7 @@ type client struct {
 	crypt    byte   // obfuscation it offers, from its hello
 	udpPort  uint16 // its eD2K client UDP port (0 = none), from its hello
 	udpVer   byte   // its client UDP version
+	dataComp byte   // the compressed transfers it supports (0 = none)
 	file     ed2k.Hash
 	conn     *peer.Conn
 
@@ -89,6 +90,7 @@ type Manager struct {
 	byConn  map[*peer.Conn]*client
 
 	total      atomic.Int64
+	saved      atomic.Int64 // bytes not sent thanks to compression
 	recovery   recoveryBudget
 	speedBytes int64
 	speedTime  time.Time
@@ -197,6 +199,7 @@ func (m *Manager) updateIdentity(cl *client, h peer.Hello, ip net.IP) {
 	cl.crypt = h.Crypt()
 	_, cl.emule = h.Tags.Find(peer.CTEMuleVersion)
 	cl.udpPort, cl.udpVer = h.UDPPort(), h.UDPVersion()
+	cl.dataComp = h.DataCompression()
 }
 
 // Handle processes an upload-related packet. It returns false for packets
@@ -360,6 +363,32 @@ func sendRank(c *peer.Conn, rank int, emule bool) error {
 	return c.Send(proto.ProtoEDonkey, peer.OpQueueRank, w.B)
 }
 
+// sendCompressed sends the block [s, e) compressed (packed), in packets
+// of about 10 KB, as eMule does. The peer is credited with the block's
+// real size: that is what it gets.
+func (m *Manager) sendCompressed(c *peer.Conn, cl *client, hash ed2k.Hash, s, e int64, packed []byte, big bool) error {
+	for off := 0; off < len(packed); off += peer.CompressedPacketSize {
+		end := min(off+peer.CompressedPacketSize, len(packed))
+		m.limiter.Wait(end - off)
+		op, payload := peer.EncodeCompressedPart(hash, s, uint32(len(packed)), packed[off:end], big)
+		if err := c.Send(proto.ProtoEMule, op, payload); err != nil {
+			return err
+		}
+	}
+	n := e - s
+	m.total.Add(n)
+	m.saved.Add(n - int64(len(packed)))
+	if m.cfg.Uploaded != nil {
+		m.cfg.Uploaded(cl.userHash, cl.ip, n)
+	}
+	m.mu.Lock()
+	cl.sent += n
+	cl.totalSent += n
+	cl.lastReq = time.Now()
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) accept(c *peer.Conn) error {
 	return c.Send(proto.ProtoEDonkey, peer.OpAcceptUploadReq, nil)
 }
@@ -392,6 +421,7 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 	m.mu.Lock()
 	cl := m.byConn[c]
 	ok := cl != nil && cl.uploading
+	compress := ok && cl.dataComp == peer.DataCompVersion
 	m.mu.Unlock()
 	if !ok {
 		return nil // no slot: ignore, as eMule does
@@ -401,6 +431,7 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 		return c.SendHash(proto.ProtoEDonkey, peer.OpFileReqAnsNoFil, hash)
 	}
 	big := f.FileSize() > peer.LargeFileLimit
+	compress = compress && peer.Compressible(f.FileName())
 
 	for i := range starts {
 		if !validRange(starts[i], ends[i], f.FileSize()) {
@@ -414,6 +445,15 @@ func (m *Manager) onRequestParts(c *peer.Conn, p *proto.Packet, large bool) erro
 		whole := make([]byte, e-s)
 		if share.ReadFull(f, whole, s) != nil {
 			whole = nil
+		}
+		if compress && whole != nil {
+			// The block compressed as a whole, when that saves enough.
+			if packed, ok := peer.CompressBlock(whole); ok {
+				if err := m.sendCompressed(c, cl, hash, s, e, packed, big); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		for off := s; off < e; off += chunkSize {
 			n := min(int64(chunkSize), e-off)
@@ -777,6 +817,9 @@ type Status struct {
 	Speed    float64      `json:"speed"`
 	Total    int64        `json:"total"`
 	LimitKB  int          `json:"limit_kb"`
+	// Saved: bytes compression kept from being sent (in Total, they count
+	// as sent: the peer got them).
+	Saved int64 `json:"compression_saved,omitempty"`
 }
 
 // Status returns a snapshot, updating speed estimates.
@@ -784,7 +827,8 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
-	st := Status{MaxSlots: m.cfg.Slots, Queue: len(m.queue), Total: m.total.Load(), LimitKB: m.cfg.LimitKBps}
+	st := Status{MaxSlots: m.cfg.Slots, Queue: len(m.queue), Total: m.total.Load(), LimitKB: m.cfg.LimitKBps,
+		Saved: m.saved.Load()}
 	if dt := now.Sub(m.speedTime).Seconds(); dt >= 0.5 {
 		m.speed = smooth(m.speed, float64(st.Total-m.speedBytes)/dt)
 		m.speedBytes, m.speedTime = st.Total, now

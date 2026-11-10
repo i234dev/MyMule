@@ -31,13 +31,9 @@ var handshakeTimeout = 30 * time.Second
 
 var errDone = errors.New("session finished")
 
-// errCompressed ends a session whose peer sends compressed blocks, which
-// we do not support and never ask for.
 var errBanned = errors.New("peer sent corrupt data")
 
 var errStateTimeout = errors.New("peer took too long without progress")
-
-var errCompressed = errors.New("peer sent a compressed block, which we do not accept")
 
 // runSession performs the hello handshake on a fresh connection, works out
 // which source it belongs to and then drives the download protocol.
@@ -322,6 +318,9 @@ type session struct {
 	// gotStatus: the peer said which parts it has (AICH recovery data is
 	// asked only of peers that have the part).
 	gotStatus bool
+	// packed: a compressed block being received (one at a time: a peer
+	// sends its blocks in order).
+	packed *peer.CompressedBlock
 }
 
 func (s *session) setState(st SourceState) {
@@ -572,14 +571,11 @@ func (s *session) onData(p *proto.Packet) error {
 	if err != nil {
 		return err
 	}
-	if d.Compressed {
-		// We never announce compression, so honest peers never send it.
-		// Accepting it meant buffering in memory as many bytes as the
-		// peer claimed (up to 4 GB) before anything could be checked.
-		return errCompressed
-	}
 	if d.Hash != s.pf.Hash {
 		return nil
+	}
+	if d.Compressed {
+		return s.onCompressed(d)
 	}
 
 	if _, ok := s.findPending(d.Start, d.End); !ok {
@@ -588,7 +584,55 @@ func (s *session) onData(p *proto.Packet) error {
 	return s.store(d.Start, d.Data)
 }
 
-func (s *session) store(off int64, data []byte) error {
+// onCompressed takes a packet of a compressed block: the block is kept
+// (at most its own size, see peer.CompressedBlock) until all of it came,
+// then stored like plain data.
+func (s *session) onCompressed(d peer.DataPart) error {
+	if s.packed == nil || s.packed.Start != d.Start {
+		b, ok := s.pendingAt(d.Start)
+		if !ok {
+			return nil // stale data for a block we no longer track
+		}
+		s.packed = peer.NewCompressedBlock(b.Start, b.End-b.Start)
+	}
+	before := s.packed.Received()
+	data, err := s.packed.Add(d)
+	if err != nil {
+		return err
+	}
+	// What arrived counts as progress, and against the download limit,
+	// as it comes.
+	n := s.packed.Received() - before
+	s.deadline = s.deadline.Add(credit(n))
+	if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
+		s.deadline = limit
+	}
+	if w := s.m.dlLimit.Wait(n); w > 0 {
+		s.deadline = s.deadline.Add(w)
+	}
+	if data == nil {
+		return nil
+	}
+	start := s.packed.Start
+	s.packed = nil
+	return s.storeData(start, data, false)
+}
+
+// pendingAt is the pending block that starts at start.
+func (s *session) pendingAt(start int64) (Range, bool) {
+	for _, b := range s.pending {
+		if b.Start == start {
+			return b, true
+		}
+	}
+	return Range{}, false
+}
+
+func (s *session) store(off int64, data []byte) error { return s.storeData(off, data, true) }
+
+// storeData writes data received at off; limited: it still has to wait for
+// the download limit (compressed data waited as it arrived).
+func (s *session) storeData(off int64, data []byte, limited bool) error {
 	fresh, complete, err := s.pf.writeNew(s.owner, off, data)
 	if s.pf.Banned(s.owner) {
 		// It sent a part that failed verification all by itself.
@@ -613,17 +657,21 @@ func (s *session) store(off int64, data []byte) error {
 	// Progress: the deadline moves by what the data is worth at
 	// minPeerRate (up to transferTimeout ahead), so a peer that sends a
 	// byte now and then does not keep the connection.
-	s.deadline = s.deadline.Add(credit(int(fresh)))
-	if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
-		s.deadline = limit
+	if limited {
+		s.deadline = s.deadline.Add(credit(int(fresh)))
+		if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
+			s.deadline = limit
+		}
 	}
 	s.f.bytes.Add(n)
 	s.m.received.Add(n)
 	// The download limit: reading the next packet waits, and TCP slows the
 	// peer. The time waited is ours, not the peer's: it does not count
 	// against the session's deadline.
-	if w := s.m.dlLimit.Wait(int(n)); w > 0 {
-		s.deadline = s.deadline.Add(w)
+	if limited {
+		if w := s.m.dlLimit.Wait(int(n)); w > 0 {
+			s.deadline = s.deadline.Add(w)
+		}
 	}
 	if cr := s.m.cfg.Credits; cr != nil {
 		// Only what is new to us: bytes sent again would let a peer earn

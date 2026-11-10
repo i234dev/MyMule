@@ -64,6 +64,9 @@ Python, cron, home automation).
   Jellyfin, Emby or Plex told to scan their libraries when files arrive
 - Download priorities (high, normal, low), and "first and last parts
   first" to watch a video before it is complete
+- Compressed transfers, as eMule's: blocks of files that compress (not
+  videos, music or archives) travel compressed, both ways, with clients
+  that support it
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from

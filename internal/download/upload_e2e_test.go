@@ -129,6 +129,9 @@ func uploadBetween(t *testing.T, obf byte, withCredits bool) {
 	}
 	if st := up.Status(); st.Total < int64(len(data)) {
 		t.Fatalf("uploader reports only %d bytes sent", st.Total)
+	} else if st.Saved < int64(len(data))/2 {
+		// The data compresses well and both sides support compression.
+		t.Fatalf("compression saved only %d bytes", st.Saved)
 	}
 	if withCredits {
 		ip := net.IPv4(127, 0, 0, 1)

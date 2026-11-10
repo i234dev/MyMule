@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"mymule/internal/fsutil"
+	"mymule/internal/mediaserver"
+	"mymule/internal/notify"
 )
 
 // SettingsFile is the name of the configuration file in the base directory.
@@ -75,6 +77,18 @@ type Settings struct {
 	// SearchLanguages are language codes (e.g. "es") whose titles the
 	// *arr indexer also searches for, looked up on Wikidata. Empty = off.
 	SearchLanguages []string
+
+	// NotifyURLs are where notifications go (ntfy://, tgram://,
+	// discord://, http(s):// webhooks), separated by spaces or commas;
+	// NotifyOn the events to send (notify.AllKinds).
+	NotifyURLs string
+	NotifyOn   []string
+
+	// MediaServer (jellyfin, emby, plex or empty) is asked to scan its
+	// libraries when MyMule puts new files in them.
+	MediaServer      string
+	MediaServerURL   string
+	MediaServerToken string
 }
 
 // Defaults returns the built-in settings (directories relative).
@@ -95,6 +109,7 @@ func Defaults() Settings {
 		UploadSlots:    20,
 		UploadLimit:    1000,
 		APIListen:      "127.0.0.1:4711",
+		NotifyOn:       notify.AllKinds,
 	}
 }
 
@@ -172,6 +187,16 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.TMDBKey }},
 	{"arr_support", "Radarr, Sonarr, Lidarr, Readarr and Prowlarr support (see docs/ARR.md):\ntrue serves a Torznab indexer and a qBittorrent-compatible API on\napi_listen. false = off.",
 		func(s Settings) string { return strconv.FormatBool(s.ArrSupport) }},
+	{"notify_urls", "Notifications when a download finishes, the wish list finds something,\nor something fails. Where to send them, separated by spaces:\nntfy://topic (ntfy.sh) or ntfy://your-server/topic, tgram://BOT_TOKEN/CHAT_ID\n(Telegram), discord://WEBHOOK_ID/WEBHOOK_TOKEN, or any https:// address\n(gets a JSON POST). Empty = no notifications.",
+		func(s Settings) string { return s.NotifyURLs }},
+	{"notify_on", "Which notifications to send, separated by commas: completed, wanted\n(the wish list found a file), error.",
+		func(s Settings) string { return strings.Join(s.NotifyOn, ", ") }},
+	{"media_server", "Your media server, asked to scan its libraries when MyMule adds files to\nthem: jellyfin, emby, plex, or empty (none).",
+		func(s Settings) string { return s.MediaServer }},
+	{"media_server_url", "Its address, e.g. http://192.168.0.10:8096 (Jellyfin/Emby) or\nhttp://192.168.0.10:32400 (Plex).",
+		func(s Settings) string { return s.MediaServerURL }},
+	{"media_server_token", "An API key made in Jellyfin/Emby (Dashboard > API Keys), or your Plex\ntoken.",
+		func(s Settings) string { return s.MediaServerToken }},
 	{"search_languages", "With arr_support: Radarr/Sonarr only search by the original or English\ntitle. List language codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
 		func(s Settings) string { return strings.Join(s.SearchLanguages, ", ") }},
 }
@@ -254,6 +279,9 @@ func LoadSettings() (Settings, error) {
 	}
 	if err := applyEnv(&s, os.LookupEnv); err != nil {
 		return s, err
+	}
+	if err := checkSettings(s); err != nil {
+		return s, fmt.Errorf("%s: %w", p, err)
 	}
 	s.TempDir = absUnder(base, s.TempDir)
 	s.DownloadDir = absUnder(base, s.DownloadDir)
@@ -491,9 +519,32 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				}
 				s.SearchLanguages = append(s.SearchLanguages, l)
 			}
+		case "notify_urls":
+			if err := notify.Parse(val); err != nil {
+				return present, fmt.Errorf("line %d: notify_urls: %v", line, err)
+			}
+			s.NotifyURLs = val
+		case "notify_on":
+			kinds, err := notify.ParseKinds(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: notify_on: %v", line, err)
+			}
+			s.NotifyOn = kinds
+		case "media_server":
+			s.MediaServer = strings.ToLower(val)
+		case "media_server_url":
+			s.MediaServerURL = val
+		case "media_server_token":
+			s.MediaServerToken = val
 		default:
 			return present, fmt.Errorf("line %d: unknown setting %q", line, key)
 		}
 	}
 	return present, sc.Err()
+}
+
+// checkSettings checks what depends on several settings, once all are read
+// (from the file and the environment).
+func checkSettings(s Settings) error {
+	return mediaserver.Check(s.MediaServer, s.MediaServerURL, s.MediaServerToken)
 }

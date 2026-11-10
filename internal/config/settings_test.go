@@ -68,6 +68,11 @@ func TestSettingsParse(t *testing.T) {
 		"arr_support = true",
 		"search_languages = ES, pt-br",
 		`network_hosts = NAS, \\192.0.2.20\, `,
+		"notify_urls = ntfy://mymule-example https://hooks.example.org/x",
+		"notify_on = completed, ERROR",
+		"media_server = Jellyfin",
+		"media_server_url = http://192.0.2.30:8096",
+		"media_server_token = example-token",
 	}
 	os.WriteFile(filepath.Join(home, SettingsFile), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	s, err := LoadSettings()
@@ -79,7 +84,9 @@ func TestSettingsParse(t *testing.T) {
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
 		WebUI: true, TMDBKey: "off", ArrSupport: true, SearchLanguages: []string{"es", "pt-br"},
-		NetworkHosts: []string{"nas", "192.0.2.20"}}
+		NetworkHosts: []string{"nas", "192.0.2.20"},
+		NotifyURLs:   "ntfy://mymule-example https://hooks.example.org/x", NotifyOn: []string{"completed", "error"},
+		MediaServer: "jellyfin", MediaServerURL: "http://192.0.2.30:8096", MediaServerToken: "example-token"}
 	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("got %+v\nwant %+v", s, want)
 	}
@@ -88,7 +95,8 @@ func TestSettingsParse(t *testing.T) {
 func TestSettingsErrors(t *testing.T) {
 	for _, bad := range []string{"port = 99999", "max_conns = 0", "portt = 1", "just text",
 		"share_downloads = maybe", "upload_slots = 0", "upload_limit = -1",
-		"api_listen = 4711", "api_key = short", "search_languages = spanish", "arr_support = yes please", "web_ui = on", "tmdb_api_key = secret"} {
+		"api_listen = 4711", "api_key = short", "search_languages = spanish", "arr_support = yes please", "web_ui = on", "tmdb_api_key = secret",
+		"notify_urls = ftp://example.org/x", "notify_on = everything"} {
 		var s Settings
 		if _, err := parseSettings(bad, &s); err == nil {
 			t.Errorf("%q accepted", bad)
@@ -292,5 +300,21 @@ func TestEnvOverridesFile(t *testing.T) {
 	t.Setenv("MYMULE_PORT", "4662\napi_key = injected-0123456789")
 	if _, err := LoadSettings(); err == nil {
 		t.Fatal("a multi-line value was accepted")
+	}
+}
+
+// The media server needs its address and token, from the file or the
+// environment (containers).
+func TestMediaServerSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	os.WriteFile(filepath.Join(home, SettingsFile), []byte("api_key = example-key-0123456789\nmedia_server = plex\n"), 0o644)
+	if _, err := LoadSettings(); err == nil {
+		t.Fatal("media_server without its address accepted")
+	}
+	t.Setenv("MYMULE_MEDIA_SERVER_URL", "http://192.0.2.30:32400")
+	t.Setenv("MYMULE_MEDIA_SERVER_TOKEN", "example-token")
+	if s, err := LoadSettings(); err != nil || s.MediaServer != "plex" || s.MediaServerToken != "example-token" {
+		t.Fatalf("%+v %v", s, err)
 	}
 }

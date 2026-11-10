@@ -43,6 +43,8 @@ type REST struct {
 	wanted      *wanted.Store            // the wish list; nil = disabled
 	nudge       chan struct{}            // wakes RunWanted
 	logf        func(string, ...any)     // MyMule's log (wish list)
+	// OnWantedFound is told when the wish list starts a download.
+	OnWantedFound func(title, file string)
 	// testSearch replaces the eD2K searches of movies and series in tests.
 	testSearch func(context.Context, server.Query) ([]SearchResult, error)
 	notes      notesCache                          // what users say about files

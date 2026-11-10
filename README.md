@@ -59,6 +59,9 @@ Python, cron, home automation).
 - Ratings and comments that eMule users leave on files (from Kad) shown
   next to the files found for a movie or series, so fakes stand out; the
   wish list never downloads a file people call fake
+- Notifications when a download finishes, the wish list finds something
+  or something fails: ntfy, Telegram, Discord or any webhook; and
+  Jellyfin, Emby or Plex told to scan their libraries when files arrive
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from
@@ -238,6 +241,11 @@ web_ui = false         # true: web interface at http://127.0.0.1:4711/
 tmdb_api_key =         # empty: MyMule's TMDB key; your own key; or off
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see below)
 search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
+notify_urls =          # notifications: ntfy://topic, tgram://BOT_TOKEN/CHAT_ID, discord://ID/TOKEN, https://webhook
+notify_on = completed, wanted, error  # which ones
+media_server =         # jellyfin, emby or plex: asked to scan its libraries when files arrive
+media_server_url =     # e.g. http://192.168.0.10:8096
+media_server_token =   # Jellyfin/Emby API key, or Plex token
 ```
 
 Settings added in newer versions are appended to an existing file, with

@@ -26,7 +26,9 @@ import (
 	"mymule/internal/download"
 	"mymule/internal/ed2k"
 	"mymule/internal/library"
+	"mymule/internal/mediaserver"
 	"mymule/internal/meta"
+	"mymule/internal/notify"
 	"mymule/internal/obfus"
 	"mymule/internal/portmap"
 	"mymule/internal/prefs"
@@ -93,6 +95,11 @@ type engine struct {
 	// web interface).
 	wanted    *wanted.Store
 	runWanted func(context.Context)
+
+	// notify sends notifications; media asks the media server to scan.
+	// Both do nothing when not configured.
+	notify *notify.Notifier
+	media  *mediaserver.Refresher
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -165,31 +172,47 @@ func (e *engine) UpdateServers() (total, added int, err error) {
 	return updateServerList(defaultServerMetURLs, logf)
 }
 
+// finished tells about a download that finished (organized into the
+// library first, when it is a movie or episode).
+func (e *engine) finished(h ed2k.Hash, name, path string) {
+	final := e.organize(h, name, path)
+	if final == "" {
+		final = path
+	}
+	e.wanted.Completed(h.String())
+	e.notify.Send(notify.Event{Kind: notify.Completed, Title: "Download finished", Message: filepath.Base(final)})
+	e.media.Refresh()
+}
+
 // organize renames and moves a finished movie or episode into its folder
 // (when the user chose one), keeping it shared without hashing it again.
-func (e *engine) organize(h ed2k.Hash, name, path string) {
+// It returns where the file is now ("" when it was not moved).
+func (e *engine) organize(h ed2k.Hash, name, path string) string {
 	it, ok := e.items.Take(h.String())
 	if !ok {
-		return
+		return ""
 	}
 	if !library.IsMedia(path) {
 		logf("%s: not a video, audio or subtitle file; left in %s", name, filepath.Dir(path))
-		return
+		return ""
 	}
 	dst := library.Destination(e.prefs.Library(), it, path)
 	if dst == "" {
-		return
+		return ""
 	}
 	final, err := library.Move(path, dst)
 	if err != nil {
 		logf("%s: cannot move to %s: %v", name, dst, err)
-		return
+		e.notify.Send(notify.Event{Kind: notify.Error, Title: "Could not move a download",
+			Message: name + ": cannot move it to the library: " + err.Error()})
+		return ""
 	}
 	e.SetFinishedPath(h, final)
 	if e.lib != nil {
 		e.lib.Moved(path, final)
 	}
 	logf("ORGANIZED %s -> %s", name, final)
+	return final
 }
 
 // updateShared shares the movie and series folders (with subfolders) when
@@ -357,9 +380,12 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 			go func() { // moving to another disk can take a while
 				defer eng.organizing.Done()
 				defer eng.moving.Add(-1)
-				eng.organize(h, name, path)
+				eng.finished(h, name, path)
 			}()
-			eng.wanted.Completed(h.String())
+		},
+		OnError: func(name string, err error) {
+			eng.notify.Send(notify.Event{Kind: notify.Error, Title: "A download cannot be finished",
+				Message: name + ": " + err.Error()})
 		},
 		Library:     lib,
 		Upload:      up,
@@ -394,6 +420,16 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		prefs:  prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
 		items:  library.OpenStore(filepath.Join(dataDir, "library.json")),
 		wanted: wanted.Open(filepath.Join(dataDir, "wanted.json"))}
+	if n, err := notify.New(settings.NotifyURLs, settings.NotifyOn, logf); err != nil {
+		logf("notifications off: %v", err)
+	} else {
+		eng.notify = n
+	}
+	if r, err := mediaserver.New(settings.MediaServer, settings.MediaServerURL, settings.MediaServerToken, logf); err != nil {
+		logf("media server scans off: %v", err)
+	} else {
+		eng.media = r
+	}
 	eng.prefs.Protect(tmp)
 	eng.prefs.AllowNetworkHosts(settings.NetworkHosts)
 	saved, usable := eng.prefs.Get().Library, eng.prefs.Library()
@@ -470,6 +506,8 @@ func cmdDaemon(args []string) error {
 		logf("waiting for %d file(s) being moved into the library", n)
 	}
 	m.organizing.Wait()
+	m.media.Stop()
+	m.notify.Wait() // the last notifications (each gives up after 20 s)
 	logf("daemon stopped; progress saved")
 	if errors.Is(err, context.Canceled) {
 		return nil
@@ -771,6 +809,10 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableServers(e)
 		rest.EnableSettings(e.prefs.CheckFolder)
 		rest.EnableWanted(e.wanted, logf)
+		rest.OnWantedFound = func(title, file string) {
+			e.notify.Send(notify.Event{Kind: notify.Wanted, Title: "Wish list: " + title, Message: "Found " + file + ", downloading"})
+		}
+		rest.EnableNotifyTest(e.notify, e.media)
 		e.runWanted = rest.RunWanted
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()

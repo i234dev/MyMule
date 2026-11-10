@@ -108,6 +108,14 @@ const STRINGS = {
     "adv.default": "Default: {v}", "adv.file": "File: {f}",
     "adv.g.net": "Network", "adv.g.dirs": "Folders and sharing", "adv.g.speed": "Speed and slots",
     "adv.g.other": "Other", "adv.g.access": "Access to MyMule (only in mymule.conf)",
+    "adv.g.notify": "Notifications and media server",
+    "adv.secretset": "Set (hidden). Type to replace it.",
+    "adv.secretnone": "Not set",
+    "key.notify_urls": "Send notifications to", "key.notify_on": "Notify about",
+    "key.media_server": "Media server", "key.media_server_url": "Media server address", "key.media_server_token": "Media server API key or token",
+    "ms.none": "None",
+    "notify.test": "Test", "notify.testing": "Sending a test…",
+    "notify.result": "Notifications: {n} · Media server: {m}. (The test uses the settings MyMule started with.)",
     "adv.router": "Router", "adv.router.off": "MyMule does not open the ports (upnp = false): forward them by hand.",
     "adv.router.open": "Opened with {m}: {p}.", "adv.router.fail": "Could not open the ports automatically: {e}. Forward them by hand for HighID.",
     "adv.router.trying": "Trying UPnP / NAT-PMP…",
@@ -272,6 +280,14 @@ const STRINGS = {
     "adv.default": "Por defecto: {v}", "adv.file": "Fichero: {f}",
     "adv.g.net": "Red", "adv.g.dirs": "Carpetas y compartir", "adv.g.speed": "Velocidad y slots",
     "adv.g.other": "Otros", "adv.g.access": "Acceso a MyMule (solo en mymule.conf)",
+    "adv.g.notify": "Notificaciones y servidor multimedia",
+    "adv.secretset": "Configurado (oculto). Escribe para sustituirlo.",
+    "adv.secretnone": "Sin configurar",
+    "key.notify_urls": "Enviar notificaciones a", "key.notify_on": "Avisar de",
+    "key.media_server": "Servidor multimedia", "key.media_server_url": "Dirección del servidor multimedia", "key.media_server_token": "Clave API o token del servidor multimedia",
+    "ms.none": "Ninguno",
+    "notify.test": "Probar", "notify.testing": "Enviando una prueba…",
+    "notify.result": "Notificaciones: {n} · Servidor multimedia: {m}. (La prueba usa los ajustes con los que arrancó MyMule.)",
     "adv.router": "Router", "adv.router.off": "MyMule no abre los puertos (upnp = false): ábrelos a mano.",
     "adv.router.open": "Abiertos con {m}: {p}.", "adv.router.fail": "No se pudieron abrir los puertos automáticamente: {e}. Ábrelos a mano para tener HighID.",
     "adv.router.trying": "Probando UPnP / NAT-PMP…",
@@ -1505,6 +1521,7 @@ const ADV_GROUPS = [
   ["net", ["port", "kad", "kad_port", "upnp", "obfuscation", "max_conns", "server", "kad_nodes_url", "ip_filter_url"]],
   ["dirs", ["temp_dir", "download_dir", "sharing", "share_downloads", "shared_dirs"]],
   ["speed", ["upload_slots", "upload_limit", "download_limit"]],
+  ["notify", ["notify_urls", "notify_on", "media_server", "media_server_url", "media_server_token"]],
   ["other", ["nick", "tmdb_api_key", "arr_support", "search_languages"]],
   ["access", ["api_listen", "api_key", "api_hosts", "network_hosts", "web_ui"]],
 ];
@@ -1532,9 +1549,14 @@ function advInput(s) {
   if (s.key === "obfuscation") {
     input = el("select", { id, "data-key": s.key, disabled: dis },
       ["true", "required", "false"].map(v => el("option", { value: v, text: t("obf." + v) })));
+  } else if (s.key === "media_server") {
+    input = el("select", { id, "data-key": s.key, disabled: dis },
+      [["", t("ms.none")], ["jellyfin", "Jellyfin"], ["emby", "Emby"], ["plex", "Plex"]].map(([v, n]) => el("option", { value: v, text: n })));
   } else {
     input = el("input", { id, type: s.kind === "int" ? "number" : "text", min: s.kind === "int" ? "0" : undefined,
-      autocomplete: "off", spellcheck: "false", "data-key": s.key, disabled: dis });
+      autocomplete: "off", spellcheck: "false", "data-key": s.key, disabled: dis,
+      // A token is never shown: empty means "keep it".
+      placeholder: s.secret ? t(s.set ? "adv.secretset" : "adv.secretnone") : undefined });
   }
   input.value = s.value;
   return el("label", { class: "field" }, el("span", { text: t("key." + s.key) }), input);
@@ -1560,7 +1582,8 @@ async function loadAdvanced() {
     const groups = ADV_GROUPS.map(([g, keys]) => {
       const list = keys.filter(k => byKey[k]).map(k => { used.add(k); return byKey[k]; });
       if (g === "other") list.push(...r.settings.filter(s => !ADV_GROUPS.some(([, ks]) => ks.includes(s.key))));
-      return el("fieldset", { class: "adv-group" }, el("legend", { text: t("adv.g." + g) }), list.map(advField));
+      const extra = g === "notify" ? notifyTestRow() : null;
+      return el("fieldset", { class: "adv-group" }, el("legend", { text: t("adv.g." + g) }), list.map(advField), extra);
     });
     box.replaceChildren(...groups);
     $("#adv-file").textContent = t("adv.file", { f: r.file });
@@ -1568,6 +1591,24 @@ async function loadAdvanced() {
   } catch (err) {
     if (!(err instanceof AuthError)) showMsg($("#adv-msg"), err.message, "bad");
   }
+}
+
+// notifyTestRow is the "Test" button of the notifications group.
+function notifyTestRow() {
+  const out = el("span", { class: "muted" });
+  const b = el("button", { type: "button", class: "ghost small", text: t("notify.test"), onclick: async () => {
+    b.disabled = true;
+    out.textContent = t("notify.testing");
+    try {
+      const r = await api("POST", "/api/v1/notify/test");
+      out.textContent = t("notify.result", { n: r.notify, m: r.media_server });
+    } catch (err) {
+      if (!(err instanceof AuthError)) out.textContent = err.message;
+    } finally {
+      b.disabled = false;
+    }
+  } });
+  return el("div", { class: "adv-field" }, b, " ", out);
 }
 
 $("#adv-toggle").addEventListener("click", () => {

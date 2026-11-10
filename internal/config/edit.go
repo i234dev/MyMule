@@ -29,7 +29,14 @@ type SettingInfo struct {
 	// Env: a MYMULE_ environment variable overrides the file (containers);
 	// a change in the file does not take effect while it is set.
 	Env bool `json:"env,omitempty"`
+	// Secret settings hold tokens: their value is never sent out; Set
+	// says whether one is there. A new value replaces it.
+	Secret bool `json:"secret,omitempty"`
+	Set    bool `json:"set,omitempty"`
 }
+
+// secretSettings hold tokens (notification addresses carry them).
+var secretSettings = map[string]bool{"notify_urls": true, "media_server_token": true}
 
 // lockedSettings cannot be changed through the API.
 var lockedSettings = map[string]bool{
@@ -69,6 +76,10 @@ func ReadSettingsForEdit() ([]SettingInfo, error) {
 		si := SettingInfo{Key: st.key, Value: st.value(s), Default: st.value(d), Comment: st.comment, Kind: kind, Locked: lockedSettings[st.key]}
 		if st.key == "api_key" {
 			si.Value, si.Default = "", "" // never sent out
+		}
+		if secretSettings[st.key] {
+			si.Secret, si.Set = true, si.Value != ""
+			si.Value = ""
 		}
 		_, si.Env = os.LookupEnv(EnvPrefix + strings.ToUpper(st.key))
 		out = append(out, si)
@@ -138,6 +149,9 @@ func UpdateSettings(values map[string]string, check FolderCheck) error {
 	}
 	s := Defaults()
 	if _, err := parseSettings(text, &s); err != nil {
+		return err
+	}
+	if err := checkSettings(s); err != nil {
 		return err
 	}
 	return fsutil.WriteFile(p, []byte(text), 0o600)

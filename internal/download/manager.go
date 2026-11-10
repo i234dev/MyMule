@@ -88,6 +88,9 @@ type Config struct {
 	Debug       func(format string, args ...any) // per-peer chatter
 	Trace       bool                             // log every peer packet via Debug
 	OnComplete  func(hash ed2k.Hash, name, path string)
+	// OnError is told when a download cannot be finished (once per
+	// download; it is tried again later).
+	OnError func(name string, err error)
 
 	// OnSilentServer is called once per connection when the connected
 	// server (address addr) leaves several searches in a row without an
@@ -216,16 +219,17 @@ type Source struct {
 
 // File is a download managed by the Manager.
 type File struct {
-	pf         *PartFile
-	sources    map[string]*Source
-	lastSrcReq time.Time
-	kadAsked   time.Time // last Kad source search
-	bytes      atomic.Int64
-	finishing  bool
-	finished   bool
-	finishTry  time.Time // last attempt to finish (move the file)
-	paused     bool
-	path       string
+	pf           *PartFile
+	sources      map[string]*Source
+	lastSrcReq   time.Time
+	kadAsked     time.Time // last Kad source search
+	bytes        atomic.Int64
+	finishing    bool
+	finished     bool
+	finishTry    time.Time // last attempt to finish (move the file)
+	finishFailed bool      // an attempt failed (OnError was told)
+	paused       bool
+	path         string
 
 	speedBytes int64
 	speedTime  time.Time
@@ -1472,8 +1476,13 @@ func (m *Manager) finish(f *File) {
 	m.mu.Lock()
 	if err != nil {
 		f.finishing = false
+		told := f.finishFailed
+		f.finishFailed = true
 		m.mu.Unlock()
 		m.cfg.Log("%s: cannot finish: %v", f.pf.Name, err)
+		if !told && m.cfg.OnError != nil {
+			m.cfg.OnError(f.pf.Name, err)
+		}
 		return
 	}
 	f.finished = true

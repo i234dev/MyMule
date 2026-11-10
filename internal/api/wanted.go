@@ -229,6 +229,9 @@ func (r *REST) searchWantedEntry(ctx context.Context, e wanted.Entry) {
 	}
 	r.logf("wish list: %s: found %s, downloading", e.Title, link.Name)
 	r.wanted.Found(e.ID, link.Hash.String(), link.Name, time.Now())
+	if r.OnWantedFound != nil {
+		r.OnWantedFound(e.Title, link.Name)
+	}
 }
 
 // wantedNotesWait is how long Kad is asked about a file the wish list is

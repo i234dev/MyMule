@@ -82,6 +82,7 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/wanted/{id}/search` | Search for a wish list entry now |
 | DELETE | `/api/v1/wanted/{id}` | Remove a wish list entry |
 | GET | `/api/v1/files/{hash}/notes?size=N` | What users say about a file: ratings and comments, from Kad |
+| POST | `/api/v1/notify/test` | Send a test notification and ask the media server for a scan |
 
 `{hash}` is the 32-character ed2k hash of the file, as returned in `hash`.
 
@@ -212,7 +213,14 @@ Settings with `locked` (`api_listen`, `api_key`, `api_hosts`,
 `network_hosts`, `web_ui`) decide who can reach MyMule, so they are only
 changed in `mymule.conf` itself (`403`); `api_key` is never sent. With
 `env`, a `MYMULE_` environment variable overrides the file, so a change
-there does not apply while it is set.
+there does not apply while it is set. Settings with `secret`
+(`notify_urls`, `media_server_token`) hold tokens: their `value` is never
+sent, `set` says whether one is there, and a new value replaces it.
+
+`POST /api/v1/notify/test` (with the web interface on) sends a test
+notification and asks the media server for a scan, with the settings
+MyMule started with, and answers how each went: `notify` and
+`media_server` (`sent` / `scanning`, `off`, or the error).
 
 ### Wish list
 

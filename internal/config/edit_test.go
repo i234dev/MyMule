@@ -135,3 +135,26 @@ func TestUpdateSettingsAtOnce(t *testing.T) {
 		}
 	}
 }
+
+// Tokens are not sent out; whether one is set is.
+func TestSecretSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	os.WriteFile(filepath.Join(home, SettingsFile), []byte("api_key = example-key-0123456789\nnotify_urls = ntfy://example-topic\n"), 0o600)
+	list, err := ReadSettingsForEdit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, si := range list {
+		switch si.Key {
+		case "notify_urls":
+			if si.Value != "" || !si.Secret || !si.Set {
+				t.Errorf("%+v", si)
+			}
+		case "media_server_token":
+			if si.Value != "" || !si.Secret || si.Set {
+				t.Errorf("%+v", si)
+			}
+		}
+	}
+}

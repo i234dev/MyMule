@@ -289,7 +289,8 @@ that file is never taken again.
 `GET /api/v1/files/{hash}/notes?size=N` (`N`: the file size in bytes)
 asks Kad what eMule users said about the file: `votes` (ratings given),
 `fake` (of them, "fake or corrupt"), `average` (1 to 5), `suspect` (at
-least half of the ratings say fake) and some `comments` (`rating`,
+least half of the ratings that nodes of two networks gave say fake) and
+some `comments` (`rating`,
 `comment`). It takes up to about 12 seconds; the answer is kept for an
 hour. With Kad off, `kad` is false and there is nothing. The wish list
 does not download a file that is `suspect`.

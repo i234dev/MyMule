@@ -146,6 +146,10 @@ Kad for the notes of the first six:
 - **⚠ fake? 2 of 3 say so**: at least half of the ratings say fake. The
   file goes to the end of the list and is never recommended.
 
+Every note is shown, but only the notes that Kad nodes of at least two
+different networks gave can mark a file as fake: a single node could
+make up any number of users, and must not be able to hide a good file.
+
 You can add yours: a finished download has a **Rate** button (*fake or
 corrupt*, *poor*, *fair*, *good*, *excellent*, and a comment). It is
 published in Kad as eMule does, and again every 12 hours (Kad keeps notes

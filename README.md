@@ -57,7 +57,8 @@ Python, cron, home automation).
 - Wish list: MyMule searches by itself for the movies and episodes you
   want and downloads them when a good file shows up, starting the day they
   come out at home (digital or disc) or air, not while they are only in
-  cinemas
+  cinemas; or follow a whole series, from the season you choose: every
+  episode, already aired or still to come
 - Files that cannot exist yet are marked as fakes and never recommended:
   a web, disc or TV copy of a movie before it is out at home, or any file
   of an episode before it airs
@@ -352,7 +353,8 @@ It has six tabs:
   size and sources, the recommended one first. Files with no sources,
   only found on Kad/torrent, or cam copies are hidden but can be shown.
   For series, pick a season and an episode from the lists (with episode
-  titles), or the whole season. Files people rate as fakes, and copies
+  titles), or the whole season (the best file of each episode, ready to
+  download all at once). Files people rate as fakes, and copies
   that cannot exist yet, are marked; and the **wish list** waits for a
   title to come out and downloads it by itself. The full guide:
   [docs/MEDIA.md](docs/MEDIA.md).
@@ -632,7 +634,7 @@ signed build provenance attestation, which ties each file to this
 repository and the exact commit it was built from. With the GitHub CLI:
 
 ```sh
-gh attestation verify mymule-v1.2.0-linux-amd64.tar.gz --repo i234dev/MyMule
+gh attestation verify mymule-v1.3.0-linux-amd64.tar.gz --repo i234dev/MyMule
 ```
 
 The Windows and macOS binaries are not signed with a commercial

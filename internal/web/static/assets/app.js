@@ -71,7 +71,7 @@ const STRINGS = {
     "want.save": "Save", "want.cancel": "Cancel", "want.dateauto": "When it comes out",
     "want.searching": "It will be searched for in a moment.",
     "notes.fake": "⚠ fake? {f} of {n} say so",
-    "notes.rating": "★ {r} ({n} votes)",
+    "notes.rating": "★ {r} ({n} votes)", "notes.rating1": "★ {r} (1 vote)",
     "notes.comments": "What users say:",
     "srv.title": "Servers", "srv.close": "Close",
     "srv.hint": "The server you are connected to. Global searches and sources use all of them anyway.",
@@ -255,7 +255,7 @@ const STRINGS = {
     "want.save": "Guardar", "want.cancel": "Cancelar", "want.dateauto": "Cuando salga",
     "want.searching": "Se buscará en un momento.",
     "notes.fake": "⚠ ¿fake? lo dicen {f} de {n}",
-    "notes.rating": "★ {r} ({n} votos)",
+    "notes.rating": "★ {r} ({n} votos)", "notes.rating1": "★ {r} (1 voto)",
     "notes.comments": "Lo que dicen los usuarios:",
     "srv.title": "Servidores", "srv.close": "Cerrar",
     "srv.hint": "El servidor al que estás conectado. Las búsquedas globales y la búsqueda de fuentes usan todos igualmente.",
@@ -1050,7 +1050,7 @@ function releaseTags(r) {
       : null;
     tags.push(n.suspect
       ? el("span", { class: "tag bad", text: t("notes.fake", { f: n.fake, n: n.votes }), title: tip })
-      : el("span", { class: "tag", text: t("notes.rating", { r: n.average.toLocaleString(LANG, { maximumFractionDigits: 1 }), n: n.votes }), title: tip }));
+      : el("span", { class: "tag", text: t(n.votes === 1 ? "notes.rating1" : "notes.rating", { r: n.average.toLocaleString(LANG, { maximumFractionDigits: 1 }), n: n.votes }), title: tip }));
   }
   return tags;
 }

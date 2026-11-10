@@ -94,3 +94,15 @@ func TestSend(t *testing.T) {
 		t.Fatal("nil notifier enabled")
 	}
 }
+
+// A file name cannot ping everyone or hide a link in a Discord message.
+func TestDiscordBody(t *testing.T) {
+	b := discordBody(Event{Title: "Download finished", Message: "@everyone [click](https://example.org) *x*.mkv"})
+	want := `**Download finished**` + "\n" + `\@everyone \[click\]\(https\://example.org\) \*x\*.mkv`
+	if b["content"] != want {
+		t.Fatalf("%q", b["content"])
+	}
+	if m, ok := b["allowed_mentions"].(map[string]any); !ok || len(m["parse"].([]string)) != 0 {
+		t.Fatalf("%v", b["allowed_mentions"])
+	}
+}

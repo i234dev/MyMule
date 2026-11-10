@@ -232,7 +232,7 @@ func (n *Notifier) send(ctx context.Context, t target, e Event) error {
 	case "telegram":
 		req, err = jsonRequest(ctx, t.url, map[string]string{"chat_id": t.chat, "text": e.Title + "\n" + e.Message})
 	case "discord":
-		req, err = jsonRequest(ctx, t.url, map[string]string{"content": "**" + e.Title + "**\n" + e.Message})
+		req, err = jsonRequest(ctx, t.url, discordBody(e))
 	default:
 		req, err = jsonRequest(ctx, t.url, e)
 	}
@@ -273,3 +273,27 @@ func jsonRequest(ctx context.Context, u string, body any) (*http.Request, error)
 // noRedirects keeps notifications (and the tokens in their addresses)
 // going only where notify_urls says.
 func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// discordBody is a Discord message for e. File names come from the
+// network: their Markdown is shown as typed, they mention nobody
+// (@everyone...) and links in them get no preview.
+func discordBody(e Event) map[string]any {
+	return map[string]any{
+		"content":          "**" + discordEscape(e.Title) + "**\n" + discordEscape(e.Message),
+		"allowed_mentions": map[string]any{"parse": []string{}},
+		"flags":            4, // SUPPRESS_EMBEDS
+	}
+}
+
+// discordEscape puts a backslash before every character Discord's
+// Markdown gives a meaning to.
+func discordEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune("\\*_~`|>#-[]()<@:", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}

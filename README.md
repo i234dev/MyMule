@@ -324,7 +324,7 @@ web_ui = true
 Then open `http://127.0.0.1:4711/` (the `api_listen` address) and log in
 with the `api_key` from `mymule.conf`.
 
-![The web interface: a movie with its poster and the files found for it, scored by language and quality](docs/webui-movies.png)
+![The web interface: a movie with its poster and the files found for it, scored by language and quality, with users' ratings](docs/webui-movies.png)
 
 <sub>The Movies & series tab with demo data: the titles and files are made up.</sub>
 

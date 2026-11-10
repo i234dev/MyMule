@@ -79,6 +79,10 @@ that don't say which episode they are when you asked for one.
 
 ## How the files are chosen
 
+![A movie with its files, the recommended one first, with their language, resolution, source and users' rating](webui-movies.png)
+
+<sub>Made-up movie and files, from MyMule's demo.</sub>
+
 Each file gets a score from what its name says, and the best one is
 marked **★ recommended**. In order of weight:
 
@@ -117,6 +121,10 @@ file you asked for, not that the file is what its name says):
 **Cinema copies.** Names saying `CAM`, `TS`, `HDTS`, `TC`, `HDTC`,
 `TELESYNC`, `SCREENER` and the like are recognized as recorded in a
 cinema, even when the name also says `DIGITAL` or `1080p`.
+
+![A movie still in cinemas: when it comes out at home, the Add to wish list button, and its web, Blu-ray and cinema copies hidden as fakes](webui-upcoming.png)
+
+<sub>A made-up movie still in cinemas: its web and Blu-ray copies are hidden as fakes, its cinema copies as cam, and one file most users call fake goes last.</sub>
 
 **Copies that cannot exist yet.** MyMule knows when a title comes out at
 home (see [The wish list](#the-wish-list)). Before that day, a movie's
@@ -167,12 +175,20 @@ tab:
 - **Preview**: the first and last parts are downloaded first, so a video
   can be played before it is complete.
 
+![Downloads with their priority and preview buttons](webui-downloads.png)
+
+<sub>Made-up downloads: one with high priority and preview on, one with low priority.</sub>
+
 ## The wish list
 
 The wish list is for what you want but can't get yet: a movie still in
 cinemas, an episode that airs next week, or something whose files are all
 in the wrong language for now. MyMule looks for it by itself and downloads
 it when a good file shows up.
+
+![The wish list: entries waiting for their release, air date or chosen day, searched for, downloading and downloaded](webui-wishlist.png)
+
+<sub>A made-up wish list with an entry in each state.</sub>
 
 **Adding to it.** Open a movie or series (for a series, choose the season
 and episode, or the whole season) and press **♡ Add to wish list**. If

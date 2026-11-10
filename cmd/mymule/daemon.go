@@ -221,6 +221,46 @@ func (e *engine) organize(h ed2k.Hash, name, path string) string {
 	return final
 }
 
+// runSchedule applies the speed schedule (schedule_from, schedule_to):
+// its limits within the window, the usual ones outside.
+func (e *engine) runSchedule(ctx context.Context) {
+	if settings.ScheduleFrom == "" {
+		return
+	}
+	up, down, in := -1, -1, false
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		u, d, now := settings.LimitsAt(time.Now())
+		if u != up || d != down {
+			if e.up != nil {
+				e.up.SetLimit(u)
+			}
+			e.SetDownloadLimit(d)
+			if now != in || up >= 0 {
+				what := "usual limits"
+				if now {
+					what = "speed schedule (" + settings.ScheduleFrom + "-" + settings.ScheduleTo + ")"
+				}
+				logf("%s: upload %s, download %s", what, kbps(u), kbps(d))
+			}
+			up, down, in = u, d, now
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+func kbps(n int) string {
+	if n == 0 {
+		return "no limit"
+	}
+	return strconv.Itoa(n) + " KB/s"
+}
+
 // updateShared shares the movie and series folders (with subfolders) when
 // the preferences say so.
 func (e *engine) updateShared() {
@@ -250,6 +290,7 @@ func (e *engine) start(ctx context.Context) {
 	}
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
+	go e.runSchedule(ctx)
 	if e.kad != nil {
 		go e.ratings.Run(ctx, e.PublishNote, time.Minute)
 	}

@@ -51,6 +51,10 @@ type Settings struct {
 	UploadSlots    int
 	UploadLimit    int // KB/s, 0 = unlimited
 	DownloadLimit  int // KB/s, 0 = unlimited
+	// From ScheduleFrom to ScheduleTo ("HH:MM", every day; empty = off),
+	// these limits are used instead (see LimitsAt).
+	ScheduleFrom, ScheduleTo                   string
+	ScheduleUploadLimit, ScheduleDownloadLimit int
 
 	APIListen string // host:port of the HTTP API; empty disables it
 	APIKey    string // required by every API request
@@ -173,6 +177,14 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strconv.Itoa(s.UploadLimit) }},
 	{"download_limit", "Download speed limit in KB/s (0 = no limit, the default). At least\n32 KB/s: shared by every peer you download from, a lower limit would\nleave each of them too little to keep its place.",
 		func(s Settings) string { return strconv.Itoa(s.DownloadLimit) }},
+	{"schedule_from", "Speed schedule: from this time (HH:MM, e.g. 01:00) to schedule_to, every\nday, the schedule_ limits below are used instead of the ones above (for\nexample, no limit at night). Empty = off.",
+		func(s Settings) string { return s.ScheduleFrom }},
+	{"schedule_to", "End of the speed schedule (HH:MM, e.g. 08:00); it may be the next day.",
+		func(s Settings) string { return s.ScheduleTo }},
+	{"schedule_upload_limit", "Upload speed limit in KB/s during the schedule (0 = no limit).",
+		func(s Settings) string { return strconv.Itoa(s.ScheduleUploadLimit) }},
+	{"schedule_download_limit", "Download speed limit in KB/s during the schedule (0 = no limit, else at\nleast 32).",
+		func(s Settings) string { return strconv.Itoa(s.ScheduleDownloadLimit) }},
 	{"api_listen", "HTTP API for scripts and for apps like Radarr, Sonarr and Prowlarr\n(see docs/API.md). 127.0.0.1:4711 = only this computer.\n0.0.0.0:4711 = every device on your network: use it only on a trusted\nnetwork and never forward this port in your router. Empty = disabled.",
 		func(s Settings) string { return s.APIListen }},
 	{"api_key", "Key that every API request must send (X-Api-Key header or ?apikey=).\nGenerated randomly for you; you can replace it with any long random text.",
@@ -519,6 +531,27 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				}
 				s.SearchLanguages = append(s.SearchLanguages, l)
 			}
+		case "schedule_from", "schedule_to":
+			if val != "" {
+				if _, err := parseClock(val); err != nil {
+					return present, fmt.Errorf("line %d: %s must be a time like 01:00, or empty", line, key)
+				}
+			}
+			if key == "schedule_from" {
+				s.ScheduleFrom = val
+			} else {
+				s.ScheduleTo = val
+			}
+		case "schedule_upload_limit", "schedule_download_limit":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 0 || (key == "schedule_download_limit" && n > 0 && n < MinDownloadLimit) {
+				return present, fmt.Errorf("line %d: %s must be 0 (no limit) or a speed in KB/s (downloads: at least %d)", line, key, MinDownloadLimit)
+			}
+			if key == "schedule_upload_limit" {
+				s.ScheduleUploadLimit = n
+			} else {
+				s.ScheduleDownloadLimit = n
+			}
 		case "notify_urls":
 			if err := notify.Parse(val); err != nil {
 				return present, fmt.Errorf("line %d: notify_urls: %v", line, err)
@@ -546,5 +579,8 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 // checkSettings checks what depends on several settings, once all are read
 // (from the file and the environment).
 func checkSettings(s Settings) error {
+	if (s.ScheduleFrom == "") != (s.ScheduleTo == "") {
+		return fmt.Errorf("schedule_from and schedule_to go together: set both, or neither")
+	}
 	return mediaserver.Check(s.MediaServer, s.MediaServerURL, s.MediaServerToken)
 }

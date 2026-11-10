@@ -29,15 +29,35 @@ func NewLimiter(bytesPerSec int) *Limiter {
 	return &Limiter{rate: float64(bytesPerSec), tokens: float64(bytesPerSec), last: time.Now()}
 }
 
+// SetRate changes the rate (0 = unlimited) from now on.
+func (l *Limiter) SetRate(bytesPerSec int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rate = float64(bytesPerSec)
+	l.tokens = min(l.tokens, l.rate)
+	l.last = time.Now()
+}
+
+// Rate returns the rate in bytes per second (0 = unlimited).
+func (l *Limiter) Rate() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return int(l.rate)
+}
+
 // Wait blocks until n more bytes fit the rate, and returns how long it
 // waited.
 func (l *Limiter) Wait(n int) time.Duration {
-	if l == nil || l.rate <= 0 {
+	if l == nil {
 		return 0
 	}
 	var waited time.Duration
 	for !l.stopped.Load() {
 		l.mu.Lock()
+		if l.rate <= 0 { // unlimited (perhaps since the rate changed)
+			l.mu.Unlock()
+			return waited
+		}
 		now := time.Now()
 		// The bucket holds at least one packet: with a limit below the
 		// packet size (1-9 KB/s) it could otherwise never fill enough,

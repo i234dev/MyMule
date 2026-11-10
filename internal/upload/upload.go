@@ -939,3 +939,11 @@ func StatusBits(size int64, avail []bool) []bool {
 	copy(out, avail)
 	return out
 }
+
+// SetLimit changes the upload speed limit (KB/s, 0 = none) from now on.
+func (m *Manager) SetLimit(kbps int) {
+	m.limiter.SetRate(kbps * 1024)
+	m.mu.Lock()
+	m.cfg.LimitKBps = kbps
+	m.mu.Unlock()
+}

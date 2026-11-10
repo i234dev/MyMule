@@ -75,7 +75,8 @@ Python, cron, home automation).
   that support it
 - eMule collections (`.emulecollection`): `mymule add` or the web
   interface adds every file in them
-- Download and upload speed limits; queue places asked over UDP, as eMule
+- Download and upload speed limits, and a speed schedule (other limits
+  at some hours, e.g. none at night); queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from
   tell you where else the file is, and you tell them (only sources that
@@ -248,6 +249,10 @@ shared_dirs =          # more folders to share, separated by ';'
 upload_slots = 20      # peers served at the same time; the rest queue
 upload_limit = 1000    # KB/s, 0 = no limit
 download_limit = 0     # KB/s, 0 = no limit (else at least 32)
+schedule_from =        # speed schedule, e.g. 01:00 (empty = off) ...
+schedule_to =          # ... to 08:00, every day: then these limits instead:
+schedule_upload_limit = 0
+schedule_download_limit = 0
 ip_filter_url =        # IP filter list (ipfilter.dat / P2P, plain, gz or zip) refreshed weekly; empty = only your own ipfilter.dat
 api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API

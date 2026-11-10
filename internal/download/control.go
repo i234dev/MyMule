@@ -594,3 +594,10 @@ func (m *Manager) SharingStatus() (*upload.Status, *share.Status) {
 	}
 	return us, ss
 }
+
+// SetDownloadLimit changes the download speed limit (KB/s, 0 = none) from
+// now on.
+func (m *Manager) SetDownloadLimit(kbps int) { m.dlLimit.SetRate(kbps * 1024) }
+
+// DownloadLimit is the download speed limit now (KB/s, 0 = none).
+func (m *Manager) DownloadLimit() int { return m.dlLimit.Rate() / 1024 }

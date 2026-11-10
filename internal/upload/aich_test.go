@@ -105,8 +105,11 @@ func TestServeAICH(t *testing.T) {
 	if ask2("198.51.100.1") != 16 {
 		t.Fatal("recovery data over a peer's budget")
 	}
-	if ask2("198.51.100.2") == 16 {
-		t.Fatal("another peer refused")
+	if ask2("198.51.100.2") != 16 {
+		t.Fatal("recovery data over a network's budget")
+	}
+	if ask2("203.0.113.2") == 16 {
+		t.Fatal("a peer of another network refused")
 	}
 	// Over budget: empty.
 	m.recovery.mu.Lock()

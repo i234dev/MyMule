@@ -23,8 +23,9 @@ type AICHRooter interface {
 // part.
 const maxRecoveryPerMinute = 20
 
-// maxRecoveryPerPeer bounds what one address may take of that, so that a
-// single peer cannot use it all up and leave the others without.
+// maxRecoveryPerPeer bounds what one network (a /24, or a /48 for IPv6)
+// may take of that, so that a few addresses of one owner cannot use it
+// all up and leave the others without.
 const maxRecoveryPerPeer = 3
 
 // recoveryBudget counts the recovery data built in the current minute.
@@ -32,7 +33,7 @@ type recoveryBudget struct {
 	mu     sync.Mutex
 	start  time.Time
 	n      int
-	byPeer map[string]int
+	byPeer map[string]int // by network
 }
 
 func (b *recoveryBudget) take(now time.Time, ip net.IP) bool {
@@ -41,7 +42,7 @@ func (b *recoveryBudget) take(now time.Time, ip net.IP) bool {
 	if now.Sub(b.start) >= time.Minute {
 		b.start, b.n, b.byPeer = now, 0, nil
 	}
-	who := ip.String()
+	who := peerNet(ip)
 	if b.n >= maxRecoveryPerMinute || b.byPeer[who] >= maxRecoveryPerPeer {
 		return false
 	}
@@ -51,6 +52,14 @@ func (b *recoveryBudget) take(now time.Time, ip net.IP) bool {
 	b.n++
 	b.byPeer[who]++
 	return true
+}
+
+// peerNet is the network an address is in (see maxRecoveryPerPeer).
+func peerNet(ip net.IP) string {
+	if v4 := ip.To4(); v4 != nil {
+		return v4.Mask(net.CIDRMask(24, 32)).String()
+	}
+	return ip.Mask(net.CIDRMask(48, 128)).String()
 }
 
 // aichRoot is the AICH hash we can give for a shared file.

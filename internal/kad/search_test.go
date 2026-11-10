@@ -574,7 +574,7 @@ func noteAnswer(user ID, name string, rating int, comment string) func(*proto.Wr
 // reported once, and empty notes not at all.
 func TestSearchNotes(t *testing.T) {
 	target := RandomID()
-	notes := make(chan Note, 10)
+	notes := make(chan Note, 2*maxNotesPerNode)
 	errc := make(chan error, 1)
 	fn, a, b := valueSearch(t, target, func(n *Node) {
 		go func() {
@@ -618,6 +618,19 @@ func TestSearchNotes(t *testing.T) {
 	}
 	if got[0].Rating != 1 || got[0].Comment != "fake, it is another film" || got[1].Rating != 0 || got[1].Comment != "great" {
 		t.Fatalf("%+v", got)
+	}
+	if got[0].Node != addrOf(b).Addr() {
+		t.Fatalf("node %v, want %v", got[0].Node, addrOf(b).Addr())
+	}
+	// One node cannot fill the search with made-up users.
+	var many []func(*proto.Writer)
+	for range maxNotesPerNode + 20 {
+		many = append(many, noteAnswer(RandomID(), "Example.Film.mkv", 1, ""))
+	}
+	fn.inject(addrOf(b), a, fromNode(a, b, searchRes(b.ID(), target, many...)))
+	a.runDeferred()
+	if n := len(notes); n != maxNotesPerNode-2 {
+		t.Fatalf("one node gave %d more notes, want %d", n, maxNotesPerNode-2)
 	}
 	fn.now = fn.now.Add(time.Minute)
 	a.mu.Lock()

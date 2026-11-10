@@ -40,6 +40,16 @@ const (
 // asking (eMule's SEARCHFILE_TOTAL and SEARCHKEYWORD_TOTAL).
 const maxAnswers = 300
 
+// maxNotesPerNode is how many of a search's notes one node can give: a
+// node can make up any number of users, and must not fill the search.
+const maxNotesPerNode = maxAnswers / 3
+
+// noteKey is one user's note as one node gave it.
+type noteKey struct {
+	user ID
+	node netip.Addr
+}
+
 // lifetime is how long a search of each type runs.
 func (t searchType) lifetime() time.Duration {
 	switch t {
@@ -77,6 +87,8 @@ type search struct {
 	words    []string                   // searchKeyword: every word, which names must have
 	asked    map[netip.AddrPort]Contact // nodes sent the search request
 	seen     map[ID]bool                // answers already reported
+	noted    map[noteKey]bool           // searchNotes: notes reported, by user and node
+	perNode  map[netip.Addr]int         // searchNotes: notes each node gave
 	files    [][16]byte                 // searchStoreKeyword: the files to publish
 	file     SharedFile                 // searchStoreFile
 	loadSum  int                        // searchStoreKeyword: loads the nodes reported

@@ -295,6 +295,10 @@ type Note struct {
 	Name     string // the file name that user has
 	Rating   int
 	Comment  string
+	// Node is the IP of the node that gave it. A note is reported once by
+	// every node that gives it: a note only one node knows may be made
+	// up by that node.
+	Node netip.Addr
 }
 
 // SearchNotes asks Kad for the notes on a file; found is called for each
@@ -338,8 +342,8 @@ func (n *Node) SearchNotes(ctx context.Context, hash [16]byte, size uint64, foun
 	return nil
 }
 
-func (n *Node) noteResult(s *search, answer ID, tags []proto.Tag) {
-	nt := Note{UserHash: [16]byte(answer)}
+func (n *Node) noteResult(s *search, answer ID, tags []proto.Tag, node netip.Addr) {
+	nt := Note{UserHash: [16]byte(answer), Node: node}
 	for _, t := range tags {
 		if t.Name != "" {
 			continue
@@ -358,10 +362,15 @@ func (n *Node) noteResult(s *search, answer ID, tags []proto.Tag) {
 	if nt.Rating == 0 && nt.Comment == "" {
 		return
 	}
-	if s.seen[answer] { // one note per user
+	k := noteKey{answer, node}
+	if s.noted[k] || s.perNode[node] >= maxNotesPerNode { // one note per user and node
 		return
 	}
-	s.seen[answer] = true
+	if s.noted == nil {
+		s.noted, s.perNode = map[noteKey]bool{}, map[netip.Addr]int{}
+	}
+	s.noted[k] = true
+	s.perNode[node]++
 	s.answers++
 	if s.onNote != nil {
 		f := s.onNote
@@ -451,7 +460,7 @@ func (n *Node) onSearchRes(in incoming, now time.Time) error {
 		case searchKeyword:
 			n.keywordResult(s, answer, tags)
 		case searchNotes:
-			n.noteResult(s, answer, tags)
+			n.noteResult(s, answer, tags, in.from.Addr().Unmap())
 		}
 	}
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ type Notes struct {
 	Votes    int       `json:"votes"`          // ratings given
 	Fake     int       `json:"fake"`           // of them, "fake or corrupt"
 	Average  float64   `json:"average"`        // of the ratings, 1 to 5 (0: none)
-	Suspect  bool      `json:"suspect"`        // people call it fake
+	Suspect  bool      `json:"suspect"`        // people call it fake (see summarize)
 	Comments []Comment `json:"comments"`       // some of the comments
 	Kad      bool      `json:"kad"`            // false: Kad is off, nothing could be asked
 	Asked    time.Time `json:"asked,omitzero"` // when Kad was asked
@@ -42,18 +43,45 @@ const (
 	notesAtOnce  = 4                // lookups running at the same time
 )
 
-// summarize turns notes into a Notes. A file is suspect when at least
-// half of the ratings say "fake or corrupt" (one vote alone counts too: it
-// is all there is).
+// summarize turns notes (one per user and node that gave it) into a
+// Notes. Every user's note is shown, but whether the file is suspect,
+// which hides it, is decided only by the notes that nodes of at least two
+// networks gave: one node can make up any number of users. A file is
+// suspect when at least half of those ratings say "fake or corrupt" (one
+// vote alone counts too: it is all there is).
 func summarize(list []kad.Note) Notes {
 	out := Notes{Kad: true, Comments: []Comment{}}
-	sum := 0
+	type user struct {
+		note kad.Note
+		nets map[netip.Prefix]bool
+	}
+	var users []*user
+	byHash := map[[16]byte]*user{}
 	for _, n := range list {
+		u := byHash[n.UserHash]
+		if u == nil {
+			u = &user{note: n, nets: map[netip.Prefix]bool{}}
+			byHash[n.UserHash] = u
+			users = append(users, u)
+		}
+		if n.Node.IsValid() {
+			u.nets[nodeNet(n.Node)] = true
+		}
+	}
+	sum, votes, fake := 0, 0, 0 // votes and fake: of the confirmed notes
+	for _, u := range users {
+		n := u.note
 		if n.Rating > 0 {
 			out.Votes++
 			sum += n.Rating
 			if n.Rating == 1 {
 				out.Fake++
+			}
+			if len(u.nets) >= 2 {
+				votes++
+				if n.Rating == 1 {
+					fake++
+				}
 			}
 		}
 		if n.Comment != "" && len(out.Comments) < maxComments {
@@ -63,8 +91,19 @@ func summarize(list []kad.Note) Notes {
 	if out.Votes > 0 {
 		out.Average = float64(sum) / float64(out.Votes)
 	}
-	out.Suspect = out.Fake > 0 && out.Fake*2 >= out.Votes
+	out.Suspect = fake > 0 && fake*2 >= votes
 	return out
+}
+
+// nodeNet is the network a node is in (a /24, or a /48 for IPv6): nodes
+// of one network may be one owner's.
+func nodeNet(ip netip.Addr) netip.Prefix {
+	bits := 24
+	if !ip.Is4() {
+		bits = 48
+	}
+	p, _ := ip.Prefix(bits)
+	return p
 }
 
 type notesCache struct {

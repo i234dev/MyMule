@@ -232,6 +232,9 @@ func (m *Manager) Has(h ed2k.Hash) (present, finished bool) {
 	return true, f.finished
 }
 
+// FreeSpace returns the space left on the disk of dir, if it can tell.
+func FreeSpace(dir string) (uint64, bool) { return freeSpace(dir) }
+
 // ErrNoKad is returned for what needs Kad when it is off.
 var ErrNoKad = errors.New("Kad is off")
 

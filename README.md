@@ -165,6 +165,7 @@ mymule add "ed2k://|file|...|/"
 mymule top                   # live view (q to quit)
 mymule priority <name> high  # high, normal or low: who gets sources first
 mymule preview <name> on     # first and last parts first (watch it sooner)
+mymule doctor                # what keeps MyMule from working well, and how to fix it
 mymule stop
 ```
 

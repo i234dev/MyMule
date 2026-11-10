@@ -33,6 +33,7 @@ Daemon (recommended):
   cancel <hash|name>          Cancel a download and delete its data
   clear                       Remove finished downloads from the list
   log [-n 50]                 Show the daemon log
+  doctor                      Look for what keeps MyMule from working well
   daemon [flags]              Run the engine in the foreground (systemd, NAS...)
 
 Standalone:
@@ -91,9 +92,15 @@ func run() {
 	case "version", "-v", "--version", "help", "-h", "--help":
 	default:
 		if settings, err = config.LoadSettings(); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			exitCode = 1
-			return
+			if cmd != "doctor" {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				exitCode = 1
+				return
+			}
+			// doctor tells about it, and touches no folder: the defaults
+			// are relative paths, which would land wherever it runs.
+			configErr, settings = err, config.Defaults()
+			break
 		}
 		// Partial downloads are private; finished ones may be read by
 		// other programs (a media server), so that folder stays open.
@@ -124,6 +131,8 @@ func run() {
 		err = cmdPauseResume(true)(args)
 	case "priority":
 		err = cmdPriority(args)
+	case "doctor":
+		err = cmdDoctor(args)
 	case "preview":
 		err = cmdPreview(args)
 	case "resume":

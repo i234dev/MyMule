@@ -131,6 +131,33 @@ type foundReleases struct {
 	notOut   *meta.Availability // when it comes out at home, if it has not yet
 }
 
+// beforeAiring hides the files of a season's episodes that have not aired
+// yet, and a whole-season file while any of them has not.
+func (r *REST) beforeAiring(ctx context.Context, cands []release.Candidate, id string, season int, lang string) {
+	sl, ok := r.media.(meta.SeasonLister)
+	if !ok {
+		return
+	}
+	eps, err := sl.SeasonEpisodes(ctx, id, season, lang)
+	if err != nil || len(eps) == 0 {
+		return
+	}
+	now := time.Now()
+	notAired := map[int]bool{}
+	for _, e := range eps {
+		at, err := time.Parse(time.DateOnly, e.AirDate)
+		if err != nil || at.After(now) {
+			notAired[e.Number] = true
+		}
+	}
+	for i := range cands {
+		c := &cands[i]
+		if !c.Hidden && (notAired[c.Info.Episode] || (c.Info.Episode == 0 && len(notAired) > 0)) {
+			c.Hidden, c.HiddenWhy = true, tooEarly
+		}
+	}
+}
+
 // tooEarly is the reason given for a file that cannot be what it says
 // yet: a movie's web, disc or TV copy before its home release, or any
 // file of an episode before it airs. Copies like that are fakes (or
@@ -254,7 +281,13 @@ func (r *REST) findReleases(ctx context.Context, id, fullLang string, season, ep
 	if a, ok := r.availability(ctx, work.ID, season, episode); ok && a.Date.After(time.Now()) {
 		notOut = &a
 	}
-	beforeRelease(cands, notOut, work.Kind == meta.Series)
+	if work.Kind == meta.Series && season > 0 && episode == 0 {
+		// A whole season: each episode by its own air date (a season on
+		// the air has files of its first episodes, not of the next ones).
+		r.beforeAiring(ctx, cands, work.ID, season, lang)
+	} else {
+		beforeRelease(cands, notOut, work.Kind == meta.Series)
+	}
 	release.Rank(cands)
 	list := []Release{}
 	for i, c := range cands {

@@ -90,6 +90,33 @@ Python, cron, home automation).
 - Built to face hostile peers and servers: everything they send is
   checked and bounded (see [Security](#security))
 
+## MyMule and aMule
+
+MyMule started as a personal project, to have the eMule network in my home
+server the way I wanted. When I began, I didn't know aMule was being
+revived. Today there are great options, and you should pick the one that
+fits you:
+
+- **[aMule](https://github.com/amule-org/amule)** is the mature,
+  long-standing eMule-compatible client, actively developed again. It has a
+  desktop GUI, a headless daemon, a web UI and a REST API, and more of
+  eMule's classic features (priorities, categories, preview...). Together
+  with **[aMuTorrent](https://github.com/got3nks/amutorrent)** you also get a
+  modern web interface that manages aMule and your torrent clients
+  together, with Sonarr/Radarr support.
+- **MyMule** is a smaller, independent client written from scratch in Go.
+  It may suit you if you want:
+  - a single program, with no separate daemon, web interface or bridge to
+    set up and connect;
+  - a media-library workflow: search a movie or series by title, get its
+    files scored by language and quality, and find the result renamed in
+    your library;
+  - a small footprint (about 15 MB of RAM) and secure defaults.
+
+If you need a feature MyMule doesn't have, or the most battle-tested
+client, aMule is a great choice. Both talk to the same network and to each
+other, so either way you're helping keep eD2K and Kad alive.
+
 ## Install
 
 | System | How |

@@ -56,6 +56,9 @@ Python, cron, home automation).
   want and downloads them when a good file shows up, starting the day they
   come out at home (digital or disc) or air, not while they are only in
   cinemas
+- Files that cannot exist yet are marked as fakes and never recommended:
+  a web, disc or TV copy of a movie before it is out at home, or any file
+  of an episode before it airs
 - Ratings and comments that eMule users leave on files (from Kad) shown
   next to the files found for a movie or series, so fakes stand out; the
   wish list never downloads a file people call fake

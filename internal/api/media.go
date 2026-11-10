@@ -112,8 +112,8 @@ func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
 	}
 	out := map[string]any{"work": found.work, "queries": found.queries, "releases": found.releases}
 	// Not out at home yet: the web interface offers the wish list.
-	if a, ok := r.availability(req.Context(), found.work.ID, season, episode); ok && a.Date.After(time.Now()) {
-		out["available"] = a
+	if found.notOut != nil {
+		out["available"] = found.notOut
 	}
 	reply(w, out)
 }
@@ -127,7 +127,31 @@ func (e mediaError) Unwrap() error { return e.err }
 type foundReleases struct {
 	work     meta.Work
 	queries  []string
-	releases []Release // best first
+	releases []Release          // best first
+	notOut   *meta.Availability // when it comes out at home, if it has not yet
+}
+
+// tooEarly is the reason given for a file that cannot be what it says
+// yet: a movie's web, disc or TV copy before its home release, or any
+// file of an episode before it airs. Copies like that are fakes (or
+// cinema recordings with a lying name).
+const tooEarly = "out before its release: fake"
+
+// homeSources are the copies that only exist once a movie is out at home.
+var homeSources = map[string]bool{"web": true, "bluray": true, "remux": true, "dvd": true, "hdtv": true}
+
+// beforeRelease hides the files that cannot exist yet (see tooEarly). An
+// estimated date is not sure enough for that.
+func beforeRelease(cands []release.Candidate, a *meta.Availability, series bool) {
+	if a == nil || a.Kind == "estimated" {
+		return
+	}
+	for i := range cands {
+		c := &cands[i]
+		if !c.Hidden && (series || homeSources[c.Info.Source]) {
+			c.Hidden, c.HiddenWhy = true, tooEarly
+		}
+	}
 }
 
 // findReleases looks a work up and searches eD2K for its files (an
@@ -226,6 +250,11 @@ func (r *REST) findReleases(ctx context.Context, id, fullLang string, season, ep
 			links[x.Name+"|"+strconv.FormatUint(x.Size, 10)] = *x
 		}
 	}
+	var notOut *meta.Availability
+	if a, ok := r.availability(ctx, work.ID, season, episode); ok && a.Date.After(time.Now()) {
+		notOut = &a
+	}
+	beforeRelease(cands, notOut, work.Kind == meta.Series)
 	release.Rank(cands)
 	list := []Release{}
 	for i, c := range cands {
@@ -233,7 +262,7 @@ func (r *REST) findReleases(ctx context.Context, id, fullLang string, season, ep
 		list = append(list, Release{Hash: x.Hash.String(), Link: x.Link, Candidate: c,
 			Recommended: i == 0 && !c.Hidden})
 	}
-	return foundReleases{work: work, queries: queries, releases: list}, nil
+	return foundReleases{work: work, queries: queries, releases: list, notOut: notOut}, nil
 }
 
 // searchWords turns a title into eD2K search words: punctuation becomes a

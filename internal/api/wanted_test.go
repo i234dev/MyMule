@@ -209,3 +209,42 @@ func TestWishListWaitsForRelease(t *testing.T) {
 		t.Fatalf("release search: %d %+v", code, rel.Available)
 	}
 }
+
+// Before a movie is out at home, its web and disc copies cannot exist:
+// they are hidden as fakes, and not recommended. A name that says nothing
+// stays.
+func TestTooEarlyHidden(t *testing.T) {
+	_, _, _, srv := wantedSetup(t, []SearchResult{
+		result("The.Film.1999.1080p.AMZN.WEB-DL.mkv", "AAAA456789ABCDEF0123456789ABCDEF", 50),
+		result("The.Film.1999.BluRay.1080p.mkv", "BBBB456789ABCDEF0123456789ABCDEF", 40),
+		result("The.Film.1999.HDTC.mkv", "CCCC456789ABCDEF0123456789ABCDEF", 30),
+		result("The.Film.1999.1080p.mkv", "DDDD456789ABCDEF0123456789ABCDEF", 3),
+	})
+	var rel struct {
+		Releases []Release `json:"releases"`
+	}
+	if code := call(t, srv, "GET", "/api/v1/media/tmdb-movie-9/releases", "", "", &rel); code != 200 || len(rel.Releases) != 4 {
+		t.Fatalf("%d %+v", code, rel.Releases)
+	}
+	why := map[string]string{}
+	for _, x := range rel.Releases {
+		why[x.Hash] = x.HiddenWhy
+		if x.Recommended && x.Hash != "DDDD456789ABCDEF0123456789ABCDEF" {
+			t.Errorf("%s recommended", x.Name)
+		}
+	}
+	if why["AAAA456789ABCDEF0123456789ABCDEF"] != tooEarly || why["BBBB456789ABCDEF0123456789ABCDEF"] != tooEarly ||
+		why["DDDD456789ABCDEF0123456789ABCDEF"] != "" || why["CCCC456789ABCDEF0123456789ABCDEF"] == "" {
+		t.Fatalf("%v", why)
+	}
+	// Out at home already (tmdb-movie-1 has no date): nothing hidden for it.
+	var out struct {
+		Releases []Release `json:"releases"`
+	}
+	call(t, srv, "GET", "/api/v1/media/tmdb-movie-1/releases", "", "", &out)
+	for _, x := range out.Releases {
+		if x.HiddenWhy == tooEarly {
+			t.Fatalf("%s hidden without a release date", x.Name)
+		}
+	}
+}

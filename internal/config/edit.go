@@ -41,6 +41,7 @@ var secretSettings = map[string]bool{"notify_urls": true, "media_server_token": 
 // lockedSettings cannot be changed through the API.
 var lockedSettings = map[string]bool{
 	"api_listen": true, "api_key": true, "api_hosts": true, "network_hosts": true, "web_ui": true,
+	"folder_roots": true,
 }
 
 var boolSettings = map[string]bool{"kad": true, "upnp": true, "sharing": true, "share_downloads": true, "web_ui": true, "arr_support": true}
@@ -154,16 +155,38 @@ func UpdateSettings(values map[string]string, check FolderCheck) error {
 	if err := checkFolders(s, cur, filepath.Dir(p), check); err != nil {
 		return err
 	}
-	// The token is sent to the media server's address: whoever changes
-	// that must know the token, or could have it sent to them.
-	if _, sent := values["media_server_token"]; !sent && cur.MediaServerToken != "" &&
-		(s.MediaServer != cur.MediaServer || s.MediaServerURL != cur.MediaServerURL) {
-		return errors.New("media_server_token: type the token again when you change the media server or its address")
+	if err := checkMediaServer(values, cur, s, os.LookupEnv); err != nil {
+		return err
 	}
 	if err := checkSettings(s); err != nil {
 		return err
 	}
 	return fsutil.WriteFile(p, []byte(text), 0o600)
+}
+
+// checkMediaServer: the token is sent to the media server's address, so
+// whoever changes that must know the token, or could have it sent to
+// them. cur and next are the settings before and after the change, read
+// from mymule.conf; the environment (MYMULE_...) is applied to both, as
+// MyMule will. A token set in the environment cannot be replaced from
+// here, so then the server and its address cannot change either.
+func checkMediaServer(values map[string]string, cur, next Settings, lookup func(string) (string, bool)) error {
+	if err := applyEnv(&cur, lookup); err != nil {
+		return err
+	}
+	if err := applyEnv(&next, lookup); err != nil {
+		return err
+	}
+	if cur.MediaServerToken == "" || (next.MediaServer == cur.MediaServer && next.MediaServerURL == cur.MediaServerURL) {
+		return nil
+	}
+	if v, ok := lookup(EnvPrefix + "MEDIA_SERVER_TOKEN"); ok && strings.TrimSpace(v) != "" {
+		return errors.New("media_server: the token is set in the environment (MYMULE_MEDIA_SERVER_TOKEN), so change the media server there too")
+	}
+	if _, sent := values["media_server_token"]; !sent {
+		return errors.New("media_server_token: type the token again when you change the media server or its address")
+	}
+	return nil
 }
 
 // checkFolders applies check to the folders of next (the settings after

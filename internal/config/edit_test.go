@@ -190,3 +190,33 @@ func TestMediaServerTokenFollows(t *testing.T) {
 		t.Fatal("unchanged address refused:", err)
 	}
 }
+
+// With the media server and its token in the environment (Docker) and the
+// address in the file, the address cannot change from the API: the token
+// would go to the new one.
+func TestMediaServerTokenInEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	t.Setenv("MYMULE_MEDIA_SERVER", "jellyfin")
+	t.Setenv("MYMULE_MEDIA_SERVER_TOKEN", "example-token")
+	p := filepath.Join(home, SettingsFile)
+	os.WriteFile(p, []byte("media_server_url = http://192.0.2.10:8096\n"), 0o600)
+	for _, vals := range []map[string]string{
+		{"media_server_url": "http://203.0.113.66:8096"},
+		{"media_server_url": "http://203.0.113.66:8096", "media_server_token": "anything"},
+	} {
+		if err := UpdateSettings(vals, okFolder); err == nil {
+			t.Errorf("%v: changed with the token in the environment", vals)
+		}
+	}
+	if err := UpdateSettings(map[string]string{"upload_limit": "300"}, okFolder); err != nil {
+		t.Fatal("unrelated change refused:", err)
+	}
+	// The token only in the environment, the server and address in the file.
+	t.Setenv("MYMULE_MEDIA_SERVER", "")
+	os.Unsetenv("MYMULE_MEDIA_SERVER")
+	os.WriteFile(p, []byte("media_server = jellyfin\nmedia_server_url = http://192.0.2.10:8096\n"), 0o600)
+	if err := UpdateSettings(map[string]string{"media_server": "emby"}, okFolder); err == nil {
+		t.Error("media server changed with the token in the environment")
+	}
+}

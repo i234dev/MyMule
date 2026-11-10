@@ -11,7 +11,9 @@ import (
 
 // EnableNotifyTest adds POST /api/v1/notify/test: it sends a test
 // notification and asks the media server for a scan, with the settings
-// MyMule started with, and says how each went.
+// MyMule started with, and says how each went. Why one failed goes only
+// to MyMule's log: the reply would tell whoever holds the API key which
+// addresses and ports answer on the network MyMule is in.
 func (r *REST) EnableNotifyTest(n *notify.Notifier, ms *mediaserver.Refresher) {
 	r.mux.HandleFunc("POST /api/v1/notify/test", func(w http.ResponseWriter, req *http.Request) {
 		ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
@@ -21,15 +23,24 @@ func (r *REST) EnableNotifyTest(n *notify.Notifier, ms *mediaserver.Refresher) {
 			out["notify"] = "sent"
 			if err := n.SendNow(ctx, notify.Event{Kind: notify.Test, Title: "MyMule",
 				Message: "Test notification: notifications work."}); err != nil {
-				out["notify"] = err.Error()
+				out["notify"] = "failed (see the MyMule log)"
+				r.log("notification test failed: %v", err)
 			}
 		}
 		if ms != nil {
 			out["media_server"] = "scanning"
 			if err := ms.RefreshNow(ctx); err != nil {
-				out["media_server"] = err.Error()
+				out["media_server"] = "failed (see the MyMule log)"
+				r.log("media server test failed: %v", err)
 			}
 		}
 		reply(w, out)
 	})
+}
+
+// log writes to MyMule's log, when there is one.
+func (r *REST) log(format string, args ...any) {
+	if r.logf != nil {
+		r.logf(format, args...)
+	}
 }

@@ -251,7 +251,9 @@ sent, `set` says whether one is there, and a new value replaces it.
 `POST /api/v1/notify/test` (with the web interface on) sends a test
 notification and asks the media server for a scan, with the settings
 MyMule started with, and answers how each went: `notify` and
-`media_server` (`sent` / `scanning`, `off`, or the error).
+`media_server` (`sent` / `scanning`, `off`, or `failed (see the MyMule
+log)`: why it failed is written only to the log, so the API cannot be
+used to probe the network).
 
 ### Wish list
 

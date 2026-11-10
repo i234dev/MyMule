@@ -150,6 +150,7 @@ const STRINGS = {
     "key.media_server": "Media server", "key.media_server_url": "Media server address", "key.media_server_token": "Media server API key or token",
     "ms.none": "None",
     "notify.test": "Test", "notify.testing": "Sending a test…",
+    "notify.failed": "failed (the reason is in the MyMule log)",
     "notify.result": "Notifications: {n} · Media server: {m}. (The test uses the settings MyMule started with.)",
     "adv.router": "Router", "adv.router.off": "MyMule does not open the ports (upnp = false): forward them by hand.",
     "adv.router.open": "Opened with {m}: {p}.", "adv.router.fail": "Could not open the ports automatically: {e}. Forward them by hand for HighID.",
@@ -369,6 +370,7 @@ const STRINGS = {
     "key.media_server": "Servidor multimedia", "key.media_server_url": "Dirección del servidor multimedia", "key.media_server_token": "Clave API o token del servidor multimedia",
     "ms.none": "Ninguno",
     "notify.test": "Probar", "notify.testing": "Enviando una prueba…",
+    "notify.failed": "falló (el motivo está en el registro de MyMule)",
     "notify.result": "Notificaciones: {n} · Servidor multimedia: {m}. (La prueba usa los ajustes con los que arrancó MyMule.)",
     "adv.router": "Router", "adv.router.off": "MyMule no abre los puertos (upnp = false): ábrelos a mano.",
     "adv.router.open": "Abiertos con {m}: {p}.", "adv.router.fail": "No se pudieron abrir los puertos automáticamente: {e}. Ábrelos a mano para tener HighID.",
@@ -2180,7 +2182,8 @@ function notifyTestRow() {
     out.textContent = t("notify.testing");
     try {
       const r = await api("POST", "/api/v1/notify/test");
-      out.textContent = t("notify.result", { n: r.notify, m: r.media_server });
+      const word = v => v.startsWith("failed") ? t("notify.failed") : v;
+      out.textContent = t("notify.result", { n: word(r.notify), m: word(r.media_server) });
     } catch (err) {
       if (!(err instanceof AuthError)) out.textContent = err.message;
     } finally {

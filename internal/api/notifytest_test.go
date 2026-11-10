@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -53,5 +54,19 @@ func TestNotifyTestEndpoint(t *testing.T) {
 	defer srv2.Close()
 	if call(t, srv2, "POST", "/api/v1/notify/test", "", "", &out); out["notify"] != "off" || out["media_server"] != "off" {
 		t.Fatalf("%v", out)
+	}
+
+	// Why it failed is not told: it would map the network.
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	bad, _ := mediaserver.New("jellyfin", closed.URL, "example-token", nil)
+	failing := NewREST(download.NewManager(download.Config{TempDir: t.TempDir()}), restKey, "test")
+	var logged []string
+	failing.logf = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
+	failing.EnableNotifyTest(nil, bad)
+	srv3 := httptest.NewServer(failing)
+	defer srv3.Close()
+	if call(t, srv3, "POST", "/api/v1/notify/test", "", "", &out); out["media_server"] != "failed (see the MyMule log)" || len(logged) != 1 {
+		t.Fatalf("%v %q", out, logged)
 	}
 }

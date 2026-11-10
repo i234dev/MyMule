@@ -9,6 +9,17 @@ to come out and downloads it by itself.
 This guide explains how all of that works and how to set it up. The
 titles and files in the examples are made up.
 
+> **Only for content you have the right to download and share.** These
+> tools are meant for TV programmes, films and series whose rights you
+> hold or have permission for, works in the public domain, works under a
+> license that allows sharing (such as Creative Commons), and your own
+> recordings. Downloading or sharing copyrighted material without
+> permission may be illegal where you live. MyMule doesn't host, index or
+> provide any content, and the movie database only describes titles: it
+> doesn't make them free to download. You alone are responsible for what
+> you download and share; see the
+> [terms of use](../README.md#terms-of-use-and-disclaimer).
+
 - [Before you start](#before-you-start)
 - [Finding a movie or series](#finding-a-movie-or-series)
 - [How the files are chosen](#how-the-files-are-chosen)

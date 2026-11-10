@@ -346,6 +346,10 @@ It has five tabs:
   that cannot exist yet, are marked; and the **wish list** waits for a
   title to come out and downloads it by itself. The full guide:
   [docs/MEDIA.md](docs/MEDIA.md).
+  Only for content you have the right to download and share: TV
+  programmes and films whose rights you hold or have permission for,
+  public domain works, Creative Commons and the like (see the
+  [terms of use](#terms-of-use-and-disclaimer)).
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.

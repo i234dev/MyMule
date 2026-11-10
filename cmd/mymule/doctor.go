@@ -122,11 +122,13 @@ func (d *doctor) checkFiles() {
 	}
 	// The library folders and categories chosen in the web interface.
 	pr := prefs.Open(filepath.Join(dir, "preferences.json"), dir)
+	pr.AllowNetworkHosts(settings.NetworkHosts)
+	pr.AllowRoots(append([]string{settings.DownloadDir}, settings.FolderRoots...)...)
 	for _, c := range pr.Get().Categories {
 		uc, ok := pr.Category(c.Name)
 		if !ok {
-			d.problem("Category "+c.Name+": its folder "+c.Dir+" is no longer accepted",
-				"Choose another folder for it in Settings, in the web interface.")
+			d.problem("Category "+c.Name+": its folder "+c.Dir+" is not accepted",
+				"It must be inside MyMule's folder, download_dir or a folder listed in folder_roots in mymule.conf:\nadd its parent folder there, or choose another folder in Settings.")
 			continue
 		}
 		if err := writable(uc.Dir); err != nil {

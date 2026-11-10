@@ -67,6 +67,12 @@ type Settings struct {
 	// opening such a folder sends Windows' login hash to that computer.
 	NetworkHosts []string
 
+	// FolderRoots are where the web interface and the API may put the
+	// folders that receive files from the network as they come (category
+	// folders, and the download, temporary and shared folders), besides
+	// the data folder and download_dir. Only mymule.conf sets them.
+	FolderRoots []string
+
 	// WebUI serves the web interface on api_listen. Off by default.
 	WebUI bool
 
@@ -193,6 +199,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return strings.Join(s.APIHosts, ", ") }},
 	{"network_hosts", "Windows only: computers whose network folders (\\\\nas\\Movies) may be\nlibrary folders in the web interface, separated by commas (e.g. nas,\n192.168.0.10). Others are refused, because just opening a network folder\nsends your Windows login hash to that computer. Mapped drives (Z:) are\nnot affected.",
 		func(s Settings) string { return strings.Join(s.NetworkHosts, ", ") }},
+	{"folder_roots", "Folders where the web interface may put category folders, and the\ndownload, temporary and shared folders, separated by ';' (e.g. /data).\nInside MyMule's folder and download_dir is always fine. Anywhere else is\nrefused: those folders get files from the network as they come, and a file\nin the wrong folder could be run by the system.",
+		func(s Settings) string { return strings.Join(s.FolderRoots, "; ") }},
 	{"web_ui", "Web interface in your browser, on the api_listen address\n(e.g. http://127.0.0.1:4711/). Log in with api_key. true or false.",
 		func(s Settings) string { return strconv.FormatBool(s.WebUI) }},
 	{"tmdb_api_key", "Movie and series data and posters for the web interface come from TMDB\n(themoviedb.org). Empty = use MyMule's own key. Put your own key here,\nor off to use only Wikidata (no posters).",
@@ -297,6 +305,9 @@ func LoadSettings() (Settings, error) {
 	}
 	s.TempDir = absUnder(base, s.TempDir)
 	s.DownloadDir = absUnder(base, s.DownloadDir)
+	for i, d := range s.FolderRoots {
+		s.FolderRoots[i] = absUnder(base, d)
+	}
 	for i, d := range s.SharedDirs {
 		s.SharedDirs[i] = absUnder(base, d)
 	}
@@ -466,6 +477,13 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				}
 				if h != "" {
 					s.NetworkHosts = append(s.NetworkHosts, h)
+				}
+			}
+		case "folder_roots":
+			s.FolderRoots = nil
+			for _, d := range strings.Split(val, ";") {
+				if d = strings.Trim(strings.TrimSpace(d), `"`); d != "" {
+					s.FolderRoots = append(s.FolderRoots, d)
 				}
 			}
 		case "shared_dirs":

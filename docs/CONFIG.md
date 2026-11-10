@@ -40,6 +40,7 @@ api_listen = 127.0.0.1:4711  # HTTP API for scripts/apps; empty = off
 api_key = (random)      # generated on first run, required by the API
 api_hosts =            # extra names the API/web answer to (NAS name, proxy domain)
 network_hosts =        # Windows: computers whose \\host\share folders may be library folders
+folder_roots =         # where the web interface may put category, download and shared folders (e.g. /data)
 web_ui = false         # true: web interface at http://127.0.0.1:4711/
 tmdb_api_key =         # empty: MyMule's TMDB key; your own key; or off
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see ARR.md)
@@ -217,8 +218,15 @@ What is up to you:
   `mymule.exe`; MyMule warns you if it is elsewhere.
 - **Movie and series folders** can't be a drive root, your user folder,
   a system folder or MyMule's own folder, and only video, audio and
-  subtitle files are moved into them or shared from them. The same rules
-  apply to folders changed from the web interface's advanced settings.
+  subtitle files are moved into them or shared from them.
+- **Folders that get any file**: category folders, and the download,
+  temporary and shared folders when changed from the web interface,
+  follow the same rules and must also be inside MyMule's folder,
+  `download_dir` or a folder listed in `folder_roots`, which only
+  `mymule.conf` can change. Files from the network keep the names peers
+  gave them, so in the wrong folder (a web server's, one the system runs
+  files from at login...) they could be run. Hidden files (`.something`)
+  are never moved into a category's folder.
 - **Notifications leave your computer.** With `notify_urls` set, the names
   of finished downloads (and what the wish list found) are sent to the
   services you list there (ntfy, Telegram, Discord, your webhook). Use

@@ -232,6 +232,12 @@ func (e *engine) toCategory(h ed2k.Hash, name, path, category string) string {
 		logf("%s: category %s is gone or its folder is not accepted; left in %s", name, category, filepath.Dir(path))
 		return ""
 	}
+	// A hidden file (.bashrc, .htaccess...) is never moved anywhere else:
+	// in some folders the system would read or run it.
+	if strings.HasPrefix(filepath.Base(path), ".") {
+		logf("%s: hidden file, not moved to category %s; left in %s", name, c.Name, filepath.Dir(path))
+		return ""
+	}
 	final, err := library.Move(path, filepath.Join(c.Dir, filepath.Base(path)))
 	if err != nil {
 		logf("%s: cannot move to %s: %v", name, c.Dir, err)
@@ -514,6 +520,7 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	}
 	eng.prefs.Protect(tmp)
 	eng.prefs.AllowNetworkHosts(settings.NetworkHosts)
+	eng.prefs.AllowRoots(append([]string{settings.DownloadDir}, settings.FolderRoots...)...)
 	saved, usable := eng.prefs.Get().Library, eng.prefs.Library()
 	for _, d := range [][2]string{{saved.MoviesDir, usable.MoviesDir}, {saved.SeriesDir, usable.SeriesDir}} {
 		if d[0] != "" && d[1] == "" {
@@ -522,7 +529,7 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	}
 	for _, c := range eng.prefs.Get().Categories {
 		if _, ok := eng.prefs.Category(c.Name); !ok {
-			logf("category %s is not used: its folder %s is no longer accepted", c.Name, c.Dir)
+			logf("category %s is not used: its folder %s is not accepted (it must be inside MyMule's folder, download_dir or a folder in folder_roots in mymule.conf)", c.Name, c.Dir)
 		}
 	}
 	eng.updateShared()
@@ -977,7 +984,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableMedia(mediaSource())
 		rest.EnableLibrary(e.prefs, e.items, e.updateShared)
 		rest.EnableServers(e)
-		rest.EnableSettings(e.prefs.CheckFolder)
+		rest.EnableSettings(e.prefs.CheckRooted)
 		rest.EnableWanted(e.wanted, logf)
 		rest.OnWantedFound = func(title, file string) {
 			e.notify.Send(notify.Event{Kind: notify.Wanted, Title: "Wish list: " + title, Message: "Found " + file + ", downloading"})

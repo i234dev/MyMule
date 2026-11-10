@@ -155,7 +155,9 @@ Categories are folders for downloads that are not movies or episodes
 (music, books, software...). They are made in the web interface
 (Settings → Categories) and saved in `preferences.json`; each has a
 `name`, a `dir` and `share` (share the folder). Their folders follow the
-rules of the movie and series folders. When a download of a category
+rules of the movie and series folders, and must be inside MyMule's
+folder, `download_dir` or a folder listed in `folder_roots` in
+`mymule.conf` (see [Security](CONFIG.md#security)). When a download of a category
 finishes, it is moved into the category's folder with its own name. An
 unknown category is an error; a category whose folder is no longer
 accepted leaves the file in the download folder.

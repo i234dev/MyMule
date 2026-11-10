@@ -45,6 +45,36 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+// errNotInRoots: see Store.AllowRoots.
+var errNotInRoots = errors.New("it must be inside MyMule's folder, download_dir or a folder listed in folder_roots in mymule.conf, because files from the network land there with the names peers give them")
+
+// inRoots reports whether abs, as written and as it really is (links
+// followed), is one of roots or inside one.
+func inRoots(abs string, roots []string) error {
+	paths := []string{filepath.Clean(abs)}
+	if real := resolveExisting(paths[0]); real != "" && !samePath(real, paths[0]) {
+		paths = append(paths, real)
+	}
+	for _, p := range paths {
+		ok := false
+		for _, r := range roots {
+			r = filepath.Clean(r)
+			if within(p, r) {
+				ok = true
+				break
+			}
+			if real := resolveExisting(r); real != "" && within(p, real) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return errNotInRoots
+		}
+	}
+	return nil
+}
+
 // within reports whether p is dir or inside it.
 func within(p, dir string) bool {
 	if runtime.GOOS == "darwin" {

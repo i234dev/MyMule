@@ -153,3 +153,31 @@ func TestFolderErrorNamesTheUser(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// Folders that get any file from the network must be inside MyMule's
+// folder or an allowed one, as written and once links are followed.
+func TestCheckRooted(t *testing.T) {
+	awayFromAppData(t)
+	base, root, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	s := Open(filepath.Join(base, "preferences.json"), base)
+	s.AllowRoots(root)
+	for _, ok := range []string{filepath.Join(base, "music"), root, filepath.Join(root, "a", "b")} {
+		if err := s.CheckRooted(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{outside, filepath.Join(outside, "LaunchAgents"), filepath.Join(root, "..", "x")} {
+		if s.CheckRooted(bad) == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	// A link inside an allowed folder that leads out of it.
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Logf("no symlink here: %v", err)
+		return
+	}
+	if s.CheckRooted(filepath.Join(link, "music")) == nil {
+		t.Error("a link out of the allowed folder accepted")
+	}
+}

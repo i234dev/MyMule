@@ -165,6 +165,7 @@ const STRINGS = {
     "key.upload_limit": "Upload limit (KB/s, 0 = none)", "key.download_limit": "Download limit (KB/s, 0 = none)",
     "key.api_listen": "API and web address", "key.api_key": "API key", "key.api_hosts": "Extra host names",
     "key.network_hosts": "Allowed network folder hosts", "key.web_ui": "Web interface",
+    "key.folder_roots": "Where folders for downloads may be",
     "key.tmdb_api_key": "TMDB key", "key.arr_support": "Radarr/Sonarr support", "key.search_languages": "Extra search languages",
     "obf.true": "When the other side supports it", "obf.required": "Always (fewer sources)", "obf.false": "Never",
     "add.placeholder": "Paste ed2k:// links here",
@@ -385,6 +386,7 @@ const STRINGS = {
     "key.upload_limit": "Límite de subida (KB/s, 0 = sin límite)", "key.download_limit": "Límite de descarga (KB/s, 0 = sin límite)",
     "key.api_listen": "Dirección de la API y la web", "key.api_key": "Clave de la API", "key.api_hosts": "Nombres de host extra",
     "key.network_hosts": "Equipos de carpetas de red permitidos", "key.web_ui": "Interfaz web",
+    "key.folder_roots": "Dónde puede haber carpetas de descargas",
     "key.tmdb_api_key": "Clave de TMDB", "key.arr_support": "Soporte de Radarr/Sonarr", "key.search_languages": "Idiomas de búsqueda extra",
     "obf.true": "Cuando el otro lado la admite", "obf.required": "Siempre (menos fuentes)", "obf.false": "Nunca",
     "add.placeholder": "Pega aquí enlaces ed2k://",
@@ -2104,7 +2106,7 @@ const ADV_GROUPS = [
   ["speed", ["upload_slots", "upload_limit", "download_limit", "schedule_from", "schedule_to", "schedule_upload_limit", "schedule_download_limit"]],
   ["notify", ["notify_urls", "notify_on", "media_server", "media_server_url", "media_server_token"]],
   ["other", ["nick", "tmdb_api_key", "arr_support", "search_languages"]],
-  ["access", ["api_listen", "api_key", "api_hosts", "network_hosts", "web_ui"]],
+  ["access", ["api_listen", "api_key", "api_hosts", "network_hosts", "folder_roots", "web_ui"]],
 ];
 let advLoaded = {}; // key -> value as loaded
 

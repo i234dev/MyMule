@@ -17,10 +17,11 @@ func TestFinishedToCategory(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", `Z:\no-such-appdata-for-tests`)
 	t.Setenv("APPDATA", `Z:\no-such-appdata-for-tests`)
 	data, downloads := t.TempDir(), t.TempDir()
-	music := filepath.Join(t.TempDir(), "Music")
+	music := filepath.Join(downloads, "Music")
 	e := &engine{Manager: download.NewManager(download.Config{TempDir: t.TempDir()}),
 		prefs: prefs.Open(filepath.Join(data, "preferences.json"), data),
 		items: library.OpenStore(filepath.Join(data, "library.json"))}
+	e.prefs.AllowRoots(downloads) // download_dir
 	p := e.prefs.Get()
 	p.Categories = []prefs.Category{{Name: "Music", Dir: music}}
 	if err := e.prefs.Set(p); err != nil {
@@ -46,5 +47,16 @@ func TestFinishedToCategory(t *testing.T) {
 	}
 	if _, err := os.Stat(src); err != nil {
 		t.Fatal("not left in place:", err)
+	}
+
+	// A hidden file is never moved into a category's folder.
+	src = filepath.Join(downloads, ".bash_profile")
+	os.WriteFile(src, []byte("echo hi"), 0o644)
+	e.items.Put(h.String(), library.Item{Kind: library.KindCategory, Category: "Music"})
+	if got := e.organize(h, ".bash_profile", src); got != "" {
+		t.Fatalf("hidden file moved to %q", got)
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatal("hidden file not left in place:", err)
 	}
 }

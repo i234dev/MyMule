@@ -67,6 +67,7 @@ type Store struct {
 	p       Preferences
 	protect []string // folders a library folder must not overlap at all
 	hosts   []string // computers whose network folders are accepted
+	roots   []string // see AllowRoots
 }
 
 // Open loads preferences from path (defaults if missing). Relative folder
@@ -121,6 +122,37 @@ func (s *Store) AllowNetworkHosts(hosts []string) {
 	s.hosts = append([]string(nil), hosts...)
 }
 
+// AllowRoots sets where folders that get files from the network as they
+// come (categories; and the download, temporary and shared folders when
+// changed from the web interface) may be, besides the data folder:
+// download_dir and folder_roots in mymule.conf. Anywhere else, a file
+// with the name a peer chose could land where the system runs it.
+func (s *Store) AllowRoots(dirs ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.roots = nil
+	for _, d := range dirs {
+		if d != "" {
+			if abs, err := filepath.Abs(d); err == nil {
+				s.roots = append(s.roots, abs)
+			}
+		}
+	}
+}
+
+// CheckRooted reports why abs cannot be a folder that gets any file from
+// the network: the rules of CheckFolder, and inside the data folder or a
+// folder given to AllowRoots.
+func (s *Store) CheckRooted(abs string) error {
+	if err := s.check(abs); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	roots := append([]string{s.base}, s.roots...)
+	s.mu.Unlock()
+	return inRoots(abs, roots)
+}
+
 // Get returns the current preferences.
 func (s *Store) Get() Preferences {
 	s.mu.Lock()
@@ -170,13 +202,13 @@ func (s *Store) checkCategories(list []Category) error {
 			return fmt.Errorf("category %s needs a folder", c.Name)
 		}
 		abs := s.Abs(c.Dir)
-		if err := s.check(abs); err != nil {
+		if err := s.CheckRooted(abs); err != nil {
 			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
 		}
 		if err := writable(abs); err != nil {
 			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
 		}
-		if err := s.check(abs); err != nil { // now that it exists, in case it is a link
+		if err := s.CheckRooted(abs); err != nil { // now that it exists, in case it is a link
 			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
 		}
 	}
@@ -189,7 +221,7 @@ func (s *Store) checkCategories(list []Category) error {
 func (s *Store) Category(name string) (c Category, ok bool) {
 	for _, c := range s.Get().Categories {
 		if strings.EqualFold(c.Name, name) {
-			c.Dir = s.usable(c.Dir)
+			c.Dir = s.usableRooted(c.Dir)
 			return c, c.Dir != ""
 		}
 	}
@@ -201,7 +233,7 @@ func (s *Store) Category(name string) (c Category, ok bool) {
 func (s *Store) Categories() []Category {
 	var out []Category
 	for _, c := range s.Get().Categories {
-		if c.Dir = s.usable(c.Dir); c.Dir != "" {
+		if c.Dir = s.usableRooted(c.Dir); c.Dir != "" {
 			out = append(out, c)
 		}
 	}
@@ -224,6 +256,16 @@ func (s *Store) check(abs string) error {
 // CheckFolder reports why abs cannot be used as a folder MyMule shares or
 // downloads into (the rules of library folders), or nil.
 func (s *Store) CheckFolder(abs string) error { return s.check(abs) }
+
+// usableRooted resolves a category folder, or returns "" if it is not
+// acceptable (see CheckRooted).
+func (s *Store) usableRooted(dir string) string {
+	abs := s.Abs(dir)
+	if abs == "" || s.CheckRooted(abs) != nil {
+		return ""
+	}
+	return abs
+}
 
 // usable resolves a library folder, or returns "" if it is not acceptable.
 func (s *Store) usable(dir string) string {

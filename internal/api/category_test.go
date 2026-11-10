@@ -35,8 +35,14 @@ func TestCategories(t *testing.T) {
 		}
 	})
 
-	music := filepath.Join(t.TempDir(), "Music")
+	root := t.TempDir() // a folder in folder_roots
+	ps.AllowRoots(root)
+	music := filepath.Join(root, "Music")
+	// Outside MyMule's folder and the allowed ones: files with the names
+	// peers chose could land where the system runs them.
+	elsewhere := filepath.Join(t.TempDir(), "LaunchAgents")
 	for _, bad := range []string{
+		`{"categories":[{"name":"Elsewhere","dir":` + jsonString(elsewhere) + `}]}`,
 		`{"categories":[{"name":"","dir":` + jsonString(music) + `}]}`,
 		`{"categories":[{"name":"Music","dir":""}]}`,
 		`{"categories":[{"name":"Music","dir":` + jsonString(music) + `},{"name":"music","dir":` + jsonString(music) + `}]}`,
@@ -53,6 +59,17 @@ func TestCategories(t *testing.T) {
 	if c, ok := ps.Category("MUSIC"); !ok || c.Name != "Music" || c.Dir != music || !c.Share {
 		t.Fatalf("category: %+v %v", c, ok)
 	}
+	// Inside MyMule's own folder is fine too.
+	if code := call(t, srv, "PUT", "/api/v1/preferences", "application/json",
+		`{"categories":[{"name":"Music","dir":`+jsonString(music)+`},{"name":"Papers","dir":"papers"}]}`, nil); code != 200 {
+		t.Fatalf("category in the data folder: %d", code)
+	}
+	// A root taken away (folder_roots changed): the category is not used.
+	ps.AllowRoots()
+	if _, ok := ps.Category("Music"); ok {
+		t.Fatal("category outside the allowed folders still used")
+	}
+	ps.AllowRoots(root)
 
 	// An unknown category adds nothing.
 	const song = "ed2k://|file|Made-up Band - Song.mp3|5000000|C0C0456789ABCDEF0123456789ABCDEF|/"

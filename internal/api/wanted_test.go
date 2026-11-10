@@ -248,3 +248,40 @@ func TestTooEarlyHidden(t *testing.T) {
 		}
 	}
 }
+
+// The user can choose the day to start searching, or go back to the date
+// the title comes out; the daily date check keeps a chosen date.
+func TestWishListManualDate(t *testing.T) {
+	_, _, ws, srv := wantedSetup(t, nil)
+	future := time.Now().AddDate(0, 1, 0).Format(time.DateOnly)
+	var got struct{ Entry wanted.Entry }
+	if code := call(t, srv, "POST", "/api/v1/wanted", "application/json", `{"work_id":"tmdb-movie-1","not_before":"`+future+`"}`, &got); code != 200 ||
+		got.Entry.NotBeforeIs != wanted.Manual || got.Entry.NotBefore.Format(time.DateOnly) != future {
+		t.Fatalf("%d %+v", code, got.Entry)
+	}
+	if _, ok := ws.Due(time.Now(), 0); ok {
+		t.Fatal("searched for before the chosen day")
+	}
+	if _, ok := ws.DateDue(time.Now(), 0); ok {
+		t.Fatal("a chosen date is checked again")
+	}
+	ws.Dated("tmdb-movie-1", time.Now(), "digital", time.Now())
+	if e, _ := ws.Get("tmdb-movie-1"); e.NotBeforeIs != wanted.Manual {
+		t.Fatal("chosen date replaced")
+	}
+	past := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	call(t, srv, "POST", "/api/v1/wanted/tmdb-movie-1/date", "application/json", `{"date":"`+past+`"}`, nil)
+	if _, ok := ws.Due(time.Now(), time.Hour); !ok {
+		t.Fatal("not due after its chosen day")
+	}
+	if code := call(t, srv, "POST", "/api/v1/wanted/tmdb-movie-1/date", "application/json", `{"date":"tomorrow"}`, nil); code != 400 {
+		t.Fatalf("bad date: %d", code)
+	}
+
+	// Back to automatic: tmdb-movie-9 comes out in ten days.
+	call(t, srv, "POST", "/api/v1/wanted", "application/json", `{"work_id":"tmdb-movie-9","not_before":"`+past+`"}`, nil)
+	if code := call(t, srv, "POST", "/api/v1/wanted/tmdb-movie-9/date", "application/json", `{"date":""}`, &got); code != 200 ||
+		got.Entry.NotBeforeIs != "digital" || got.Entry.NotBefore.Before(time.Now()) {
+		t.Fatalf("%d %+v", code, got.Entry)
+	}
+}

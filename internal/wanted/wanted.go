@@ -36,8 +36,9 @@ type Entry struct {
 	Lang    string `json:"lang"` // the language it was looked up in
 
 	// NotBefore: it is not searched for before it comes out at home
-	// (digital or disc) or airs; Kind says which ("digital", "disc",
-	// "aired", "estimated"); DateChecked: when that was last asked.
+	// (digital or disc) or airs; NotBeforeIs says which ("digital",
+	// "disc", "aired", "estimated", or "manual": a date the user chose,
+	// kept as it is); DateChecked: when that was last asked.
 	NotBefore   time.Time `json:"not_before,omitzero"`
 	NotBeforeIs string    `json:"not_before_is,omitempty"`
 	DateChecked time.Time `json:"date_checked,omitzero"`
@@ -181,18 +182,41 @@ func (s *Store) DateDue(now time.Time, every time.Duration) (Entry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range s.list {
-		if e.Status == Wanted && e.NotBefore.After(now) && now.Sub(e.DateChecked) >= every {
+		if e.Status == Wanted && e.NotBeforeIs != Manual && e.NotBefore.After(now) && now.Sub(e.DateChecked) >= every {
 			return e, true
 		}
 	}
 	return Entry{}, false
 }
 
-// Dated records when an entry comes out (zero: not known).
+// Manual is the NotBeforeIs of a date the user chose.
+const Manual = "manual"
+
+// Dated records when an entry comes out (zero: not known). A date the
+// user chose is kept.
 func (s *Store) Dated(id string, notBefore time.Time, kind string, at time.Time) {
 	s.update(id, func(e *Entry) {
-		e.NotBefore, e.NotBeforeIs, e.DateChecked = notBefore, kind, at
+		if e.NotBeforeIs != Manual {
+			e.NotBefore, e.NotBeforeIs, e.DateChecked = notBefore, kind, at
+		}
 	})
+}
+
+// SetDate makes an entry wait until day (a date the user chose); a zero
+// day goes back to the automatic date, which the caller looks up.
+func (s *Store) SetDate(id string, day time.Time) error {
+	ok := s.update(id, func(e *Entry) {
+		if day.IsZero() {
+			e.NotBefore, e.NotBeforeIs, e.DateChecked = time.Time{}, "", time.Time{}
+		} else {
+			e.NotBefore, e.NotBeforeIs, e.DateChecked = day, Manual, time.Time{}
+		}
+		e.Force = false
+	})
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SearchNow makes an entry due at once, even if it is not out yet.

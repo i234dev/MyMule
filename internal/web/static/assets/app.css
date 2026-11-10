@@ -154,6 +154,7 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .wanted-text { display: grid; gap: 3px; min-width: 0; }
 .wanted-text span { overflow-wrap: anywhere; }
 .wanted-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.wanted-date { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .work-head h2 { margin: 0; font-size: 20px; }
 .work-head p { margin: 0; }
 .rel { display: grid; gap: 6px; padding: 12px 14px; }

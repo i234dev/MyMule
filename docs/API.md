@@ -83,6 +83,7 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | GET | `/api/v1/wanted` | The wish list (with the web interface on) |
 | POST | `/api/v1/wanted` | Add a movie, episode or season to the wish list |
 | POST | `/api/v1/wanted/{id}/search` | Search for a wish list entry now |
+| POST | `/api/v1/wanted/{id}/date` | `{"date": "2026-12-24"}`: start searching for it that day; `{"date": ""}`: when it comes out |
 | DELETE | `/api/v1/wanted/{id}` | Remove a wish list entry |
 | GET | `/api/v1/files/{hash}/notes?size=N` | What users say about a file: ratings and comments, from Kad |
 | POST | `/api/v1/notify/test` | Send a test notification and ask the media server for a scan |
@@ -250,7 +251,10 @@ An entry is not searched for before it comes out at home: `not_before`,
 with `not_before_is` saying why (`digital` or `disc` release, `aired` for
 an episode, or `estimated` from the cinema release). That date is checked
 again every day. `POST /api/v1/wanted/{id}/search` searches for it now
-anyway. If its download is cancelled, the entry is searched for again and
+anyway. You can also choose the day yourself: `not_before` (`YYYY-MM-DD`)
+when adding it, or `POST /api/v1/wanted/{id}/date` with `{"date":
+"2026-12-24"}` later; `not_before_is` is then `manual`, and that date is
+not checked again. `{"date": ""}` goes back to the date it comes out. If its download is cancelled, the entry is searched for again and
 that file is never taken again.
 
 ### File ratings and comments

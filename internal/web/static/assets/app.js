@@ -64,6 +64,9 @@ const STRINGS = {
     "want.downloading": "Found, downloading: {f}",
     "want.done": "Downloaded: {f}",
     "want.searchnow": "Search now", "want.remove": "Remove",
+    "want.waits.manual": "Waiting: will be searched for from {d} (your date)",
+    "want.date": "Date…", "want.datehint": "Choose the day to start searching for it",
+    "want.save": "Save", "want.cancel": "Cancel", "want.dateauto": "When it comes out",
     "want.searching": "It will be searched for in a moment.",
     "notes.fake": "⚠ fake? {f} of {n} say so",
     "notes.rating": "★ {r} ({n} votes)",
@@ -243,6 +246,9 @@ const STRINGS = {
     "want.downloading": "Encontrada, descargando: {f}",
     "want.done": "Descargada: {f}",
     "want.searchnow": "Buscar ahora", "want.remove": "Quitar",
+    "want.waits.manual": "Esperando: se buscará desde el {d} (fecha elegida)",
+    "want.date": "Fecha…", "want.datehint": "Elige el día desde el que buscarla",
+    "want.save": "Guardar", "want.cancel": "Cancelar", "want.dateauto": "Cuando salga",
     "want.searching": "Se buscará en un momento.",
     "notes.fake": "⚠ ¿fake? lo dicen {f} de {n}",
     "notes.rating": "★ {r} ({n} votos)",
@@ -1132,7 +1138,7 @@ function markHaveReleases() {
 }
 
 // ---------- Wish list ----------
-let wantedList = [], wantedTimer = null;
+let wantedList = [], wantedTimer = null, editingWanted = null;
 
 // wantedID is the wish list identifier of a work, season and episode.
 function wantedID(workID, season, episode) {
@@ -1179,7 +1185,8 @@ async function loadWanted() {
     wantedList = r.wanted || [];
   } catch { return; }
   $("#wanted-count").textContent = wantedList.length ? "(" + wantedList.length + ")" : "";
-  if (!$("#wanted").hidden) renderWanted();
+  // Not while a date is being edited: drawing the list again would lose it.
+  if (!$("#wanted").hidden && !editingWanted) renderWanted();
 }
 
 function wantedStatus(e) {
@@ -1201,15 +1208,40 @@ function renderWanted() {
   list.replaceChildren(...wantedList.map(e => {
     let title = e.title + (e.year ? " (" + e.year + ")" : "");
     if (e.season) title += " · " + t("media.seasonn", { n: e.season }) + (e.episode ? " · " + t("media.episode") + " " + e.episode : "");
+    const text = el("div", { class: "wanted-text" },
+      el("strong", { text: title }),
+      el("span", { class: "muted", text: wantedStatus(e) }));
     return el("div", { class: "card wanted-row" },
       poster({ poster: e.poster, kind: e.kind }, "w185"),
-      el("div", { class: "wanted-text" },
-        el("strong", { text: title }),
-        el("span", { class: "muted", text: wantedStatus(e) })),
+      text,
       el("div", { class: "wanted-actions" },
+        e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.date"), title: t("want.datehint"), onclick: () => editWantedDate(e, text) }) : null,
         e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
         el("button", { class: "ghost small", text: t("want.remove"), onclick: () => wantedAction("DELETE", e.id, "") })));
   }));
+}
+
+// editWantedDate shows a date box in place of an entry's status.
+function editWantedDate(e, text) {
+  editingWanted = e.id;
+  const box = el("input", { type: "date", min: new Date().toISOString().slice(0, 10) });
+  if (e.not_before_is === "manual") box.value = e.not_before.slice(0, 10);
+  const done = () => { editingWanted = null; renderWanted(); };
+  const save = async date => {
+    try {
+      await api("POST", "/api/v1/wanted/" + encodeURIComponent(e.id) + "/date", { date });
+    } catch (err) {
+      if (!(err instanceof AuthError)) showMsg($("#wanted-msg"), err.message, "bad");
+    }
+    editingWanted = null;
+    loadWanted();
+  };
+  text.replaceChildren(el("strong", { text: e.title }),
+    el("span", { class: "wanted-date" }, box,
+      el("button", { class: "primary small", text: t("want.save"), onclick: () => box.value && save(box.value) }),
+      el("button", { class: "ghost small", text: t("want.dateauto"), onclick: () => save("") }),
+      el("button", { class: "ghost small", text: t("want.cancel"), onclick: done })));
+  box.focus();
 }
 
 async function wantedAction(method, id, suffix) {

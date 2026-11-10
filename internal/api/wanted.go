@@ -37,6 +37,7 @@ func (r *REST) EnableWanted(s *wanted.Store, logf func(string, ...any)) {
 	r.mux.HandleFunc("POST /api/v1/wanted", r.addWanted)
 	r.mux.HandleFunc("DELETE /api/v1/wanted/{id}", r.removeWanted)
 	r.mux.HandleFunc("POST /api/v1/wanted/{id}/search", r.searchWanted)
+	r.mux.HandleFunc("POST /api/v1/wanted/{id}/date", r.dateWanted)
 }
 
 func (r *REST) listWanted(w http.ResponseWriter, req *http.Request) {
@@ -52,6 +53,21 @@ type addWantedRequest struct {
 	Lang    string `json:"lang"`
 	Season  int    `json:"season"`
 	Episode int    `json:"episode"`
+	// NotBefore: a date (YYYY-MM-DD) chosen by the user to start
+	// searching; empty = when it comes out (from the movie database).
+	NotBefore string `json:"not_before"`
+}
+
+// parseDay reads a YYYY-MM-DD date for the wish list ("" = none).
+func parseDay(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	d, err := time.Parse(time.DateOnly, s)
+	if err != nil || d.Year() < 2000 || d.After(time.Now().AddDate(20, 0, 0)) {
+		return time.Time{}, errors.New("date must be YYYY-MM-DD")
+	}
+	return d, nil
 }
 
 func (r *REST) addWanted(w http.ResponseWriter, req *http.Request) {
@@ -66,6 +82,11 @@ func (r *REST) addWanted(w http.ResponseWriter, req *http.Request) {
 	if ar.Lang == "" {
 		ar.Lang = "en"
 	}
+	day, err := parseDay(ar.NotBefore)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
 	work, err := r.media.Get(req.Context(), ar.WorkID, ar.Lang)
 	if err != nil {
 		fail(w, http.StatusBadGateway, mediaError{err})
@@ -76,7 +97,9 @@ func (r *REST) addWanted(w http.ResponseWriter, req *http.Request) {
 	if work.Kind == "series" {
 		e.Season, e.Episode = ar.Season, ar.Episode
 	}
-	if a, ok := r.availability(req.Context(), work.ID, e.Season, e.Episode); ok {
+	if !day.IsZero() {
+		e.NotBefore, e.NotBeforeIs = day, wanted.Manual
+	} else if a, ok := r.availability(req.Context(), work.ID, e.Season, e.Episode); ok {
 		e.NotBefore, e.NotBeforeIs, e.DateChecked = a.Date, a.Kind, time.Now()
 	}
 	e, err = r.wanted.Add(e)
@@ -94,6 +117,36 @@ func (r *REST) removeWanted(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	reply(w, map[string]any{"removed": true})
+}
+
+// dateWanted: {"date": "2026-12-01"} waits until that day; {"date": ""}
+// goes back to the date the title comes out (from the movie database).
+func (r *REST) dateWanted(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Date string `json:"date"`
+	}
+	if !decode(w, req, &body) {
+		return
+	}
+	day, err := parseDay(body.Date)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	id := req.PathValue("id")
+	if err := r.wanted.SetDate(id, day); err != nil {
+		fail(w, http.StatusNotFound, err)
+		return
+	}
+	if day.IsZero() {
+		e, _ := r.wanted.Get(id)
+		if a, ok := r.availability(req.Context(), e.WorkID, e.Season, e.Episode); ok {
+			r.wanted.Dated(id, a.Date, a.Kind, time.Now())
+		}
+		r.wake()
+	}
+	e, _ := r.wanted.Get(id)
+	reply(w, map[string]any{"entry": e})
 }
 
 func (r *REST) searchWanted(w http.ResponseWriter, req *http.Request) {

@@ -1,6 +1,7 @@
 package kad
 
 import (
+	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -214,6 +215,46 @@ func (n *Node) storeFile(s *search, c Contact) {
 	n.sendTo(c, OpPublishSourceReq, w.B)
 }
 
+// PublishNote publishes what we say about a file (a rating from 1, fake,
+// to 5, excellent, and a comment) on the nodes close to it, as eMule
+// does; they keep it for a day, so it is published again while it holds.
+func (n *Node) PublishNote(hash [16]byte, size uint64, name string, rating int, comment string) error {
+	if rating < 0 || rating > 5 {
+		return fmt.Errorf("kad: rating %d", rating)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.table.Len() == 0 {
+		return ErrNotConnected
+	}
+	nt := Note{UserHash: n.keys.UserHash, Name: name, Rating: rating, Comment: comment}
+	if n.startSearch(searchStoreNotes, ID(hash), n.now(), func(s *search) {
+		s.fileSize, s.note = size, nt
+	}) == nil {
+		return ErrBusy
+	}
+	return nil
+}
+
+// storeNotes sends a node our note on a file (KADEMLIA2_PUBLISH_NOTES_REQ).
+func (n *Node) storeNotes(s *search, c Contact) {
+	if c.Version < 2 {
+		return
+	}
+	tags := []proto.Tag{StrTag(TagFileName, s.note.Name), IntTag(TagFileSize, s.fileSize)}
+	if s.note.Rating > 0 {
+		tags = append(tags, IntTag(TagFileRating, uint64(s.note.Rating)))
+	}
+	if s.note.Comment != "" {
+		tags = append(tags, StrTag(TagDescription, s.note.Comment))
+	}
+	var w proto.Writer
+	WriteID(&w, s.target)
+	WriteID(&w, ID(n.keys.UserHash))
+	WriteTags(&w, tags)
+	n.sendTo(c, OpPublishNotesReq, w.B)
+}
+
 // storeKeyword sends a node our files with the keyword, 50 per packet.
 func (n *Node) storeKeyword(s *search, c Contact) {
 	if c.Version < 2 {
@@ -272,7 +313,7 @@ func (n *Node) onPublishRes(in incoming, now time.Time) error {
 		}
 	}
 	s := n.searches[target]
-	if s == nil || (s.typ != searchStoreKeyword && s.typ != searchStoreFile) {
+	if s == nil || (s.typ != searchStoreKeyword && s.typ != searchStoreFile && s.typ != searchStoreNotes) {
 		return nil
 	}
 	if s.typ == searchStoreKeyword && hasLoad {

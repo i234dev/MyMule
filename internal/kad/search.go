@@ -396,6 +396,8 @@ func (n *Node) storePacket(s *search, dist ID, c Contact, now time.Time) {
 		n.sendTo(c, OpSearchNotesReq, w.B)
 	case searchStoreFile:
 		n.storeFile(s, c)
+	case searchStoreNotes:
+		n.storeNotes(s, c)
 	case searchStoreKeyword:
 		n.storeKeyword(s, c)
 	case searchFindBuddy:

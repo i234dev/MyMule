@@ -632,3 +632,37 @@ func TestSearchNotes(t *testing.T) {
 		t.Fatal("SearchNotes did not return")
 	}
 }
+
+// Our note on a file goes to the nodes close to it: the file, our ID, and
+// its name, size, rating and comment.
+func TestPublishNote(t *testing.T) {
+	target := RandomID()
+	fn, a, b := valueSearch(t, target, func(a *Node) {
+		if err := a.PublishNote(target, 1<<33, "Example.Film.mkv", 1, "fake, another film"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	p, ok := lastSent(fn, addrOf(a), addrOf(b), OpPublishNotesReq, &b.keys)
+	if !ok {
+		t.Fatal("no notes published")
+	}
+	r := proto.NewReader(p.Payload)
+	if ReadID(r) != target || ReadID(r) != ID(a.keys.UserHash) {
+		t.Fatalf("publish % X", p.Payload)
+	}
+	tags, err := ReadTags(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[byte]proto.Tag{}
+	for _, tg := range tags {
+		got[tg.ID] = tg
+	}
+	if got[TagFileName].Str != "Example.Film.mkv" || got[TagFileSize].Int != 1<<33 || got[TagFileRating].Int != 1 ||
+		got[TagDescription].Str != "fake, another film" {
+		t.Fatalf("tags %+v", tags)
+	}
+	if err := a.PublishNote(target, 1, "x", 9, ""); err == nil {
+		t.Fatal("rating 9 accepted")
+	}
+}

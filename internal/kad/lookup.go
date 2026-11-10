@@ -33,6 +33,7 @@ const (
 	searchFindBuddy                      // a buddy (we are firewalled)
 	searchFindSource                     // the buddy of a firewalled source
 	searchNotes                          // comments and ratings of a file
+	searchStoreNotes                     // publish our rating of a file
 )
 
 // maxAnswers is how many answers a value search collects before it stops
@@ -42,7 +43,7 @@ const maxAnswers = 300
 // lifetime is how long a search of each type runs.
 func (t searchType) lifetime() time.Duration {
 	switch t {
-	case searchStoreFile, searchStoreKeyword:
+	case searchStoreFile, searchStoreKeyword, searchStoreNotes:
 		return storeLifetime
 	case searchFindBuddy:
 		return 100 * time.Second
@@ -55,7 +56,7 @@ func (t searchType) requestCount() byte {
 	switch t {
 	case searchNode, searchNodeComplete, searchNodeFWCheck:
 		return findNode
-	case searchStoreFile, searchStoreKeyword, searchFindBuddy:
+	case searchStoreFile, searchStoreKeyword, searchStoreNotes, searchFindBuddy:
 		return store
 	}
 	return findValue
@@ -83,6 +84,7 @@ type search struct {
 	onSource func(Source)
 	onResult func(KeywordResult)
 	onNote   func(Note)
+	note     Note          // searchStoreNotes: what we publish
 	done     chan struct{} // closed when the search ends
 
 	possible      map[ID]Contact
@@ -296,7 +298,7 @@ func (n *Node) tickSearches(now time.Time) {
 		default:
 			if (s.typ == searchFile || s.typ == searchKeyword || s.typ == searchNotes) &&
 				(s.answers >= maxAnswers || age > s.typ.lifetime()-20*time.Second) ||
-				(s.typ == searchStoreFile || s.typ == searchStoreKeyword || s.typ == searchFindBuddy) &&
+				(s.typ == searchStoreFile || s.typ == searchStoreKeyword || s.typ == searchStoreNotes || s.typ == searchFindBuddy) &&
 					(s.answers > storeAnswers || age > s.typ.lifetime()-20*time.Second) ||
 				s.typ == searchFindSource && (s.answers > 20 || age > s.typ.lifetime()-20*time.Second) {
 				// Waits for late answers, without asking anyone else.

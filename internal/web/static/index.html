@@ -63,9 +63,16 @@
       <form id="media-form" class="card row-form">
         <input id="m-q" type="search" data-tp="media.placeholder" placeholder="Title of a movie or series" required autocomplete="off">
         <button type="submit" class="primary" data-t="search.submit">Search</button>
+        <button type="button" id="wanted-open" class="ghost"><span data-t="want.list">Wish list</span> <span id="wanted-count"></span></button>
       </form>
       <p id="media-msg" class="msg" hidden></p>
       <div id="works" class="works"></div>
+      <div id="wanted" hidden>
+        <h2 data-t="want.list">Wish list</h2>
+        <p class="muted" data-t="want.hint">Movies and episodes MyMule looks for by itself, and downloads when a file good enough for your preferences shows up.</p>
+        <p id="wanted-msg" class="msg" hidden></p>
+        <div id="wanted-list" class="list"></div>
+      </div>
       <div id="work" hidden>
         <button id="work-back" class="ghost small" data-t="media.back">← Back to results</button>
         <div class="card work-head">
@@ -81,6 +88,8 @@
             <label class="pick-num"><span data-t="media.episode">Episode</span><input id="w-episode" type="number" min="1" inputmode="numeric" data-tp="media.all" placeholder="all"></label>
             <button type="submit" class="primary small" data-t="search.submit">Search</button>
           </form>
+          <p id="w-avail" class="msg warn" hidden></p>
+          <button id="w-want" class="ghost small" hidden></button>
           </div>
         </div>
         <p id="rel-msg" class="msg" hidden></p>

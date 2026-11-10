@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"mymule/internal/ed2k"
@@ -94,18 +96,50 @@ type Release struct {
 const maxTitleSearches = 4
 
 func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
-	fullLang := reqLang(req) // e.g. es-ES: TMDB has titles per country
-	lang, _, _ := strings.Cut(fullLang, "-")
-	work, err := r.media.Get(req.Context(), req.PathValue("id"), fullLang)
+	q := req.URL.Query()
+	season, _ := strconv.Atoi(q.Get("season"))
+	episode, _ := strconv.Atoi(q.Get("episode"))
+	found, err := r.findReleases(req.Context(), req.PathValue("id"), reqLang(req), season, episode)
 	if err != nil {
-		fail(w, http.StatusBadGateway, errors.New("movie database: "+err.Error()))
+		var me mediaError
+		if errors.As(err, &me) {
+			fail(w, http.StatusBadGateway, err)
+		} else {
+			fail(w, errCode(err), err)
+		}
 		return
 	}
-	q := req.URL.Query()
+	out := map[string]any{"work": found.work, "queries": found.queries, "releases": found.releases}
+	// Not out at home yet: the web interface offers the wish list.
+	if a, ok := r.availability(req.Context(), found.work.ID, season, episode); ok && a.Date.After(time.Now()) {
+		out["available"] = a
+	}
+	reply(w, out)
+}
+
+// mediaError is a failure of the movie database (not of eD2K).
+type mediaError struct{ err error }
+
+func (e mediaError) Error() string { return "movie database: " + e.err.Error() }
+func (e mediaError) Unwrap() error { return e.err }
+
+type foundReleases struct {
+	work     meta.Work
+	queries  []string
+	releases []Release // best first
+}
+
+// findReleases looks a work up and searches eD2K for its files (an
+// episode, a season or any of a series when season/episode are 0),
+// scored with the user's search preferences.
+func (r *REST) findReleases(ctx context.Context, id, fullLang string, season, episode int) (foundReleases, error) {
+	lang, _, _ := strings.Cut(fullLang, "-") // e.g. es-ES: TMDB has titles per country
+	work, err := r.media.Get(ctx, id, fullLang)
+	if err != nil {
+		return foundReleases{}, mediaError{err}
+	}
 	target := release.Target{Year: work.Year, Series: work.Kind == meta.Series,
-		TitleLanguage: map[string]string{}}
-	target.Season, _ = strconv.Atoi(q.Get("season"))
-	target.Episode, _ = strconv.Atoi(q.Get("episode"))
+		TitleLanguage: map[string]string{}, Season: season, Episode: episode}
 	target.Titles = work.Titles()
 	// Titles in the requested language suggest the file is in it.
 	if !strings.EqualFold(work.Title, work.OriginalTitle) {
@@ -148,7 +182,12 @@ func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			out[i].res, out[i].err = r.Search(req.Context(), server.Query{Keywords: kw, Type: server.TypeVideo}, true)
+			q := server.Query{Keywords: kw, Type: server.TypeVideo}
+			if r.testSearch != nil {
+				out[i].res, out[i].err = r.testSearch(ctx, q)
+			} else {
+				out[i].res, out[i].err = r.Search(ctx, q, true)
+			}
 		}()
 	}
 	wg.Wait()
@@ -173,8 +212,7 @@ func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if len(order) == 0 && firstErr != nil {
-		fail(w, errCode(firstErr), firstErr)
-		return
+		return foundReleases{}, firstErr
 	}
 
 	var cands []release.Candidate
@@ -194,7 +232,7 @@ func (r *REST) mediaReleases(w http.ResponseWriter, req *http.Request) {
 		list = append(list, Release{Hash: x.Hash.String(), Link: x.Link, Candidate: c,
 			Recommended: i == 0 && !c.Hidden})
 	}
-	reply(w, map[string]any{"work": work, "queries": queries, "releases": list})
+	return foundReleases{work: work, queries: queries, releases: list}, nil
 }
 
 // searchWords turns a title into eD2K search words: punctuation becomes a

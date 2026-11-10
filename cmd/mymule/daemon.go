@@ -34,6 +34,7 @@ import (
 	"mymule/internal/share"
 	"mymule/internal/stats"
 	"mymule/internal/upload"
+	"mymule/internal/wanted"
 	"mymule/internal/web"
 )
 
@@ -87,6 +88,11 @@ type engine struct {
 	// portmap opens our ports on the router; nil when upnp is off.
 	portmap     *portmap.Mapper
 	portmapDone chan struct{}
+
+	// wanted is the wish list; runWanted searches for it (set with the
+	// web interface).
+	wanted    *wanted.Store
+	runWanted func(context.Context)
 
 	nextMu sync.Mutex
 	next   string // server to connect to next, chosen in the web interface
@@ -353,6 +359,7 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 				defer eng.moving.Add(-1)
 				eng.organize(h, name, path)
 			}()
+			eng.wanted.Completed(h.String())
 		},
 		Library:     lib,
 		Upload:      up,
@@ -384,8 +391,9 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	}
 	m = download.NewManager(dc)
 	*eng = engine{Manager: m, lib: lib, up: up, kad: kadEng, cred: cred, stats: totals, ipf: ipf, portmap: pm,
-		prefs: prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
-		items: library.OpenStore(filepath.Join(dataDir, "library.json"))}
+		prefs:  prefs.Open(filepath.Join(dataDir, "preferences.json"), dataDir),
+		items:  library.OpenStore(filepath.Join(dataDir, "library.json")),
+		wanted: wanted.Open(filepath.Join(dataDir, "wanted.json"))}
 	eng.prefs.Protect(tmp)
 	eng.prefs.AllowNetworkHosts(settings.NetworkHosts)
 	saved, usable := eng.prefs.Get().Library, eng.prefs.Library()
@@ -762,6 +770,8 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableLibrary(e.prefs, e.items, e.updateShared)
 		rest.EnableServers(e)
 		rest.EnableSettings(e.prefs.CheckFolder)
+		rest.EnableWanted(e.wanted, logf)
+		e.runWanted = rest.RunWanted
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()
 			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)
@@ -796,6 +806,10 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 	}
 	hs := newHTTPServer(publicRoutes(m, downloadDir))
 	go hs.Serve(ln)
+	wctx, stopWanted := context.WithCancel(context.Background())
+	if m.runWanted != nil {
+		go m.runWanted(wctx)
+	}
 	// The key is never logged: logs get pasted into bug reports.
 	logf("HTTP API on http://%s (the key is api_key in mymule.conf; see docs/API.md and docs/ARR.md)", ln.Addr())
 	if len(settings.APIKey) < 20 {
@@ -813,6 +827,7 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		stopWanted()
 		hs.Shutdown(ctx)
 	}
 }

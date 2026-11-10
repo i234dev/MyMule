@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -108,13 +109,28 @@ func (r *REST) mediaDownload(w http.ResponseWriter, req *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	if mr.Lang == "" {
-		mr.Lang = "en"
-	}
-	work, err := r.media.Get(req.Context(), mr.WorkID, mr.Lang)
+	resp, err := r.addMedia(req.Context(), link, mr.WorkID, mr.Lang, mr.Season, mr.Episode)
 	if err != nil {
-		fail(w, http.StatusBadGateway, errors.New("movie database: "+err.Error()))
+		var me mediaError
+		if errors.As(err, &me) {
+			fail(w, http.StatusBadGateway, err)
+		} else {
+			fail(w, errCode(err), err)
+		}
 		return
+	}
+	reply(w, resp)
+}
+
+// addMedia downloads link as a file of the work id (season and episode:
+// what the user asked for, when the name does not say it).
+func (r *REST) addMedia(ctx context.Context, link ed2k.Link, workID, lang string, season, episode int) (mediaDownloadResponse, error) {
+	if lang == "" {
+		lang = "en"
+	}
+	work, err := r.media.Get(ctx, workID, lang)
+	if err != nil {
+		return mediaDownloadResponse{}, mediaError{err}
 	}
 	info := release.Parse(link.Name)
 	it := library.Item{Kind: work.Kind, Title: work.Title, OriginalTitle: work.OriginalTitle, Year: work.Year,
@@ -128,18 +144,17 @@ func (r *REST) mediaDownload(w http.ResponseWriter, req *http.Request) {
 		// The file name says best which episode it is.
 		it.Season, it.Episode = info.Season, info.Episode
 		if it.Season == 0 {
-			it.Season = mr.Season
+			it.Season = season
 		}
 		if it.Episode == 0 && info.Season == 0 {
-			it.Episode = mr.Episode
+			it.Episode = episode
 		}
 		if et, ok := r.media.(meta.EpisodeTitler); ok && it.Season > 0 && it.Episode > 0 {
-			it.EpisodeTitle, _ = et.EpisodeTitle(req.Context(), work.ID, it.Season, it.Episode, mr.Lang)
+			it.EpisodeTitle, _ = et.EpisodeTitle(ctx, work.ID, it.Season, it.Episode, lang)
 		}
 	}
 	if err := r.m.AddLink(link); err != nil {
-		fail(w, errCode(err), err)
-		return
+		return mediaDownloadResponse{}, err
 	}
 	r.items.Put(link.Hash.String(), it)
 	resp := mediaDownloadResponse{Added: []string{link.Name}}
@@ -151,7 +166,7 @@ func (r *REST) mediaDownload(w http.ResponseWriter, req *http.Request) {
 			resp.Folder = base
 		}
 	}
-	reply(w, resp)
+	return resp, nil
 }
 
 // mediaDownloadResponse says what was added and where it will go: File

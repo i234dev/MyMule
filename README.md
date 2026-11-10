@@ -52,6 +52,10 @@ Python, cron, home automation).
   router allows it
 - IP filter: eMule's `ipfilter.dat` (or a list downloaded every week from
   `ip_filter_url`) blocks connections from and to the addresses in it
+- Wish list: MyMule searches by itself for the movies and episodes you
+  want and downloads them when a good file shows up, starting the day they
+  come out at home (digital or disc) or air, not while they are only in
+  cinemas
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from

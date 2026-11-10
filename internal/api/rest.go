@@ -20,6 +20,7 @@ import (
 	"mymule/internal/share"
 	"mymule/internal/stats"
 	"mymule/internal/upload"
+	"mymule/internal/wanted"
 )
 
 // REST is the public HTTP API for scripts and other programs (PHP, cron,
@@ -38,6 +39,11 @@ type REST struct {
 	onPrefs     func()                   // called after preferences change
 	servers     ServerControl            // server list and switching; nil = disabled
 	folderCheck config.FolderCheck       // new folders in mymule.conf; nil = refused
+	wanted      *wanted.Store            // the wish list; nil = disabled
+	nudge       chan struct{}            // wakes RunWanted
+	logf        func(string, ...any)     // MyMule's log (wish list)
+	// testSearch replaces the eD2K searches of movies and series in tests.
+	testSearch func(context.Context, server.Query) ([]SearchResult, error)
 }
 
 // AlsoAllow accepts requests for which f returns true, in addition to the

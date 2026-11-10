@@ -147,6 +147,12 @@ table.results { width: 100%; border-collapse: collapse; background: var(--card);
 .work .wd { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .work-head { margin-top: 10px; display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: start; }
 .work-info { display: grid; gap: 4px; }
+#w-want { justify-self: start; margin-top: 6px; }
+.wanted-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; padding: 10px; }
+.wanted-row .poster { width: 56px; }
+.wanted-text { display: grid; gap: 3px; min-width: 0; }
+.wanted-text span { overflow-wrap: anywhere; }
+.wanted-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .work-head h2 { margin: 0; font-size: 20px; }
 .work-head p { margin: 0; }
 .rel { display: grid; gap: 6px; padding: 12px 14px; }
@@ -205,6 +211,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 
 @media (max-width: 640px) {
   main { padding: 10px; }
+  .wanted-row { grid-template-columns: 48px 1fr; }
+  .wanted-row .poster { width: 48px; }
+  .wanted-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .top { padding: 8px 10px; justify-content: space-between; }
   .chips { order: 3; flex-basis: 100%; }
   .row-form { flex-direction: column; }

@@ -171,6 +171,17 @@ func (m *Manager) Cancel(h ed2k.Hash) (string, error) {
 	return f.pf.Name, f.pf.Delete()
 }
 
+// Has reports whether h is in the download list, and whether it finished.
+func (m *Manager) Has(h ed2k.Hash) (present, finished bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f := m.files[h]
+	if f == nil {
+		return false, false
+	}
+	return true, f.finished
+}
+
 // SetFinishedPath records that a completed file was moved (e.g. renamed
 // into a movie library), so the status shows where it is now.
 func (m *Manager) SetFinishedPath(h ed2k.Hash, path string) {

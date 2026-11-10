@@ -42,6 +42,28 @@ const STRINGS = {
     "media.wholeseason": "Whole season",
     "media.seasonn": "Season {n}",
     "media.episodes": "{n} episodes",
+    "want.list": "Wish list",
+    "want.hint": "Movies and episodes MyMule looks for by itself, and downloads when a file good enough for your preferences shows up.",
+    "want.empty": "Nothing yet. Open a movie or series and press \"Add to wish list\".",
+    "want.add": "♡ Add to wish list",
+    "want.added": "♥ In your wish list",
+    "want.addedmsg": "Added to the wish list: MyMule will look for it and download it when it finds a good file.",
+    "want.notout.digital": "Out on digital on {d}. Until then there are only cinema copies: add it to the wish list and MyMule will look for it from that day.",
+    "want.notout.disc": "Out on disc on {d}. Until then there are only cinema copies: add it to the wish list and MyMule will look for it from that day.",
+    "want.notout.estimated": "Probably out at home around {d} (from its cinema release). Add it to the wish list and MyMule will look for it from then.",
+    "want.notout.aired": "Airs on {d}. Add it to the wish list and MyMule will look for it from then.",
+    "want.notout.undated": "Not aired yet, with no date. Add it to the wish list and MyMule will look for it once it airs.",
+    "want.waits.digital": "Waiting: out on digital on {d}",
+    "want.waits.disc": "Waiting: out on disc on {d}",
+    "want.waits.estimated": "Waiting: probably out at home around {d}",
+    "want.waits.aired": "Waiting: airs on {d}",
+    "want.waits.undated": "Waiting: no air date yet",
+    "want.pending": "Will be searched for in a few minutes",
+    "want.searched": "Searched {n} times, last on {d}: nothing good enough yet",
+    "want.downloading": "Found, downloading: {f}",
+    "want.done": "Downloaded: {f}",
+    "want.searchnow": "Search now", "want.remove": "Remove",
+    "want.searching": "It will be searched for in a moment.",
     "srv.title": "Servers", "srv.close": "Close",
     "srv.hint": "The server you are connected to. Global searches and sources use all of them anyway.",
     "srv.auto": "Server choice: automatic (the best one available)",
@@ -181,6 +203,28 @@ const STRINGS = {
     "media.wholeseason": "Temporada completa",
     "media.seasonn": "Temporada {n}",
     "media.episodes": "{n} episodios",
+    "want.list": "Lista de deseos",
+    "want.hint": "Películas y episodios que MyMule busca por sí mismo, y descarga cuando aparece un archivo que cumple tus preferencias.",
+    "want.empty": "Nada todavía. Abre una película o serie y pulsa \"Añadir a la lista de deseos\".",
+    "want.add": "♡ Añadir a la lista de deseos",
+    "want.added": "♥ En tu lista de deseos",
+    "want.addedmsg": "Añadida a la lista de deseos: MyMule la buscará y la descargará cuando encuentre un buen archivo.",
+    "want.notout.digital": "Sale en digital el {d}. Hasta entonces solo habrá copias de cine: añádela a la lista de deseos y MyMule la buscará desde ese día.",
+    "want.notout.disc": "Sale en disco el {d}. Hasta entonces solo habrá copias de cine: añádela a la lista de deseos y MyMule la buscará desde ese día.",
+    "want.notout.estimated": "Saldrá para casa hacia el {d} (por su estreno en cines). Añádela a la lista de deseos y MyMule la buscará desde entonces.",
+    "want.notout.aired": "Se emite el {d}. Añádelo a la lista de deseos y MyMule lo buscará desde entonces.",
+    "want.notout.undated": "Aún no se ha emitido y no tiene fecha. Añádelo a la lista de deseos y MyMule lo buscará cuando se emita.",
+    "want.waits.digital": "Esperando: sale en digital el {d}",
+    "want.waits.disc": "Esperando: sale en disco el {d}",
+    "want.waits.estimated": "Esperando: saldrá para casa hacia el {d}",
+    "want.waits.aired": "Esperando: se emite el {d}",
+    "want.waits.undated": "Esperando: aún sin fecha de emisión",
+    "want.pending": "Se buscará en unos minutos",
+    "want.searched": "Buscada {n} veces, la última el {d}: aún nada que cumpla tus preferencias",
+    "want.downloading": "Encontrada, descargando: {f}",
+    "want.done": "Descargada: {f}",
+    "want.searchnow": "Buscar ahora", "want.remove": "Quitar",
+    "want.searching": "Se buscará en un momento.",
     "srv.title": "Servidores", "srv.close": "Cerrar",
     "srv.hint": "El servidor al que estás conectado. Las búsquedas globales y la búsqueda de fuentes usan todos igualmente.",
     "srv.auto": "Elección de servidor: automática (el mejor disponible)",
@@ -740,6 +784,7 @@ $("#media-form").addEventListener("submit", async e => {
   msg.className = "msg";
   msg.hidden = false;
   $("#work").hidden = true;
+  $("#wanted").hidden = true;
   $("#works").hidden = false;
   currentWork = null;
   try {
@@ -794,6 +839,9 @@ function openWork(w) {
   $("#w-poster").replaceChildren(poster(w, "w342"));
   $("#releases").replaceChildren();
   $("#rel-bar").hidden = true;
+  $("#wanted").hidden = true;
+  $("#w-avail").hidden = true;
+  $("#w-want").hidden = true;
   const series = w.kind === "series";
   $("#episode-form").hidden = !series;
   if (series) {
@@ -876,6 +924,7 @@ async function findReleases() {
     msg.hidden = releases.length > 0;
     if (!releases.length) showMsg(msg, t("media.nofiles"));
     renderReleases();
+    showWantButton(w, r.available);
   } catch (err) {
     if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
   } finally {
@@ -970,6 +1019,113 @@ function markHaveReleases() {
     }
   });
 }
+
+// ---------- Wish list ----------
+let wantedList = [], wantedTimer = null;
+
+// wantedID is the wish list identifier of a work, season and episode.
+function wantedID(workID, season, episode) {
+  return season || episode ? workID + ":s" + (season || 0) + "e" + (episode || 0) : workID;
+}
+
+function isUndated(d) { return !d || new Date(d).getFullYear() >= 9999; }
+function day(d) { return new Date(d).toLocaleDateString(LANG, { day: "numeric", month: "long", year: "numeric" }); }
+
+// showWantButton offers the wish list for the open work (and, when it is
+// not out at home yet, says when it will be).
+function showWantButton(w, available) {
+  const avail = $("#w-avail");
+  if (available) {
+    avail.textContent = isUndated(available.date) ? t("want.notout.undated")
+      : t("want.notout." + available.kind, { d: day(available.date) });
+    avail.hidden = false;
+  } else {
+    avail.hidden = true;
+  }
+  const p = w.kind === "series" ? pickedEpisode() : { season: 0, episode: 0 };
+  const id = wantedID(w.id, p.season, p.episode);
+  const b = $("#w-want");
+  const have = wantedList.some(e => e.id === id);
+  b.textContent = t(have ? "want.added" : "want.add");
+  b.disabled = have;
+  b.hidden = false;
+  b.onclick = async () => {
+    try {
+      await api("POST", "/api/v1/wanted", { work_id: w.id, lang: MEDIA_LANG, season: p.season, episode: p.episode });
+      b.textContent = t("want.added");
+      b.disabled = true;
+      showMsg($("#rel-msg"), t("want.addedmsg"), "ok");
+      loadWanted();
+    } catch (err) {
+      if (!(err instanceof AuthError)) showMsg($("#rel-msg"), err.message, "bad");
+    }
+  };
+}
+
+async function loadWanted() {
+  try {
+    const r = await api("GET", "/api/v1/wanted");
+    wantedList = r.wanted || [];
+  } catch { return; }
+  $("#wanted-count").textContent = wantedList.length ? "(" + wantedList.length + ")" : "";
+  if (!$("#wanted").hidden) renderWanted();
+}
+
+function wantedStatus(e) {
+  if (e.status === "downloading") return t("want.downloading", { f: e.file });
+  if (e.status === "done") return t("want.done", { f: e.file });
+  if (e.not_before && new Date(e.not_before) > new Date() && !e.force) {
+    return isUndated(e.not_before) ? t("want.waits.undated") : t("want.waits." + e.not_before_is, { d: day(e.not_before) });
+  }
+  if (e.searches && e.last_search) return t("want.searched", { n: e.searches, d: new Date(e.last_search).toLocaleString(LANG) });
+  return t("want.pending");
+}
+
+function renderWanted() {
+  const list = $("#wanted-list");
+  if (!wantedList.length) {
+    list.replaceChildren(el("p", { class: "muted", text: t("want.empty") }));
+    return;
+  }
+  list.replaceChildren(...wantedList.map(e => {
+    let title = e.title + (e.year ? " (" + e.year + ")" : "");
+    if (e.season) title += " · " + t("media.seasonn", { n: e.season }) + (e.episode ? " · " + t("media.episode") + " " + e.episode : "");
+    return el("div", { class: "card wanted-row" },
+      poster({ poster: e.poster, kind: e.kind }, "w185"),
+      el("div", { class: "wanted-text" },
+        el("strong", { text: title }),
+        el("span", { class: "muted", text: wantedStatus(e) })),
+      el("div", { class: "wanted-actions" },
+        e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
+        el("button", { class: "ghost small", text: t("want.remove"), onclick: () => wantedAction("DELETE", e.id, "") })));
+  }));
+}
+
+async function wantedAction(method, id, suffix) {
+  try {
+    await api(method, "/api/v1/wanted/" + encodeURIComponent(id) + suffix);
+    if (suffix === "/search") showMsg($("#wanted-msg"), t("want.searching"), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg($("#wanted-msg"), err.message, "bad");
+  }
+  loadWanted();
+}
+
+$("#wanted-open").addEventListener("click", () => {
+  $("#works").hidden = true;
+  $("#work").hidden = true;
+  $("#media-msg").hidden = true;
+  $("#wanted-msg").hidden = true;
+  $("#wanted").hidden = false;
+  currentWork = null;
+  renderWanted();
+  loadWanted();
+  clearInterval(wantedTimer);
+  wantedTimer = setInterval(() => {
+    if ($("#wanted").hidden || currentTab !== "media") clearInterval(wantedTimer);
+    else loadWanted();
+  }, 30000);
+});
 
 // ---------- Settings ----------
 let presets = { movie: [], series: [] }, prefsLoaded = false, previewTimer = null;
@@ -1296,6 +1452,7 @@ async function start() {
   }
   selectTab(TABS.includes(tab) ? tab : "downloads", "replace");
   startPolling();
+  loadWanted();
   if (!termsAccepted()) showTerms(true);
 }
 

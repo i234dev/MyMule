@@ -77,6 +77,10 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | GET | `/api/v1/search` | Search the eD2K network |
 | GET | `/api/v1/settings` | Every setting of `mymule.conf` (with the web interface on) |
 | PUT | `/api/v1/settings` | Change settings in `mymule.conf` (with the web interface on) |
+| GET | `/api/v1/wanted` | The wish list (with the web interface on) |
+| POST | `/api/v1/wanted` | Add a movie, episode or season to the wish list |
+| POST | `/api/v1/wanted/{id}/search` | Search for a wish list entry now |
+| DELETE | `/api/v1/wanted/{id}` | Remove a wish list entry |
 
 `{hash}` is the 32-character ed2k hash of the file, as returned in `hash`.
 
@@ -208,6 +212,28 @@ Settings with `locked` (`api_listen`, `api_key`, `api_hosts`,
 changed in `mymule.conf` itself (`403`); `api_key` is never sent. With
 `env`, a `MYMULE_` environment variable overrides the file, so a change
 there does not apply while it is set.
+
+### Wish list
+
+Movies, episodes and seasons that MyMule searches for by itself and
+downloads, as if picked in the web interface, once a file good enough for
+the search preferences shows up (never a cinema copy). One search every
+10 minutes at most, and each entry every 6 hours, so the servers are not
+flooded.
+
+`POST /api/v1/wanted` with `{"work_id": "tmdb-movie-123", "lang": "es-ES"}`
+(`work_id` as in `/api/v1/media/search`; for a series also `season` and
+`episode`, 0 for a whole season) adds an entry. Each entry has `id`,
+`title`, `year`, `kind`, `season`, `episode`, `status` (`wanted`,
+`downloading` or `done`), `searches`, `last_search`, and `hash` and
+`file` once found.
+
+An entry is not searched for before it comes out at home: `not_before`,
+with `not_before_is` saying why (`digital` or `disc` release, `aired` for
+an episode, or `estimated` from the cinema release). That date is checked
+again every day. `POST /api/v1/wanted/{id}/search` searches for it now
+anyway. If its download is cancelled, the entry is searched for again and
+that file is never taken again.
 
 ## Examples
 

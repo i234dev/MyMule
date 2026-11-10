@@ -25,7 +25,7 @@ Daemon (recommended):
   stop                        Stop it, saving all progress
   top                         Live full-screen view of everything (q to quit)
   status [-w 5s]              Server, speed and progress of every download
-  add [-source ip:port] <link>...  Add ed2k links
+  add [-source ip:port] <link>...  Add ed2k links (or .emulecollection files)
   search [flags] <keywords>   Search (through the daemon if it is running)
   pause|resume <hash|name>    Pause or resume a download
   priority <hash|name> high|normal|low  Who gets sources first

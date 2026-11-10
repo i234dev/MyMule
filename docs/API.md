@@ -76,6 +76,7 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/downloads/{hash}/preview` | `{"preview": true}`: download the first and last parts first |
 | DELETE | `/api/v1/downloads/{hash}` | Cancel (deletes partial data); for a finished download, only removes it from the list |
 | POST | `/api/v1/downloads/clear` | Remove finished downloads from the list |
+| POST | `/api/v1/downloads/collection` | Add every file of an eMule collection: the body is the `.emulecollection` file (or text with ed2k links) |
 | GET | `/api/v1/search` | Search the eD2K network |
 | GET | `/api/v1/settings` | Every setting of `mymule.conf` (with the web interface on) |
 | PUT | `/api/v1/settings` | Change settings in `mymule.conf` (with the web interface on) |

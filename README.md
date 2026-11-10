@@ -67,6 +67,8 @@ Python, cron, home automation).
 - Compressed transfers, as eMule's: blocks of files that compress (not
   videos, music or archives) travel compressed, both ways, with clients
   that support it
+- eMule collections (`.emulecollection`): `mymule add` or the web
+  interface adds every file in them
 - Download and upload speed limits; queue places asked over UDP, as eMule
   does, instead of a new connection each time
 - Source exchange with other eMule clients: the peers you download from

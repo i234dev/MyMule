@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,6 +65,7 @@ func NewREST(m *download.Manager, key, version string) *REST {
 	r.mux.HandleFunc("POST /api/v1/downloads", r.addDownloads)
 	r.mux.HandleFunc("POST /api/v1/downloads/clear", r.clearFinished)
 	r.mux.HandleFunc("GET /api/v1/downloads/{hash}", r.getDownload)
+	r.mux.HandleFunc("POST /api/v1/downloads/collection", r.addCollection)
 	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/pause", r.pause(true))
 	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/priority", r.setPriority)
 	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/preview", r.setPreview)
@@ -304,6 +306,30 @@ func (r *REST) addDownloads(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(resp)
 		return
+	}
+	reply(w, resp)
+}
+
+// addCollection adds the files of an eMule collection: the body is the
+// .emulecollection file (or text with ed2k:// links).
+func (r *REST) addCollection(w http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, ed2k.MaxCollectionSize))
+	if err != nil {
+		fail(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
+	name, links, err := ed2k.ParseCollection(body)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	resp := AddResponse{Added: []string{}, Collection: name}
+	for _, link := range links {
+		if err := r.m.AddLink(link); err != nil {
+			resp.Errors = append(resp.Errors, link.Name+": "+err.Error())
+			continue
+		}
+		resp.Added = append(resp.Added, link.Name)
 	}
 	reply(w, resp)
 }

@@ -375,3 +375,17 @@ func TestRESTPriority(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 }
+
+// A collection (here as text) adds all its files.
+func TestRESTCollection(t *testing.T) {
+	srv, _ := newTestREST(t)
+	text := "ed2k://|file|Example.Film.mkv|20000000|0123456789ABCDEF0123456789ABCDEF|/\n" +
+		"ed2k://|file|Example.Show.S01E01.mkv|30000000|AAAA456789ABCDEF0123456789ABCDEF|/\n"
+	var r AddResponse
+	if code := call(t, srv, "POST", "/api/v1/downloads/collection", "application/octet-stream", text, &r); code != 200 || len(r.Added) != 2 {
+		t.Fatalf("%d %+v", code, r)
+	}
+	if code := call(t, srv, "POST", "/api/v1/downloads/collection", "application/octet-stream", "nothing here", nil); code != 400 {
+		t.Fatalf("not a collection: %d", code)
+	}
+}

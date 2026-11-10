@@ -6,12 +6,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -677,18 +679,26 @@ func cmdAdd(args []string) error {
 	fs.Var(&sources, "source", "extra source ip:port for the links (repeatable), e.g. a NAS on your LAN")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
-		return errors.New("usage: mymule add [-source ip:port] <ed2k-link>...")
+		return errors.New("usage: mymule add [-source ip:port] <ed2k-link or .emulecollection file>...")
 	}
+	var links []string
 	for _, a := range fs.Args() {
-		if _, err := ed2k.ParseLink(a); err != nil {
-			return fmt.Errorf("%q: %w", a, err)
+		if _, err := ed2k.ParseLink(a); err == nil {
+			links = append(links, a)
+			continue
 		}
+		// A collection file (eMule's, or text with links)?
+		ls, err := readCollection(a)
+		if err != nil {
+			return fmt.Errorf("%q: not an ed2k link, nor a collection file: %w", a, err)
+		}
+		links = append(links, ls...)
 	}
 	c, err := mustDaemon()
 	if err != nil {
 		return err
 	}
-	r, err := c.Add(api.AddRequest{Links: fs.Args(), Sources: sources})
+	r, err := c.Add(api.AddRequest{Links: links, Sources: sources})
 	if err != nil {
 		return err
 	}
@@ -702,6 +712,31 @@ func cmdAdd(args []string) error {
 		return errors.New("some links were not added")
 	}
 	return nil
+}
+
+// readCollection returns the links of a collection file.
+func readCollection(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, ed2k.MaxCollectionSize+1))
+	if err != nil {
+		return nil, err
+	}
+	name, links, err := ed2k.ParseCollection(b)
+	if err != nil {
+		return nil, err
+	}
+	if name != "" {
+		fmt.Println("collection " + strconv.Quote(name) + ": " + strconv.Itoa(len(links)) + " files")
+	}
+	var out []string
+	for _, l := range links {
+		out = append(out, l.String())
+	}
+	return out, nil
 }
 
 func cmdPriority(args []string) error {

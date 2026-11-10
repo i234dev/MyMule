@@ -45,6 +45,8 @@ type AddRequest struct {
 type AddResponse struct {
 	Added  []string `json:"added"`
 	Errors []string `json:"errors,omitempty"`
+	// Collection: the name of the collection the files came from.
+	Collection string `json:"collection,omitempty"`
 }
 
 // SearchRequest is the body of POST /v1/search.

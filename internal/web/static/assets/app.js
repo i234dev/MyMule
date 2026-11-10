@@ -138,6 +138,8 @@ const STRINGS = {
     "dl.summary": "{n} downloads · {active} active",
     "dl.empty": "No downloads. Search for something or paste an ed2k:// link.",
     "dl.pause": "Pause", "dl.resume": "Resume", "dl.cancel": "Cancel", "dl.remove": "Remove",
+    "add.file": "Collection…", "add.filehint": "Add every file of an eMule collection (.emulecollection) or a text file with ed2k links",
+    "add.collection": "Collection “{c}”",
     "prio.normal": "Priority: normal", "prio.high": "Priority: high", "prio.low": "Priority: low",
     "prio.hint": "Downloads with a higher priority get sources first. Click to change.",
     "dl.preview": "Preview", "dl.previewon": "Preview: on",
@@ -314,6 +316,8 @@ const STRINGS = {
     "dl.summary": "{n} descargas · {active} activas",
     "dl.empty": "No hay descargas. Busca algo o pega un enlace ed2k://.",
     "dl.pause": "Pausar", "dl.resume": "Reanudar", "dl.cancel": "Cancelar", "dl.remove": "Quitar",
+    "add.file": "Colección…", "add.filehint": "Añadir todos los archivos de una colección de eMule (.emulecollection) o de un texto con enlaces ed2k",
+    "add.collection": "Colección “{c}”",
     "prio.normal": "Prioridad: normal", "prio.high": "Prioridad: alta", "prio.low": "Prioridad: baja",
     "prio.hint": "Las descargas con más prioridad cogen fuentes antes. Pulsa para cambiarla.",
     "dl.preview": "Vista previa", "dl.previewon": "Vista previa: sí",
@@ -419,7 +423,10 @@ class AuthError extends Error {}
 
 async function api(method, path, body) {
   const opts = { method, headers: { "X-MyMule-UI": "1" }, credentials: "same-origin" };
-  if (body !== undefined) {
+  if (body instanceof Blob) {
+    opts.headers["Content-Type"] = "application/octet-stream";
+    opts.body = body;
+  } else if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
@@ -685,6 +692,25 @@ function confirmAction(text, name, okLabel, onOK) {
 
 $("#dl-clear").addEventListener("click", async () => {
   try { await api("POST", "/api/v1/downloads/clear"); } catch (e) { if (!(e instanceof AuthError)) alert(e.message); }
+  refresh();
+});
+
+// A collection file (.emulecollection, or text with links) adds all its
+// files.
+$("#add-collection").addEventListener("click", () => $("#add-file").click());
+$("#add-collection").title = t("add.filehint");
+$("#add-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const msg = $("#add-msg");
+  try {
+    const r = await api("POST", "/api/v1/downloads/collection", file);
+    const what = r.collection ? t("add.collection", { c: r.collection }) + " · " : "";
+    showMsg(msg, what + t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "warn" : "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
   refresh();
 });
 

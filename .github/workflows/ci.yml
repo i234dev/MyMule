@@ -1,7 +1,7 @@
 name: CI
 
-# Every push and pull request: tests on Windows, Linux and macOS, a check
-# for known vulnerabilities, then binaries for every platform attached to
+# Every push and pull request: tests on Windows and Linux (macOS: see
+# macos.yml), a check for known vulnerabilities, then binaries for every platform attached to
 # the run (Actions tab) and a test build of the container image. Pushing a
 # tag vX.Y.Z also publishes a GitHub Release with those binaries and a
 # signed build provenance attestation, and the container image on
@@ -66,22 +66,6 @@ jobs:
           go-version-file: go.mod
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-
-  # Hosted macOS runners are often scarce: when none is free the job is
-  # cancelled. It runs on its own so it never blocks builds or releases
-  # (macOS binaries are cross-compiled on Linux anyway).
-  test-macos:
-    name: Test (macos-latest, informative)
-    runs-on: macos-latest
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test -count=1 -timeout 5m ./...
 
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}

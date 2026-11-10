@@ -1,0 +1,48 @@
+name: macOS retry
+
+# When GitHub cancels the macOS tests because no macOS runner was free,
+# run them again, up to 20 times, so every commit is tested on macOS in
+# the end however long that takes. A run that started (and was then
+# stopped) or an older commit of the branch is not run again. Nothing of
+# the repository is checked out or run here.
+
+on:
+  workflow_run:
+    workflows: [macOS]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'cancelled' && github.event.workflow_run.run_attempt < 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Run the macOS tests again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          # Only when no runner ever took it: no step ran.
+          started=$(gh run view "$RUN" --repo "$REPO" --json jobs --jq '[.jobs[].steps | length] | add // 0')
+          if [ "$started" != "0" ]; then
+            echo "It ran (or was stopped while running): not run again."
+            exit 0
+          fi
+          # Only the latest commit of a branch is worth testing.
+          if [ "$EVENT" = "push" ]; then
+            head=$(gh api "repos/$REPO/commits/$BRANCH" --jq .sha 2>/dev/null || true)
+            if [ -n "$head" ] && [ "$head" != "$SHA" ]; then
+              echo "$BRANCH has newer commits: not run again."
+              exit 0
+            fi
+          fi
+          sleep 300 # give the runners some time to free up
+          gh run rerun "$RUN" --repo "$REPO"

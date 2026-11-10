@@ -198,6 +198,9 @@ func (e *engine) organize(h ed2k.Hash, name, path string) string {
 	if !ok {
 		return ""
 	}
+	if it.Kind == library.KindCategory {
+		return e.toCategory(h, name, path, it.Category)
+	}
 	if !library.IsMedia(path) {
 		logf("%s: not a video, audio or subtitle file; left in %s", name, filepath.Dir(path))
 		return ""
@@ -218,6 +221,29 @@ func (e *engine) organize(h ed2k.Hash, name, path string) string {
 		e.lib.Moved(path, final)
 	}
 	logf("ORGANIZED %s -> %s", name, final)
+	return final
+}
+
+// toCategory moves a finished download into its category's folder,
+// keeping its name. It returns where the file is now ("" when not moved).
+func (e *engine) toCategory(h ed2k.Hash, name, path, category string) string {
+	c, ok := e.prefs.Category(category)
+	if !ok {
+		logf("%s: category %s is gone or its folder is not accepted; left in %s", name, category, filepath.Dir(path))
+		return ""
+	}
+	final, err := library.Move(path, filepath.Join(c.Dir, filepath.Base(path)))
+	if err != nil {
+		logf("%s: cannot move to %s: %v", name, c.Dir, err)
+		e.notify.Send(notify.Event{Kind: notify.Error, Title: "Could not move a download",
+			Message: name + ": cannot move it to " + c.Name + ": " + err.Error()})
+		return ""
+	}
+	e.SetFinishedPath(h, final)
+	if e.lib != nil {
+		e.lib.Moved(path, final)
+	}
+	logf("CATEGORY %s -> %s", name, final)
 	return final
 }
 
@@ -261,8 +287,8 @@ func kbps(n int) string {
 	return strconv.Itoa(n) + " KB/s"
 }
 
-// updateShared shares the movie and series folders (with subfolders) when
-// the preferences say so.
+// updateShared shares the movie and series folders, and the folders of
+// categories, (with subfolders) when the preferences say so.
 func (e *engine) updateShared() {
 	if e.lib == nil {
 		return
@@ -274,6 +300,11 @@ func (e *engine) updateShared() {
 			if d != "" {
 				trees = append(trees, d)
 			}
+		}
+	}
+	for _, c := range e.prefs.Categories() {
+		if c.Share {
+			trees = append(trees, c.Dir)
 		}
 	}
 	e.lib.SetTrees(trees)
@@ -487,6 +518,11 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 	for _, d := range [][2]string{{saved.MoviesDir, usable.MoviesDir}, {saved.SeriesDir, usable.SeriesDir}} {
 		if d[0] != "" && d[1] == "" {
 			logf("library folder %s is not used: it is no longer accepted (a network folder needs its computer in network_hosts in mymule.conf)", d[0])
+		}
+	}
+	for _, c := range eng.prefs.Get().Categories {
+		if _, ok := eng.prefs.Category(c.Name); !ok {
+			logf("category %s is not used: its folder %s is no longer accepted", c.Name, c.Dir)
 		}
 	}
 	eng.updateShared()

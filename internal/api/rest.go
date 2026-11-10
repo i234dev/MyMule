@@ -136,8 +136,10 @@ type RDownload struct {
 	State       string  `json:"state"` // downloading, queued, stalled, paused, finished
 	Path        string  `json:"path,omitempty"`
 	Link        string  `json:"link"`
-	Priority    string  `json:"priority"` // low, normal or high
-	Preview     bool    `json:"preview"`  // first and last parts first
+	Priority    string  `json:"priority"`           // low, normal or high
+	Preview     bool    `json:"preview"`            // first and last parts first
+	Category    string  `json:"category,omitempty"` // the category it goes to
+	Media       bool    `json:"media,omitempty"`    // a movie or episode (goes to the library)
 }
 
 // priorityNames are the API's names of download priorities.
@@ -216,7 +218,7 @@ func (r *REST) getStatus(w http.ResponseWriter, req *http.Request) {
 		Downloads: []RDownload{},
 	}
 	for _, f := range files {
-		st.Downloads = append(st.Downloads, ToRDownload(f))
+		st.Downloads = append(st.Downloads, r.withCategory(ToRDownload(f)))
 		st.DownloadSpeed += f.Speed
 	}
 	st.Upload, st.Shared = r.m.SharingStatus()
@@ -230,7 +232,7 @@ func (r *REST) listDownloads(w http.ResponseWriter, req *http.Request) {
 	_, files := r.m.Status()
 	out := []RDownload{}
 	for _, f := range files {
-		out = append(out, ToRDownload(f))
+		out = append(out, r.withCategory(ToRDownload(f)))
 	}
 	reply(w, map[string]any{"downloads": out})
 }
@@ -253,16 +255,18 @@ func (r *REST) find(w http.ResponseWriter, req *http.Request) (download.FileStat
 
 func (r *REST) getDownload(w http.ResponseWriter, req *http.Request) {
 	if f, ok := r.find(w, req); ok {
-		reply(w, ToRDownload(f))
+		reply(w, r.withCategory(ToRDownload(f)))
 	}
 }
 
 // addRequest accepts JSON ({"links": [...], "sources": [...]}) or a form
 // field "link" (repeatable), which is the easiest from PHP or curl -d.
+// Category (optional) is where the files go when they finish.
 type addRequest struct {
-	Links   []string `json:"links"`
-	Link    string   `json:"link"`
-	Sources []string `json:"sources"`
+	Links    []string `json:"links"`
+	Link     string   `json:"link"`
+	Sources  []string `json:"sources"`
+	Category string   `json:"category"`
 }
 
 func (r *REST) addDownloads(w http.ResponseWriter, req *http.Request) {
@@ -279,6 +283,7 @@ func (r *REST) addDownloads(w http.ResponseWriter, req *http.Request) {
 		}
 		ar.Links = req.PostForm["link"]
 		ar.Sources = req.PostForm["source"]
+		ar.Category = req.PostForm.Get("category")
 	}
 	if ar.Link != "" {
 		ar.Links = append(ar.Links, ar.Link)
@@ -287,11 +292,19 @@ func (r *REST) addDownloads(w http.ResponseWriter, req *http.Request) {
 		fail(w, http.StatusBadRequest, errors.New(`send {"links": ["ed2k://|file|...|/"]} or a form field "link"`))
 		return
 	}
+	cat, err := r.category(ar.Category)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
 	resp := AddResponse{Added: []string{}}
 	for _, l := range ar.Links {
 		link, err := ed2k.ParseLink(l)
 		if err == nil {
 			err = r.m.AddLink(link, ar.Sources...)
+		}
+		if err == nil && cat != "" {
+			err = r.setItemCategory(link.Hash, cat)
 		}
 		if err != nil {
 			name := link.Name
@@ -313,8 +326,14 @@ func (r *REST) addDownloads(w http.ResponseWriter, req *http.Request) {
 }
 
 // addCollection adds the files of an eMule collection: the body is the
-// .emulecollection file (or text with ed2k:// links).
+// .emulecollection file (or text with ed2k:// links); ?category= sends
+// them to a category.
 func (r *REST) addCollection(w http.ResponseWriter, req *http.Request) {
+	cat, err := r.category(req.URL.Query().Get("category"))
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, ed2k.MaxCollectionSize))
 	if err != nil {
 		fail(w, http.StatusRequestEntityTooLarge, err)
@@ -327,7 +346,11 @@ func (r *REST) addCollection(w http.ResponseWriter, req *http.Request) {
 	}
 	resp := AddResponse{Added: []string{}, Collection: name}
 	for _, link := range links {
-		if err := r.m.AddLink(link); err != nil {
+		err := r.m.AddLink(link)
+		if err == nil && cat != "" {
+			err = r.setItemCategory(link.Hash, cat)
+		}
+		if err != nil {
 			resp.Errors = append(resp.Errors, link.Name+": "+err.Error())
 			continue
 		}

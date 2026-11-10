@@ -55,6 +55,7 @@
     <section id="tab-downloads" class="tab">
       <form id="add-form" class="card row-form">
         <input id="add-links" type="text" data-tp="add.placeholder" placeholder="Paste ed2k:// links here" autocomplete="off">
+        <select id="add-cat" class="cat-pick" hidden aria-label="Category"></select>
         <button type="submit" class="primary" data-t="add.submit">Add</button>
         <button type="button" id="add-collection" class="ghost" data-t="add.file">Collection…</button>
         <input type="file" id="add-file" accept=".emulecollection,.txt,text/plain" hidden>
@@ -140,6 +141,7 @@
       <div id="results-bar" class="toolbar" hidden>
         <span id="results-summary" class="muted"></span>
         <input id="results-filter" type="search" class="small-input" data-tp="results.filter" placeholder="Filter results">
+        <select id="results-cat" class="cat-pick small-input" hidden aria-label="Category"></select>
         <button id="results-get" class="primary small" disabled data-t="results.get">Download selected</button>
       </div>
       <div class="table-wrap">
@@ -238,6 +240,15 @@
         </div>
 
         <p id="lib-msg" class="msg" hidden></p>
+        <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
+      </form>
+
+      <form id="cat-form" class="card settings">
+        <h2 data-t="cat.title">Categories</h2>
+        <p class="muted" data-t="cat.hint">Folders for downloads that are not movies or episodes (music, books, software...). Choose one when you add a download; when it finishes, the file is moved there.</p>
+        <div id="cat-list" class="cat-list"></div>
+        <div><button type="button" id="cat-add" class="ghost small" data-t="cat.add">Add a category</button></div>
+        <p id="cat-msg" class="msg" hidden></p>
         <div><button type="submit" class="primary" data-t="set.save">Save</button></div>
       </form>
 

@@ -124,6 +124,12 @@ const STRINGS = {
     "set.tags": "Tags:", "set.tagshint": "\"/\" makes a folder; {season:2} adds a leading zero (01).",
     "set.titlelang": "Title in the file name", "set.titlelocal": "In your language", "set.titleorig": "Original title",
     "set.share": "Share the movie and series folders (with their subfolders)",
+    "cat.title": "Categories",
+    "cat.hint": "Folders for downloads that are not movies or episodes (music, books, software...). Choose one when you add a download; when it finishes, the file is moved there.",
+    "cat.add": "Add a category", "cat.name": "Name", "cat.dir": "Folder, e.g. /data/music",
+    "cat.share": "Share", "cat.remove": "Remove", "cat.pick": "Category",
+    "cat.none": "No category", "cat.btn": "Category",
+    "cat.hintbtn": "Where the file goes when it finishes. Click to change.",
     "set.save": "Save", "set.saved": "Saved.",
     "adv.title": "Advanced settings (mymule.conf)",
     "adv.hint": "Everything in mymule.conf: ports, folders, speeds… Changes are written to the file and take effect when MyMule restarts.",
@@ -337,6 +343,12 @@ const STRINGS = {
     "set.tags": "Etiquetas:", "set.tagshint": "\"/\" crea una carpeta; {season:2} añade un cero delante (01).",
     "set.titlelang": "Título en el nombre del fichero", "set.titlelocal": "En tu idioma", "set.titleorig": "Título original",
     "set.share": "Compartir las carpetas de películas y series (con sus subcarpetas)",
+    "cat.title": "Categorías",
+    "cat.hint": "Carpetas para descargas que no son películas ni episodios (música, libros, programas...). Elige una al añadir una descarga; cuando termine, el archivo se mueve allí.",
+    "cat.add": "Añadir una categoría", "cat.name": "Nombre", "cat.dir": "Carpeta, p. ej. /data/musica",
+    "cat.share": "Compartir", "cat.remove": "Quitar", "cat.pick": "Categoría",
+    "cat.none": "Sin categoría", "cat.btn": "Categoría",
+    "cat.hintbtn": "A dónde va el archivo cuando termine. Pulsa para cambiarla.",
     "set.save": "Guardar", "set.saved": "Guardado.",
     "adv.title": "Ajustes avanzados (mymule.conf)",
     "adv.hint": "Todo lo de mymule.conf: puertos, carpetas, velocidades… Los cambios se escriben en el fichero y se aplican al reiniciar MyMule.",
@@ -719,6 +731,12 @@ function downloadRow(d) {
       onclick: () => setDownload(d, "priority", { priority: next }) }));
     actions.push(el("button", { class: "icon" + (d.preview ? " on" : ""), text: t(d.preview ? "dl.previewon" : "dl.preview"),
       title: t("dl.previewhint"), onclick: () => setDownload(d, "preview", { preview: !d.preview }) }));
+    if (!d.media && (categories.length || d.category)) {
+      const names = ["", ...categories.map(c => c.name)];
+      const next = names[(names.indexOf(d.category || "") + 1) % names.length];
+      actions.push(el("button", { class: "icon" + (d.category ? " on" : ""), text: d.category || t("cat.btn"),
+        title: t("cat.hintbtn"), onclick: () => setDownload(d, "category", { category: next }) }));
+    }
   }
   if (d.state === "paused") actions.push(el("button", { class: "icon", text: t("dl.resume"), onclick: () => act("POST", d, "resume") }));
   else if (d.state !== "finished") actions.push(el("button", { class: "icon", text: t("dl.pause"), onclick: () => act("POST", d, "pause") }));
@@ -818,7 +836,8 @@ $("#add-file").addEventListener("change", async e => {
   if (!file) return;
   const msg = $("#add-msg");
   try {
-    const r = await api("POST", "/api/v1/downloads/collection", file);
+    const cat = $("#add-cat").value;
+    const r = await api("POST", "/api/v1/downloads/collection" + (cat ? "?category=" + encodeURIComponent(cat) : ""), file);
     const what = r.collection ? t("add.collection", { c: r.collection }) + " · " : "";
     showMsg(msg, what + t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "warn" : "ok");
   } catch (err) {
@@ -833,7 +852,7 @@ $("#add-form").addEventListener("submit", async e => {
   const msg = $("#add-msg");
   if (!links.length) { showMsg(msg, "ed2k://|file|...|/", "bad"); return; }
   try {
-    const r = await api("POST", "/api/v1/downloads", { links });
+    const r = await api("POST", "/api/v1/downloads", { links, category: $("#add-cat").value });
     showMsg(msg, t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "bad" : "ok");
     $("#add-links").value = "";
   } catch (err) {
@@ -948,7 +967,8 @@ async function download(list, msg) {
   const fromSearch = !msg;
   msg = msg || $("#search-msg");
   try {
-    const r = await api("POST", "/api/v1/downloads", { links: list.map(x => x.link) });
+    const r = await api("POST", "/api/v1/downloads", { links: list.map(x => x.link),
+      category: fromSearch ? $("#results-cat").value : "" });
     showMsg(msg, t("add.done", { n: r.added.length }) + (r.errors ? " · " + r.errors.join("; ") : ""), r.errors ? "bad" : "ok");
     list.forEach(x => selected.delete(x.hash.toUpperCase()));
   } catch (err) {
@@ -1699,6 +1719,8 @@ async function loadSettings() {
     $("#set-res").value = sp.resolution || "1080p";
     $("#set-maxsize").value = sp.max_size_gb || 0;
     $("#set-nocam").checked = !!sp.hide_cam;
+    setCategories(r.preferences.categories);
+    renderCategoryEditor();
     prefsLoaded = true;
     preview();
   } catch (err) {
@@ -1778,6 +1800,71 @@ $("#lib-form").addEventListener("submit", async e => {
   const msg = $("#lib-msg");
   try {
     await api("PUT", "/api/v1/preferences", { library: libraryForm() });
+    showMsg(msg, t("set.saved"), "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
+  }
+});
+
+// ---------- Categories ----------
+// Folders for downloads that are not movies or episodes.
+let categories = [];
+
+async function loadCategories() {
+  try { setCategories((await api("GET", "/api/v1/preferences")).preferences.categories); } catch { /* none then */ }
+}
+
+// setCategories keeps the list and fills the pickers where downloads are
+// added (hidden while there are none).
+function setCategories(list) {
+  categories = list || [];
+  for (const sel of [$("#add-cat"), $("#results-cat")]) {
+    const v = sel.value;
+    sel.replaceChildren(el("option", { value: "", text: t("cat.none") }),
+      ...categories.map(c => el("option", { value: c.name, text: c.name })));
+    sel.value = categories.some(c => c.name === v) ? v : "";
+    sel.hidden = !categories.length;
+    sel.setAttribute("aria-label", t("cat.pick"));
+  }
+}
+
+function categoryRow(c) {
+  const name = el("input", { type: "text", class: "cat-name", maxlength: "32", placeholder: t("cat.name"),
+    "aria-label": t("cat.name"), autocomplete: "off" });
+  const dir = el("input", { type: "text", class: "cat-dir", placeholder: t("cat.dir"),
+    "aria-label": t("cat.dir"), autocomplete: "off", spellcheck: "false" });
+  const share = el("input", { type: "checkbox", class: "cat-share" });
+  name.value = c.name || "";
+  dir.value = c.dir || "";
+  share.checked = !!c.share;
+  const row = el("div", { class: "cat-row" }, name, dir,
+    el("label", { class: "inline" }, share, el("span", { text: " " + t("cat.share") })),
+    el("button", { type: "button", class: "ghost small", text: t("cat.remove"), onclick: () => row.remove() }));
+  return row;
+}
+
+function renderCategoryEditor() {
+  $("#cat-list").replaceChildren(...categories.map(categoryRow));
+}
+
+$("#cat-add").addEventListener("click", () => {
+  const row = categoryRow({ share: true });
+  $("#cat-list").append(row);
+  row.querySelector(".cat-name").focus();
+});
+
+$("#cat-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("#cat-msg");
+  const list = [...document.querySelectorAll("#cat-list .cat-row")].map(r => ({
+    name: r.querySelector(".cat-name").value.trim(),
+    dir: r.querySelector(".cat-dir").value.trim(),
+    share: r.querySelector(".cat-share").checked,
+  })).filter(c => c.name || c.dir);
+  try {
+    const r = await api("PUT", "/api/v1/preferences", { categories: list });
+    setCategories(r.preferences.categories);
+    renderCategoryEditor();
     showMsg(msg, t("set.saved"), "ok");
   } catch (err) {
     if (!(err instanceof AuthError)) showMsg(msg, err.message, "bad");
@@ -1995,6 +2082,7 @@ async function start() {
   startPolling();
   loadWanted();
   loadRatings();
+  loadCategories();
   if (!termsAccepted()) showTerms(true);
 }
 

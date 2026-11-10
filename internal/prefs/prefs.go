@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	"mymule/internal/fsutil"
 	"mymule/internal/library"
@@ -23,7 +25,19 @@ type Preferences struct {
 	Library library.Settings `json:"library"`
 	Search  Search           `json:"search"`
 	Server  string           `json:"server"` // preferred eD2K server (ip:port); empty = automatic
+	// Categories are folders for downloads that are not movies or episodes.
+	Categories []Category `json:"categories"`
 }
+
+// Category is a named folder finished downloads can be sent to.
+type Category struct {
+	Name  string `json:"name"`
+	Dir   string `json:"dir"`
+	Share bool   `json:"share"` // share the folder (with subfolders)
+}
+
+// MaxCategories is how many categories there can be.
+const MaxCategories = 20
 
 // Search says which files of a movie or series are preferred.
 type Search struct {
@@ -131,6 +145,69 @@ func (s *Store) Library() library.Settings {
 	return l
 }
 
+// checkCategories tidies and checks the categories: a short unique name
+// and a folder that follows the rules of library folders.
+func (s *Store) checkCategories(list []Category) error {
+	if len(list) > MaxCategories {
+		return fmt.Errorf("too many categories (%d at most)", MaxCategories)
+	}
+	seen := map[string]bool{}
+	for i := range list {
+		c := &list[i]
+		c.Name, c.Dir = strings.TrimSpace(c.Name), strings.TrimSpace(c.Dir)
+		if c.Name == "" {
+			return errors.New("a category needs a name")
+		}
+		if utf8.RuneCountInString(c.Name) > 32 || strings.IndexFunc(c.Name, unicode.IsControl) >= 0 {
+			return fmt.Errorf("category %q: the name must be 32 characters at most", c.Name)
+		}
+		k := strings.ToLower(c.Name)
+		if seen[k] {
+			return fmt.Errorf("there are two categories called %q", c.Name)
+		}
+		seen[k] = true
+		if c.Dir == "" {
+			return fmt.Errorf("category %s needs a folder", c.Name)
+		}
+		abs := s.Abs(c.Dir)
+		if err := s.check(abs); err != nil {
+			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
+		}
+		if err := writable(abs); err != nil {
+			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
+		}
+		if err := s.check(abs); err != nil { // now that it exists, in case it is a link
+			return fmt.Errorf("category %s, folder %s: %w", c.Name, c.Dir, err)
+		}
+	}
+	return nil
+}
+
+// Category returns the category called name (any case) with its folder
+// made absolute. ok is false when there is none, or its folder is no
+// longer acceptable.
+func (s *Store) Category(name string) (c Category, ok bool) {
+	for _, c := range s.Get().Categories {
+		if strings.EqualFold(c.Name, name) {
+			c.Dir = s.usable(c.Dir)
+			return c, c.Dir != ""
+		}
+	}
+	return Category{}, false
+}
+
+// Categories returns the categories whose folders are acceptable, with
+// absolute folders.
+func (s *Store) Categories() []Category {
+	var out []Category
+	for _, c := range s.Get().Categories {
+		if c.Dir = s.usable(c.Dir); c.Dir != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // check applies checkFolder with this store's protected folders.
 func (s *Store) check(abs string) error {
 	s.mu.Lock()
@@ -171,6 +248,9 @@ func (s *Store) Set(p Preferences) error {
 		if _, port, err := net.SplitHostPort(p.Server); err != nil || port == "" {
 			return errors.New("the server must be ip:port, or empty for automatic")
 		}
+	}
+	if err := s.checkCategories(p.Categories); err != nil {
+		return err
 	}
 	sp := &p.Search
 	var langs []string

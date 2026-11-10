@@ -74,9 +74,10 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
 | POST | `/api/v1/downloads/{hash}/resume` | Resume |
 | POST | `/api/v1/downloads/{hash}/priority` | `{"priority": "high"}`: `low`, `normal` or `high`; higher priorities get sources first |
 | POST | `/api/v1/downloads/{hash}/preview` | `{"preview": true}`: download the first and last parts first |
+| POST | `/api/v1/downloads/{hash}/category` | `{"category": "Music"}`: move it to that category's folder when it finishes; `""` for none |
 | DELETE | `/api/v1/downloads/{hash}` | Cancel (deletes partial data); for a finished download, only removes it from the list |
 | POST | `/api/v1/downloads/clear` | Remove finished downloads from the list |
-| POST | `/api/v1/downloads/collection` | Add every file of an eMule collection: the body is the `.emulecollection` file (or text with ed2k links) |
+| POST | `/api/v1/downloads/collection` | Add every file of an eMule collection: the body is the `.emulecollection` file (or text with ed2k links); `?category=Music` sends them to a category |
 | GET | `/api/v1/search` | Search the eD2K network |
 | GET | `/api/v1/settings` | Every setting of `mymule.conf` (with the web interface on) |
 | PUT | `/api/v1/settings` | Change settings in `mymule.conf` (with the web interface on) |
@@ -112,7 +113,8 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
   "path": "",
   "link": "ed2k://|file|example-distro-1.0-amd64.iso|734003200|0123456789ABCDEF0123456789ABCDEF|/",
   "priority": "normal",
-  "preview": false
+  "preview": false,
+  "category": "Music"
 }
 ```
 
@@ -124,6 +126,9 @@ Base URL: `http://127.0.0.1:4711` (or the address you set in `api_listen`).
   connections, those of higher-priority downloads are asked first.
 - `preview`: the first and last parts are downloaded first, so a video
   can be played before it is complete.
+- `category`: the category it goes to when it finishes (see below);
+  `media` is `true` instead for a movie or episode, which goes to its own
+  folder.
 
 ### Add downloads
 
@@ -136,11 +141,24 @@ JSON body:
 
 or a form with one or more `link` fields (and optional `source` fields).
 `sources` are extra peers to try, e.g. another computer on your network
-that has the file. The reply lists what was added and what failed:
+that has the file. `"category": "Music"` (or a `category` form field)
+moves the files to that category's folder when they finish. The reply
+lists what was added and what failed:
 
 ```json
 {"added": ["example.iso"], "errors": []}
 ```
+
+### Categories
+
+Categories are folders for downloads that are not movies or episodes
+(music, books, software...). They are made in the web interface
+(Settings → Categories) and saved in `preferences.json`; each has a
+`name`, a `dir` and `share` (share the folder). Their folders follow the
+rules of the movie and series folders. When a download of a category
+finishes, it is moved into the category's folder with its own name. An
+unknown category is an error; a category whose folder is no longer
+accepted leaves the file in the download folder.
 
 ### Search
 

@@ -120,8 +120,23 @@ func (d *doctor) checkFiles() {
 			d.ok(fmt.Sprintf("%s: %s (%s free)", f.name, f.dir, humanSize(free)))
 		}
 	}
-	// The library folders chosen in the web interface.
-	if lib := prefs.Open(filepath.Join(dir, "preferences.json"), dir).Get().Library; lib.Organize {
+	// The library folders and categories chosen in the web interface.
+	pr := prefs.Open(filepath.Join(dir, "preferences.json"), dir)
+	for _, c := range pr.Get().Categories {
+		uc, ok := pr.Category(c.Name)
+		if !ok {
+			d.problem("Category "+c.Name+": its folder "+c.Dir+" is no longer accepted",
+				"Choose another folder for it in Settings, in the web interface.")
+			continue
+		}
+		if err := writable(uc.Dir); err != nil {
+			d.problem("Category "+c.Name+": "+uc.Dir+" is not writable: "+err.Error(),
+				"Finished downloads cannot be moved there: give it to the user MyMule runs as.")
+		} else {
+			d.ok("Category " + c.Name + ": " + uc.Dir)
+		}
+	}
+	if lib := pr.Get().Library; lib.Organize {
 		for _, f := range []struct{ name, dir string }{{"Movies folder", lib.MoviesDir}, {"Series folder", lib.SeriesDir}} {
 			if f.dir == "" {
 				continue

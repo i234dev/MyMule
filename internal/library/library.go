@@ -20,7 +20,7 @@ import (
 
 // Item is what we know about a download started from a movie or series.
 type Item struct {
-	Kind          string `json:"kind"` // movie or series
+	Kind          string `json:"kind"` // movie, series or category
 	Title         string `json:"title"`
 	OriginalTitle string `json:"original_title,omitempty"`
 	Year          int    `json:"year,omitempty"`
@@ -30,7 +30,11 @@ type Item struct {
 	Quality       string `json:"quality,omitempty"`  // 1080p...
 	Language      string `json:"language,omitempty"` // ES, EN+ES...
 	WorkID        string `json:"work_id,omitempty"`
+	Category      string `json:"category,omitempty"` // Kind category: its name
 }
+
+// KindCategory is the Kind of a download sent to a category's folder.
+const KindCategory = "category"
 
 // Settings say where and how finished files are organised.
 type Settings struct {
@@ -233,7 +237,7 @@ func tidy(s string) string {
 // src's folder) and only the template's last part is used, so it does not
 // go into subfolders: the download folder is shared without them.
 func Plan(st Settings, it Item, src string) (base, rel string, ok bool) {
-	if !st.Organize || !IsMedia(src) {
+	if !st.Organize || !IsMedia(src) || it.Kind == KindCategory {
 		return "", "", false
 	}
 	base, tmpl := st.MoviesDir, st.MovieTemplate

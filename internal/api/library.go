@@ -26,6 +26,7 @@ func (r *REST) EnableLibrary(p *prefs.Store, items *library.Store, onChange func
 	r.mux.HandleFunc("PUT /api/v1/preferences", r.putPrefs)
 	r.mux.HandleFunc("POST /api/v1/preferences/preview", r.previewPrefs)
 	r.mux.HandleFunc("POST /api/v1/media/download", r.mediaDownload)
+	r.mux.HandleFunc("POST /api/v1/downloads/{hash}/category", r.setCategory)
 }
 
 func (r *REST) getPrefs(w http.ResponseWriter, req *http.Request) {

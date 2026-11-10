@@ -18,7 +18,7 @@
 
   "ways_title": "Usalo come preferisci",
   "web_title": "Interfaccia web",
-  "web_text": "Download, ricerche, condivisione e server da qualsiasi browser, anche dal telefono. Cerca film e serie per titolo e ottieni i loro file valutati per lingua e qualità.",
+  "web_text": "Download, ricerche, condivisione e server da qualsiasi browser, anche dal telefono. Cerca film e serie per titolo e ottieni i loro file valutati per lingua e qualità. Oppure mettili nella lista dei desideri: MyMule li prende da solo appena escono.",
   "cli_title": "Riga di comando",
   "cli_text": "Un servizio in background con comandi brevi, e <code>mymule top</code>, una vista in tempo reale a schermo intero da cui puoi anche cercare e gestire i download.",
   "arr_title": "Radarr, Sonarr e compagnia",

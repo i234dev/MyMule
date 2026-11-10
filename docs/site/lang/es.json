@@ -18,7 +18,7 @@
 
   "ways_title": "Úsalo como prefieras",
   "web_title": "Interfaz web",
-  "web_text": "Descargas, búsquedas, archivos compartidos y servidores desde cualquier navegador, también el del móvil. Busca películas y series por su título y recibe sus archivos puntuados por idioma y calidad.",
+  "web_text": "Descargas, búsquedas, archivos compartidos y servidores desde cualquier navegador, también el del móvil. Busca películas y series por su título y recibe sus archivos puntuados por idioma y calidad. O añádelas a la lista de deseos: MyMule las consigue solo en cuanto salen.",
   "cli_title": "Línea de comandos",
   "cli_text": "Un servicio en segundo plano con comandos cortos, y <code>mymule top</code>, una vista en directo a pantalla completa desde la que también puedes buscar y gestionar descargas.",
   "arr_title": "Radarr, Sonarr y compañía",

@@ -362,7 +362,10 @@ It has five tabs:
   restarts. Who can reach MyMule (`api_listen`, `api_key`, `api_hosts`,
   `network_hosts`, `web_ui`) is shown but only changed in the file. It
   also says which ports UPnP / NAT-PMP opened on the router, as does a
-  chip at the top and `mymule status`.
+  chip at the top and `mymule status`. The **Notifications and media
+  server** group sets where notifications go and which Jellyfin, Emby or
+  Plex to tell, with a **Test** button; their tokens are never shown
+  again once saved.
 
 Click the server name at the top to see the server list, sorted by users
 or files: connect to another server, choose one to always use (the others
@@ -591,7 +594,12 @@ What is up to you:
   `mymule.exe`; MyMule warns you if it is elsewhere.
 - **Movie and series folders** can't be a drive root, your user folder,
   a system folder or MyMule's own folder, and only video, audio and
-  subtitle files are moved into them or shared from them.
+  subtitle files are moved into them or shared from them. The same rules
+  apply to folders changed from the web interface's advanced settings.
+- **Notifications leave your computer.** With `notify_urls` set, the names
+  of finished downloads (and what the wish list found) are sent to the
+  services you list there (ntfy, Telegram, Discord, your webhook). Use
+  your own ntfy server or a topic nobody can guess.
 - **Remember eD2K is public**: other users see your IP address and the
   files you share. Finished downloads are shared by default, as in eMule
   (`share_downloads = false` to stop).

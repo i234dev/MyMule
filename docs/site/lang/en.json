@@ -18,7 +18,7 @@
 
   "ways_title": "Use it the way that suits you",
   "web_title": "Web interface",
-  "web_text": "Downloads, searches, sharing and servers from any browser, phone included. Search movies and series by title and get their files scored by language and quality.",
+  "web_text": "Downloads, searches, sharing and servers from any browser, phone included. Search movies and series by title and get their files scored by language and quality. Or put them on the wish list: MyMule gets them by itself once they are out.",
   "cli_title": "Command line",
   "cli_text": "A background daemon with short commands, and <code>mymule top</code>, a live full-screen view where you can also search and manage downloads.",
   "arr_title": "Radarr, Sonarr and friends",

@@ -18,7 +18,7 @@
 
   "ways_title": "Utilisez-le comme vous préférez",
   "web_title": "Interface web",
-  "web_text": "Téléchargements, recherches, partage et serveurs depuis n’importe quel navigateur, téléphone compris. Cherchez films et séries par leur titre et obtenez leurs fichiers notés selon la langue et la qualité.",
+  "web_text": "Téléchargements, recherches, partage et serveurs depuis n’importe quel navigateur, téléphone compris. Cherchez films et séries par leur titre et obtenez leurs fichiers notés selon la langue et la qualité. Ou ajoutez-les à la liste de souhaits : MyMule les récupère tout seul dès leur sortie.",
   "cli_title": "Ligne de commande",
   "cli_text": "Un service en arrière-plan avec des commandes courtes, et <code>mymule top</code>, une vue en direct plein écran où vous pouvez aussi chercher et gérer les téléchargements.",
   "arr_title": "Radarr, Sonarr et compagnie",

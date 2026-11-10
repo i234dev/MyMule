@@ -67,42 +67,38 @@
     <div class="buttons">
       <a class="btn primary" href="#install">{{t "btn_install"}}</a>
       <a class="btn secondary" href="https://github.com/i234dev/MyMule">{{t "btn_source"}}</a>
-      <a class="btn secondary" href="https://github.com/i234dev/MyMule#readme">{{t "btn_docs"}}</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule#documentation">{{t "btn_docs"}}</a>
     </div>
     <p class="version" id="version" hidden>{{t "latest"}} <a href="https://github.com/i234dev/MyMule/releases/latest"></a> · <time></time></p>
   </header>
 
   <figure>
-    <img src="{{.Root}}top-demo.png" alt="{{a "top_alt"}}" width="1365" height="615">
-    <figcaption>{{t "top_caption"}}</figcaption>
+    <img src="{{.Root}}webui-downloads.png" alt="{{a "hero_alt"}}" width="1800" height="1240">
+    <figcaption>{{t "hero_caption"}}</figcaption>
   </figure>
 
-  <h2>{{t "ways_title"}}</h2>
+  <h2>{{t "why_title"}}</h2>
   <div class="grid">
     <div class="card">
-      <h3>{{t "web_title"}}</h3>
-      <p>{{t "web_text"}}</p>
+      <h3>{{t "why_one_title"}}</h3>
+      <p>{{t "why_one_text"}}</p>
     </div>
     <div class="card">
-      <h3>{{t "cli_title"}}</h3>
-      <p>{{t "cli_text"}}</p>
+      <h3>{{t "why_emule_title"}}</h3>
+      <p>{{t "why_emule_text"}}</p>
     </div>
     <div class="card">
-      <h3>{{t "arr_title"}}</h3>
-      <p>{{t "arr_text"}}</p>
+      <h3>{{t "why_alone_title"}}</h3>
+      <p>{{t "why_alone_text"}}</p>
     </div>
     <div class="card">
-      <h3>{{t "api_title"}}</h3>
-      <p>{{t "api_text"}}</p>
+      <h3>{{t "why_web_title"}}</h3>
+      <p>{{t "why_web_text"}}</p>
     </div>
   </div>
 
-  <figure>
-    <img src="{{.Root}}webui-movies.png" alt="{{a "webui_alt"}}" width="1800" height="1800" loading="lazy">
-    <figcaption>{{t "webui_caption"}}</figcaption>
-  </figure>
-
   <h2>{{t "features_title"}}</h2>
+  <h3>{{t "group_net"}}</h3>
   <ul class="plain">
     <li>{{t "feature_search"}}</li>
     <li>{{t "feature_kad"}}</li>
@@ -114,13 +110,35 @@
     <li>{{t "feature_highid"}}</li>
     <li>{{t "feature_sx"}}</li>
     <li>{{t "feature_ipfilter"}}</li>
-    <li>{{t "feature_wanted"}}</li>
-    <li>{{t "feature_fakes"}}</li>
-    <li>{{t "feature_notify"}}</li>
-    <li>{{t "feature_prio"}}</li>
     <li>{{t "feature_compress"}}</li>
     <li>{{t "feature_checked"}}</li>
   </ul>
+
+  <h3>{{t "group_web"}}</h3>
+  <ul class="plain">
+    <li>{{t "feature_web"}}</li>
+  </ul>
+
+  <h3>{{t "group_library"}}</h3>
+  <ul class="plain">
+    <li>{{t "feature_library"}}</li>
+    <li>{{t "feature_wanted"}}</li>
+    <li>{{t "feature_fakes"}}</li>
+    <li>{{t "feature_prio"}}</li>
+  </ul>
+
+  <figure>
+    <img src="{{.Root}}webui-movies.png" alt="{{a "webui_alt"}}" width="1800" height="1800" loading="lazy">
+    <figcaption>{{t "webui_caption"}}</figcaption>
+  </figure>
+
+  <h3>{{t "group_view"}}</h3>
+  <ul class="plain">
+    <li>{{t "feature_stats"}}</li>
+    <li>{{t "feature_notify"}}</li>
+  </ul>
+
+  <p class="note">{{t "legal_short"}}</p>
 
   <h2 id="install">{{t "install_title"}}</h2>
   <div class="tabs" role="tablist" hidden>
@@ -159,13 +177,39 @@ scoop install mymule</code></pre></div>
 
   <h2>{{t "quick_title"}}</h2>
   <p>{{t "quick_intro"}}</p>
-<pre><code>mymule start                 # {{t "quick_start"}}
+<pre><code>web_ui = true</code></pre>
+<pre><code>mymule start                 # {{t "quick_start"}}</code></pre>
+  <p>{{t "quick_web"}}</p>
+  <p>{{t "quick_more"}}</p>
+
+  <h2>{{t "works_title"}}</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>{{t "arr_title"}}</h3>
+      <p>{{t "arr_text"}}</p>
+    </div>
+    <div class="card">
+      <h3>{{t "media_title"}}</h3>
+      <p>{{t "media_text"}}</p>
+    </div>
+    <div class="card">
+      <h3>{{t "api_title"}}</h3>
+      <p>{{t "api_text"}}</p>
+    </div>
+  </div>
+
+  <h2>{{t "cli_title"}}</h2>
+  <p>{{t "cli_text"}}</p>
+<pre><code>mymule status                # {{t "quick_status"}}
 mymule search -links ubuntu  # {{t "quick_search"}}
 mymule add "ed2k://|file|...|/"
 mymule top                   # {{t "quick_top"}}
-mymule stop</code></pre>
-  <p>{{t "quick_web"}}</p>
-  <p>{{t "quick_more"}}</p>
+mymule doctor                # {{t "quick_doctor"}}</code></pre>
+
+  <figure>
+    <img src="{{.Root}}top-demo.png" alt="{{a "top_alt"}}" width="1365" height="615" loading="lazy">
+    <figcaption>{{t "top_caption"}}</figcaption>
+  </figure>
 
   <h2 id="faq">{{t "faq_title"}}</h2>
   <div class="faq">

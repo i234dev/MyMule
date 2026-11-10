@@ -52,46 +52,42 @@
   </nav>
   <header>
     <h1>MyMule</h1>
-    <p class="lead">Un client leggero per la rete eMule, eD2K e Kad, scritto in Go. Un solo piccolo programma senza dipendenze, per Windows, Linux, macOS, FreeBSD, schede ARM e NAS, che usa circa 15&nbsp;MB di RAM.</p>
+    <p class="lead">Un client eMule moderno per il tuo server o NAS. Un piccolo programma per le reti eD2K e Kad, gestito dal browser, dal telefono o dal terminale.</p>
     <div class="buttons">
       <a class="btn primary" href="#install">Installa</a>
       <a class="btn secondary" href="https://github.com/i234dev/MyMule">Codice su GitHub</a>
-      <a class="btn secondary" href="https://github.com/i234dev/MyMule#readme">Documentazione</a>
+      <a class="btn secondary" href="https://github.com/i234dev/MyMule#documentation">Documentazione</a>
     </div>
     <p class="version" id="version" hidden>Ultima versione: <a href="https://github.com/i234dev/MyMule/releases/latest"></a> · <time></time></p>
   </header>
 
   <figure>
-    <img src="../top-demo.png" alt="mymule top: vista in tempo reale di download, upload e file condivisi" width="1365" height="615">
-    <figcaption><code>mymule top</code>, la vista in tempo reale nel terminale, con dati dimostrativi.</figcaption>
+    <img src="../webui-downloads.png" alt="L’interfaccia web: i download con avanzamento, fonti e posizioni in coda" width="1800" height="1240">
+    <figcaption>L’interfaccia web, con dati dimostrativi: i file sono inventati.</figcaption>
   </figure>
 
-  <h2>Usalo come preferisci</h2>
+  <h2>Perché MyMule</h2>
   <div class="grid">
     <div class="card">
-      <h3>Interfaccia web</h3>
-      <p>Download, ricerche, condivisione e server da qualsiasi browser, anche dal telefono. Cerca film e serie per titolo e ottieni i loro file valutati per lingua e qualità. Oppure mettili nella lista dei desideri: MyMule li prende da solo appena escono. Statistiche con grafici di velocità e traffico, e si installa come app su telefono o computer.</p>
+      <h3>Un solo file, nient’altro</h3>
+      <p>Un unico programma senza dipendenze: niente demoni separati, server web, Python o Node da configurare. Per Windows, Linux, macOS, FreeBSD, schede ARM e NAS, con circa 15&nbsp;MB di RAM.</p>
     </div>
     <div class="card">
-      <h3>Riga di comando</h3>
-      <p>Un servizio in background con comandi brevi, e <code>mymule top</code>, una vista in tempo reale a schermo intero da cui puoi anche cercare e gestire i download. <code>mymule doctor</code> trova ciò che gli impedisce di funzionare bene e spiega come risolverlo.</p>
+      <h3>Un vero client eMule</h3>
+      <p>eD2K e Kad, crediti, AICH, scambio di fonti, offuscamento e HighID: parla con eMule e aMule come uno di loro.</p>
     </div>
     <div class="card">
-      <h3>Radarr, Sonarr e compagnia</h3>
-      <p>Un indicizzatore Torznab e un client di download compatibile con qBittorrent: eD2K diventa una fonte in più per Radarr, Sonarr, Lidarr, Readarr e Prowlarr.</p>
+      <h3>Fatto per funzionare da solo</h3>
+      <p>Funziona come servizio, riprende dopo un arresto o un riavvio, controlla tutto ciò che inviano gli altri ed è sicuro di serie.</p>
     </div>
     <div class="card">
-      <h3>API HTTP</h3>
-      <p>Una piccola API JSON per script: PHP, Python, shell, cron e domotica.</p>
+      <h3>Tutto dal browser</h3>
+      <p>Un’interfaccia web integrata che funziona sul telefono e si installa come app, più una riga di comando per il terminale.</p>
     </div>
   </div>
 
-  <figure>
-    <img src="../webui-movies.png" alt="L’interfaccia web: un film con la sua locandina e i file trovati, valutati per lingua e qualità" width="1800" height="1800" loading="lazy">
-    <figcaption>L’interfaccia web: scegli un film o una serie e ottieni i suoi file valutati per lingua, risoluzione e sorgente. Dati dimostrativi: titoli e file sono inventati.</figcaption>
-  </figure>
-
-  <h2>Funzionalità</h2>
+  <h2>Cosa fa</h2>
+  <h3>Scaricare e condividere su eD2K e Kad</h3>
   <ul class="plain">
     <li>Ricerche sul server connesso o su tutti i server conosciuti insieme, e su Kad.</li>
     <li>Kad, la rete senza server: ricerche e fonti anche lì, i tuoi file condivisi pubblicati e un nodo Kad completo per gli altri.</li>
@@ -103,13 +99,35 @@
     <li>HighID, con le porte aperte sul router in automatico (UPnP o NAT-PMP), callback del server e buddy Kad per raggiungere gli utenti dietro un firewall.</li>
     <li>Scambio di fonti e richieste della posizione in coda via UDP con gli altri client eMule e aMule.</li>
     <li>Filtro IP: l’ipfilter.dat di eMule, o una lista scaricata ogni settimana.</li>
-    <li>Lista dei desideri: MyMule cerca da solo i film e gli episodi che vuoi, dal giorno in cui escono per la casa o vanno in onda, e li scarica quando compare un buon file. Oppure segui una serie intera: ogni episodio, già trasmesso o ancora da trasmettere.</li>
-    <li>Voti e commenti che gli utenti di eMule lasciano sui file, così i fake si notano; la lista dei desideri non li prende mai.</li>
-    <li>Notifiche (ntfy, Telegram, Discord o qualsiasi webhook), e Jellyfin, Emby o Plex avvisati di analizzare le librerie quando arrivano file.</li>
-    <li>Priorità di download, prima e ultima parte prima per guardare un video prima, collezioni di eMule e categorie che spostano i download finiti nella loro cartella.</li>
     <li>Trasferimenti compressi con i client eMule e aMule.</li>
     <li>Tutto ciò che inviano gli altri utenti e nodi viene controllato e limitato.</li>
   </ul>
+
+  <h3>Un’interfaccia web per ogni dispositivo</h3>
+  <ul class="plain">
+    <li>Download, ricerche, condivisioni, server e tutte le impostazioni da qualsiasi browser, telefono compreso. Si installa come app sul telefono o sul computer.</li>
+  </ul>
+
+  <h3>La tua libreria, in ordine</h3>
+  <ul class="plain">
+    <li>Cerca un film o una serie per titolo e ottieni i suoi file valutati per lingua e qualità; i file finiti vengono rinominati nelle tue cartelle di film e serie, pronti per Plex, Jellyfin o Kodi.</li>
+    <li>Lista dei desideri: MyMule cerca da solo i film e gli episodi che vuoi, dal giorno in cui escono per la casa o vanno in onda, e li scarica quando compare un buon file. Oppure segui una serie intera: ogni episodio, già trasmesso o ancora da trasmettere.</li>
+    <li>Voti e commenti che gli utenti di eMule lasciano sui file, così i fake si notano; la lista dei desideri non li prende mai.</li>
+    <li>Priorità di download, prima e ultima parte prima per guardare un video prima, collezioni di eMule e categorie che spostano i download finiti nella loro cartella.</li>
+  </ul>
+
+  <figure>
+    <img src="../webui-movies.png" alt="L’interfaccia web: un film con la sua locandina e i file trovati, valutati per lingua e qualità" width="1800" height="1800" loading="lazy">
+    <figcaption>L’interfaccia web: scegli un film o una serie e ottieni i suoi file valutati per lingua, risoluzione e sorgente. Dati dimostrativi: titoli e file sono inventati.</figcaption>
+  </figure>
+
+  <h3>Sempre sotto controllo</h3>
+  <ul class="plain">
+    <li>Statistiche con grafici di velocità e traffico, e <code>mymule doctor</code>, che trova ciò che impedisce a MyMule di funzionare bene e spiega come risolverlo.</li>
+    <li>Notifiche (ntfy, Telegram, Discord o qualsiasi webhook), e Jellyfin, Emby o Plex avvisati di analizzare le librerie quando arrivano file.</li>
+  </ul>
+
+  <p class="note">Usa MyMule solo per contenuti che hai il diritto di scaricare e condividere. Vedi le <a href="https://github.com/i234dev/MyMule#terms-of-use-and-disclaimer">condizioni d’uso</a>.</p>
 
   <h2 id="install">Installazione</h2>
   <div class="tabs" role="tablist" hidden>
@@ -123,7 +141,7 @@
     <h3>Docker</h3>
     <p>Qualsiasi sistema con <a href="https://www.docker.com/products/docker-desktop/">Docker</a>, anche NAS e Raspberry Pi (amd64, arm64 e armv7). In una cartella vuota:</p>
     <div class="cmd"><pre><code>docker run -d --name mymule --restart unless-stopped -e PUID=1000 -e PGID=1000 -v ./config:/config -v ./downloads:/downloads -p 4662:4662/tcp -p 4672:4672/udp -p 127.0.0.1:4711:4711/tcp ghcr.io/i234dev/mymule:latest</code></pre></div>
-    <p>Poi apri <code>http://localhost:4711</code> ed entra con l’<code>api_key</code> di <code>config/mymule.conf</code>. Preferisci Compose? Usa il <a href="https://github.com/i234dev/MyMule/blob/master/docker-compose.yml">docker-compose.yml</a> già pronto ed esegui <code>docker compose up -d</code>. Altri dettagli nella <a href="https://github.com/i234dev/MyMule#docker">guida Docker</a> (in inglese).</p>
+    <p>Poi apri <code>http://localhost:4711</code> ed entra con l’<code>api_key</code> di <code>config/mymule.conf</code>. Preferisci Compose? Usa il <a href="https://github.com/i234dev/MyMule/blob/master/docker-compose.yml">docker-compose.yml</a> già pronto ed esegui <code>docker compose up -d</code>. Altri dettagli nella <a href="https://github.com/i234dev/MyMule/blob/master/docs/INSTALL.md#docker">guida Docker</a> (in inglese).</p>
   </section>
 
   <section class="panel" id="brew" role="tabpanel" aria-labelledby="tab-brew">
@@ -147,14 +165,40 @@ scoop install mymule</code></pre></div>
   </section>
 
   <h2>Primi passi</h2>
-  <p>Senza Docker, avvialo e usalo dal terminale:</p>
-<pre><code>mymule start                 # avvia il motore in background
+  <p>Senza Docker, attiva l’interfaccia web in <code>mymule.conf</code> (creato accanto al programma al primo avvio) e avvia MyMule:</p>
+<pre><code>web_ui = true</code></pre>
+<pre><code>mymule start                 # avvia il motore in background</code></pre>
+  <p>Poi apri <code>http://127.0.0.1:4711</code> ed entra con l’<code>api_key</code> di <code>mymule.conf</code>.</p>
+  <p>Ogni versione include un file <code>SHA256SUMS</code> e un’attestazione firmata di come è stata compilata. La <a href="https://github.com/i234dev/MyMule#documentation">documentazione</a> (in inglese) ha una guida per ogni parte: installazione, interfaccia web, film e serie, riga di comando, configurazione e sicurezza, le app *arr e l’API.</p>
+
+  <h2>Funziona con</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Radarr, Sonarr e compagnia</h3>
+      <p>Un indicizzatore Torznab e un client di download compatibile con qBittorrent: eD2K diventa una fonte in più per Radarr, Sonarr, Lidarr, Readarr e Prowlarr.</p>
+    </div>
+    <div class="card">
+      <h3>Plex, Jellyfin ed Emby</h3>
+      <p>Chiede loro di analizzare le librerie quando arrivano nuovi file, così compaiono subito.</p>
+    </div>
+    <div class="card">
+      <h3>API HTTP</h3>
+      <p>Una piccola API JSON per script: PHP, Python, shell, cron e domotica.</p>
+    </div>
+  </div>
+
+  <h2>Per il terminale</h2>
+  <p>Un demone in background con comandi brevi, e <code>mymule top</code>, una vista dal vivo a schermo intero da cui puoi anche cercare e gestire i download.</p>
+<pre><code>mymule status                # server, velocità e avanzamento di ogni download
 mymule search -links ubuntu  # cerca; -links mostra link ed2k://
 mymule add "ed2k://|file|...|/"
 mymule top                   # vista in tempo reale (q per uscire)
-mymule stop</code></pre>
-  <p>Fuori da Docker l’interfaccia web è spenta di default: imposta <code>web_ui = true</code> in <code>mymule.conf</code>, riavvia MyMule e apri <code>http://127.0.0.1:4711</code>.</p>
-  <p>Ogni versione include un file <code>SHA256SUMS</code> e un’attestazione firmata di come è stata compilata. Nel <a href="https://github.com/i234dev/MyMule#readme">README</a> (in inglese) trovi configurazione, interfaccia web, uso su un server o NAS e sicurezza; <a href="https://github.com/i234dev/MyMule/blob/master/docs/API.md">l’API</a> e <a href="https://github.com/i234dev/MyMule/blob/master/docs/ARR.md">la guida *arr</a> hanno pagine proprie.</p>
+mymule doctor                # cosa impedisce a MyMule di funzionare bene</code></pre>
+
+  <figure>
+    <img src="../top-demo.png" alt="mymule top: vista in tempo reale di download, upload e file condivisi" width="1365" height="615" loading="lazy">
+    <figcaption><code>mymule top</code>, la vista in tempo reale nel terminale, con dati dimostrativi.</figcaption>
+  </figure>
 
   <h2 id="faq">Domande frequenti</h2>
   <div class="faq">

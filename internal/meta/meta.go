@@ -92,6 +92,14 @@ func (f fallbackSource) EpisodeTitle(ctx context.Context, id string, season, epi
 	return "", nil
 }
 
+// Available asks the primary source, if it knows release dates.
+func (f fallbackSource) Available(ctx context.Context, id string, season, episode int) (Availability, bool, error) {
+	if ad, ok := f.primary.(AvailabilityDater); ok && !validQID(id) {
+		return ad.Available(ctx, id, season, episode)
+	}
+	return Availability{}, false, nil
+}
+
 func (f fallbackSource) Get(ctx context.Context, id, lang string) (Work, error) {
 	if validQID(id) {
 		return f.fallback.Get(ctx, id, lang)

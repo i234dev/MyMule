@@ -15,8 +15,10 @@ Use it the way that suits you:
 - **Web interface**: search movies and series by title (with posters, in
   your language), get the files of that work scored by language and
   quality, download them and have them renamed into your movie and series
-  library. Downloads, searches, sharing and servers, from any browser,
-  phone included. See [Web interface](#web-interface).
+  library; or put it on the wish list and MyMule gets it by itself once
+  it is out. Downloads, searches, sharing and servers, from any browser,
+  phone included. See [Web interface](#web-interface) and the
+  [movies and series guide](docs/MEDIA.md).
 - **Command line**: a background daemon with short commands (`status`,
   `add`, `pause`...) and `mymule top`, a live full-screen view where you
   can also search and manage downloads. See [Quick start](#quick-start).
@@ -340,7 +342,10 @@ It has five tabs:
   size and sources, the recommended one first. Files with no sources,
   only found on Kad/torrent, or cam copies are hidden but can be shown.
   For series, pick a season and an episode from the lists (with episode
-  titles), or the whole season.
+  titles), or the whole season. Files people rate as fakes, and copies
+  that cannot exist yet, are marked; and the **wish list** waits for a
+  title to come out and downloads it by itself. The full guide:
+  [docs/MEDIA.md](docs/MEDIA.md).
 - **Search**: search every known server, with type, size and extension
   filters; sort and filter the results and download one or several.
 - **Sharing**: shared files, upload speed and who is downloading from you.

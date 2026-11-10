@@ -2001,6 +2001,12 @@ async function start() {
 translatePage();
 start();
 
+// As an app (PWA): installable, and it opens without a network. Browsers
+// only allow it over HTTPS or on this computer.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 // ---------- Advanced settings (mymule.conf) ----------
 const ADV_GROUPS = [
   ["net", ["port", "kad", "kad_port", "upnp", "obfuscation", "max_conns", "server", "kad_nodes_url", "ip_filter_url"]],

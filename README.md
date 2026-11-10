@@ -387,6 +387,12 @@ searches and sources use all servers anyway.
 It works on phones, follows the system's light or dark theme and is shown
 in English or Spanish depending on the browser's language.
 
+It can be **installed as an app** (with its own icon and window, and it
+opens even without a network, showing the last page): browsers allow that
+over HTTPS (for example behind a reverse proxy) or on the computer MyMule
+runs on. Over plain `http://` on your network, phones still offer **Add to
+Home Screen**, which on an iPhone opens it full screen like an app.
+
 To use it from another device (a phone, another computer), set
 `api_listen = 0.0.0.0:4711` and open `http://<computer-ip>:4711/`. Only do
 this on a network you trust, and never forward port 4711 in your router.

@@ -228,3 +228,21 @@ func TestSessionsSignedWithSigningKey(t *testing.T) {
 		t.Fatal("still signed with the api_key")
 	}
 }
+
+// The app's manifest, icons and service worker are served with their types.
+func TestAppFiles(t *testing.T) {
+	mux := http.NewServeMux()
+	New("example-key-0123456789", "test").Routes(mux)
+	for path, ctype := range map[string]string{
+		"/manifest.webmanifest":        "application/manifest+json",
+		"/sw.js":                       "text/javascript",
+		"/assets/icon-192.png":         "image/png",
+		"/assets/apple-touch-icon.png": "image/png",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), ctype) {
+			t.Errorf("%s: %d %q", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+}

@@ -101,6 +101,19 @@ func (u *UI) Routes(mux *http.ServeMux) {
 		}
 		fileServer.ServeHTTP(w, r)
 	})))
+	// The app (PWA): its manifest, and a service worker that must be served
+	// from / to cover the whole interface.
+	for path, ctype := range map[string]string{"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8"} {
+		mux.Handle("GET "+path, secure(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, err := fs.ReadFile(files, path[1:])
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", ctype)
+			w.Write(b)
+		})))
+	}
 	mux.HandleFunc("POST /web/login", u.login)
 	mux.HandleFunc("POST /web/logout", u.logout)
 }

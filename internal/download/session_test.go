@@ -44,3 +44,38 @@ func TestCompressedBlockEndsSession(t *testing.T) {
 		t.Fatalf("compressed data was written: %d bytes", done)
 	}
 }
+
+// Packets of a compressed block are no progress until the block is whole:
+// a peer hopping between two blocks, finishing neither, neither keeps the
+// session alive nor goes on unpunished.
+func TestCompressedHoppingEndsSession(t *testing.T) {
+	data := testData(ed2k.PartSize + 5000)
+	link, _ := linkFor(t, "packed.bin", data)
+	pf, err := Create(t.TempDir(), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pf.Close()
+	blocks := pf.Reserve("peer", nil, 2)
+	if len(blocks) < 2 {
+		t.Fatalf("%d blocks reserved", len(blocks))
+	}
+	s := &session{pf: pf, owner: "peer", pending: blocks}
+	packet := func(b Range) *proto.Packet {
+		var w proto.Writer
+		w.Bytes(link.Hash[:])
+		w.U32(uint32(b.Start))
+		w.U32(4000) // packed size: more than this packet
+		w.Bytes(make([]byte, 1000))
+		return &proto.Packet{Proto: proto.ProtoEMule, Opcode: peer.OpCompressedPart, Payload: w.B}
+	}
+	if err := s.onData(packet(blocks[0])); err != nil {
+		t.Fatal(err)
+	}
+	if !s.deadline.IsZero() {
+		t.Fatal("part of a compressed block moved the deadline")
+	}
+	if err := s.onData(packet(blocks[1])); !errors.Is(err, peer.ErrBadCompressed) {
+		t.Fatalf("hopping to another block: err = %v", err)
+	}
+}

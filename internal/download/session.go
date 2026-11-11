@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -586,36 +587,39 @@ func (s *session) onData(p *proto.Packet) error {
 
 // onCompressed takes a packet of a compressed block: the block is kept
 // (at most its own size, see peer.CompressedBlock) until all of it came,
-// then stored like plain data.
+// then stored like plain data. It only counts once it is whole and
+// inflated: as progress by what it brings that is new, and against the
+// download limit by what came over the network. A peer that starts
+// another block before finishing the one under way is cut off: hopping
+// between blocks it would keep the connection with garbage, never
+// finishing any.
 func (s *session) onCompressed(d peer.DataPart) error {
-	if s.packed == nil || s.packed.Start != d.Start {
+	if s.packed != nil && s.packed.Start != d.Start {
+		if _, ok := s.pendingAt(s.packed.Start); ok {
+			return fmt.Errorf("%w: another block before the last one was complete", peer.ErrBadCompressed)
+		}
+		s.packed = nil // that block is no longer ours: it may move on
+	}
+	if s.packed == nil {
 		b, ok := s.pendingAt(d.Start)
 		if !ok {
 			return nil // stale data for a block we no longer track
 		}
 		s.packed = peer.NewCompressedBlock(b.Start, b.End-b.Start)
 	}
-	before := s.packed.Received()
 	data, err := s.packed.Add(d)
 	if err != nil {
 		return err
 	}
-	// What arrived counts as progress, and against the download limit,
-	// as it comes.
-	n := s.packed.Received() - before
-	s.deadline = s.deadline.Add(credit(n))
-	if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
-		s.deadline = limit
-	}
-	if w := s.m.dlLimit.Wait(n); w > 0 {
-		s.deadline = s.deadline.Add(w)
-	}
 	if data == nil {
 		return nil
 	}
-	start := s.packed.Start
+	start, wire := s.packed.Start, s.packed.Received()
 	s.packed = nil
-	return s.storeData(start, data, false)
+	if w := s.m.dlLimit.Wait(wire); w > 0 {
+		s.deadline = s.deadline.Add(w)
+	}
+	return s.storeData(start, data, true)
 }
 
 // pendingAt is the pending block that starts at start.
@@ -628,11 +632,11 @@ func (s *session) pendingAt(start int64) (Range, bool) {
 	return Range{}, false
 }
 
-func (s *session) store(off int64, data []byte) error { return s.storeData(off, data, true) }
+func (s *session) store(off int64, data []byte) error { return s.storeData(off, data, false) }
 
-// storeData writes data received at off; limited: it still has to wait for
-// the download limit (compressed data waited as it arrived).
-func (s *session) storeData(off int64, data []byte, limited bool) error {
+// storeData writes data received at off; packed: it came compressed (its
+// network bytes already waited for the download limit).
+func (s *session) storeData(off int64, data []byte, packed bool) error {
 	fresh, complete, err := s.pf.writeNew(s.owner, off, data)
 	if s.pf.Banned(s.owner) {
 		// It sent a part that failed verification all by itself.
@@ -657,18 +661,16 @@ func (s *session) storeData(off int64, data []byte, limited bool) error {
 	// Progress: the deadline moves by what the data is worth at
 	// minPeerRate (up to transferTimeout ahead), so a peer that sends a
 	// byte now and then does not keep the connection.
-	if limited {
-		s.deadline = s.deadline.Add(credit(int(fresh)))
-		if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
-			s.deadline = limit
-		}
+	s.deadline = s.deadline.Add(credit(int(fresh)))
+	if limit := time.Now().Add(transferTimeout); s.deadline.After(limit) {
+		s.deadline = limit
 	}
 	s.f.bytes.Add(n)
 	s.m.received.Add(n)
 	// The download limit: reading the next packet waits, and TCP slows the
 	// peer. The time waited is ours, not the peer's: it does not count
 	// against the session's deadline.
-	if limited {
+	if !packed {
 		if w := s.m.dlLimit.Wait(int(n)); w > 0 {
 			s.deadline = s.deadline.Add(w)
 		}

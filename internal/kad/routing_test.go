@@ -496,8 +496,17 @@ func TestUnprovenHelloDoesNotRefresh(t *testing.T) {
 	got.typ, got.expires = 3, t0.Add(time.Minute)
 	moved := c
 	moved.IP = pubIP(2, false)
-	if ok, ver := tb.Add(moved, true, true, t0.Add(time.Minute)); !ok || ver {
+	// From another address it is not taken either: its sender is not
+	// challenged (forged HELLOs from new addresses would fill the list).
+	if ok, ver := tb.Add(moved, true, true, t0.Add(time.Minute)); ok || ver {
 		t.Fatalf("taken %v, verified %v", ok, ver)
+	}
+	// From the contact's own address it is, so that address is asked.
+	if ok, _ := tb.Add(c, true, true, t0.Add(time.Minute)); !ok {
+		t.Fatal("own address not taken")
+	}
+	if got.typ != 3 || !got.expires.Equal(t0.Add(time.Minute)) {
+		t.Fatal("unproven HELLO from its own address refreshed it")
 	}
 	if got.IP != c.IP || got.typ != 3 || !got.expires.Equal(t0.Add(time.Minute)) {
 		t.Fatalf("unproven HELLO changed the contact: %v type %d", got.IP, got.typ)
@@ -506,5 +515,26 @@ func TestUnprovenHelloDoesNotRefresh(t *testing.T) {
 	proven.Verified = true
 	if ok, ver := tb.Add(proven, true, true, t0.Add(2*time.Minute)); !ok || !ver || got.typ == 3 {
 		t.Fatalf("proven HELLO: taken %v, verified %v, type %d", ok, ver, got.typ)
+	}
+}
+
+// A verified contact whose key cannot be checked (zero: our IP unknown
+// after a restart) is neither moved nor changed by a HELLO without our key.
+func TestUnprovenHelloCannotMoveVerified(t *testing.T) {
+	tb := NewTable(RandomID(), t0)
+	c := contactN(1)
+	c.Verified = true
+	tb.Add(c, false, false, t0)
+	got := tb.Get(c.ID)
+	if !got.Verified || got.Key.For(tb.myIP()) != 0 {
+		t.Fatalf("setup: %+v", got)
+	}
+	forged := c
+	forged.IP, forged.Verified, forged.Version, forged.UDPPort = pubIP(9, false), false, 255, 1234
+	if ok, _ := tb.Add(forged, true, true, t0.Add(time.Minute)); ok {
+		t.Fatal("forged HELLO taken")
+	}
+	if got.IP != c.IP || !got.Verified || got.Version != c.Version || got.UDPPort != c.UDPPort {
+		t.Fatalf("contact changed: %v verified %v version %d port %d", got.IP, got.Verified, got.Version, got.UDPPort)
 	}
 }

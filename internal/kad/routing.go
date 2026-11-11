@@ -396,11 +396,19 @@ func (t *Table) AddUnfiltered(c Contact, update, fromHello bool, now time.Time) 
 				}
 				t.setAlive(z, old, now)
 				return true, old.Verified
-			case !old.Verified && !c.Verified:
-				// Neither the contact nor this packet proved its address: a
-				// forged HELLO must not keep it alive, or move it. It counts
-				// as taken, so the HELLO's sender is asked to prove it.
-				return true, false
+			case !c.Verified && (oldKey == 0 || !old.Verified):
+				// This packet did not prove its address, and nothing proves
+				// it comes from that node: the contact never proved its
+				// own, or the key it gave us cannot be checked (after a
+				// restart, or when our IP changes). It changes nothing of
+				// the contact, not its address, ports, key or version, nor
+				// keeps it alive. (With the same key as before, it is that
+				// node: it may move, below.) From
+				// the contact's own address it counts as taken, so that
+				// address is asked to prove it; from another one (a forged
+				// HELLO with its ID) it does not, so forged HELLOs from new
+				// addresses make no challenges.
+				return c.IP == old.IP, old.Verified
 			default:
 				if c.Version < old.Version || !t.changeIP(z, old, c.IP) {
 					return false, old.Verified

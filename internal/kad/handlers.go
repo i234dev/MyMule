@@ -85,9 +85,10 @@ type floodEntry struct {
 }
 
 type floodCount struct {
-	op    byte
-	count int
-	first time.Time
+	op     byte
+	proven bool // packets with our key and those without are counted apart
+	count  int
+	first  time.Time
 }
 
 // cleanFlood drops the flood state that expired.
@@ -118,7 +119,10 @@ func (n *Node) isBanned(ip netip.Addr, now time.Time) bool {
 
 // allowed counts a request of op from ip and reports whether it may be
 // served. proven: the address is not forged (our key, or a TCP
-// connection).
+// connection). Proven and unproven packets have counts of their own:
+// packets forged with a node's address must neither get it banned nor
+// use up what its real packets may do. Only a flood of proven packets
+// bans.
 func (n *Node) allowed(ip netip.Addr, op byte, proven bool, now time.Time) bool {
 	per := allowedPerMinute(op)
 	if per == 0 {
@@ -146,13 +150,13 @@ func (n *Node) allowed(ip netip.Addr, op byte, proven bool, now time.Time) bool 
 	}
 	var fc *floodCount
 	for i := range e.ops {
-		if e.ops[i].op == op {
+		if e.ops[i].op == op && e.ops[i].proven == proven {
 			fc = &e.ops[i]
 			break
 		}
 	}
 	if fc == nil {
-		e.ops = append(e.ops, floodCount{op: op, first: now})
+		e.ops = append(e.ops, floodCount{op: op, proven: proven, first: now})
 		fc = &e.ops[len(e.ops)-1]
 	}
 	if fc.count > 0 && now.Sub(fc.first) > every {

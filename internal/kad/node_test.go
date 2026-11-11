@@ -652,7 +652,7 @@ func TestFloodStateLimited(t *testing.T) {
 	}
 	for i := range maxBanned + 10 {
 		ip := pubIP(300000+i, false)
-		a.inTracked[ip] = &floodEntry{ops: []floodCount{{op: OpPing, count: 50, first: fn.now}}, expires: fn.now.Add(time.Hour)}
+		a.inTracked[ip] = &floodEntry{ops: []floodCount{{op: OpPing, proven: true, count: 50, first: fn.now}}, expires: fn.now.Add(time.Hour)}
 		a.allowed(ip, OpPing, true, fn.now)
 	}
 	if len(a.banned) != maxBanned {
@@ -932,5 +932,32 @@ func TestFloodStateFullStillServes(t *testing.T) {
 	fn.inject(x, a, rawPacket(OpPing, nil))
 	if len(fn.sent[x]) != 1 || len(a.inTracked) != maxTrackedIPs {
 		t.Fatalf("%d answers, %d tracked", len(fn.sent[x]), len(a.inTracked))
+	}
+}
+
+// Packets forged with an honest node's address (no key: unproven) fill
+// only their own count: the node's real packets are still answered, and
+// it is not banned.
+func TestNodeForgedFloodBansNobody(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{})
+	x := netip.AddrPortFrom(pubIP(60, false), 4672)
+	keyed := func(d []byte) []byte {
+		return (&Keys{Secret: [32]byte{7}}).EncryptKad(d, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
+	}
+	for range 16 { // forged, without the key
+		fn.inject(x, a, []byte{ProtoKad, OpHelloReq})
+	}
+	fn.inject(x, a, keyed(rawPacket(OpPing, nil)))
+	for range 20 {
+		fn.inject(x, a, rawPacket(OpPing, nil))
+	}
+	sent := len(fn.sent[x])
+	fn.inject(x, a, keyed(rawPacket(OpPing, nil)))
+	if _, ok := a.banned[x.Addr()]; ok {
+		t.Fatal("honest node banned by forged packets")
+	}
+	if len(fn.sent[x]) != sent+1 {
+		t.Fatal("the node's own ping refused because of forged ones")
 	}
 }

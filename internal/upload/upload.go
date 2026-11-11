@@ -273,7 +273,7 @@ func (m *Manager) Handle(c *peer.Conn, h peer.Hello, ip net.IP, p *proto.Packet)
 
 	case peer.OpCancelTransfer, peer.OpEndOfDownload:
 		m.mu.Lock()
-		if cl := m.byConn[c]; cl != nil {
+		if cl := m.byConn[c]; cl != nil && m.clients[idOf(cl.userHash, cl.ip)] == cl {
 			cl.uploading = false
 			m.removeLocked(cl)
 		}
@@ -681,6 +681,10 @@ func (m *Manager) requeueLocked(cl *client) {
 	m.queue = append(m.queue, cl)
 }
 
+// removeLocked forgets cl: its place in the queue, its entry (only if
+// it is still cl: a newer client of the same peer keeps its own) and
+// every connection that leads to it, so none is left pointing at a client
+// that is gone.
 func (m *Manager) removeLocked(cl *client) {
 	for i, q := range m.queue {
 		if q == cl {
@@ -688,9 +692,13 @@ func (m *Manager) removeLocked(cl *client) {
 			break
 		}
 	}
-	delete(m.clients, idOf(cl.userHash, cl.ip))
-	if cl.conn != nil {
-		delete(m.byConn, cl.conn)
+	if id := idOf(cl.userHash, cl.ip); m.clients[id] == cl {
+		delete(m.clients, id)
+	}
+	for c, o := range m.byConn {
+		if o == cl {
+			delete(m.byConn, c)
+		}
 	}
 }
 

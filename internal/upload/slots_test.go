@@ -247,3 +247,49 @@ func TestSlotsSpreadOverAddresses(t *testing.T) {
 		t.Fatal("nobody else waits: the address may have a second slot")
 	}
 }
+
+// One peer with a few connections cannot leave queue places behind that no
+// entry knows of: cancelling on an old connection forgets only its own
+// client, and every connection to it.
+func TestCancelLeavesNoGhosts(t *testing.T) {
+	m, h := newTestManager(t)
+	ip := net.ParseIP("198.51.100.7")
+	hello := peer.NewHello(ed2k.Hash{7}, "peer", 0x00001000, 4662, nil, 0) // LowID: never dialled
+	conn := func() *peer.Conn {
+		a, b := net.Pipe()
+		t.Cleanup(func() { a.Close(); b.Close() })
+		go io.Copy(io.Discard, b)
+		return peer.NewConn(a)
+	}
+	start := &proto.Packet{Proto: proto.ProtoEDonkey, Opcode: peer.OpStartUploadReq, Payload: h[:]}
+	cancel := &proto.Packet{Proto: proto.ProtoEDonkey, Opcode: peer.OpCancelTransfer}
+	// Fill the only slot with someone else, so the peer queues.
+	ask(t, m, h, ed2k.Hash{1}, "198.51.100.1")
+	a := conn()
+	m.Handle(a, hello, ip, start)
+	b := conn()
+	m.Connected(b, hello, ip)
+	m.Handle(a, hello, ip, cancel)
+	for range 50 {
+		m.Handle(b, hello, ip, start)
+		c := conn()
+		m.Connected(c, hello, ip)
+		m.Handle(a, hello, ip, cancel)
+		m.Disconnected(c)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, q := range m.queue {
+		if m.clients[idOf(q.userHash, q.ip)] != q {
+			t.Fatalf("%d in the queue, a client no entry knows of", len(m.queue))
+		}
+	}
+	if n := m.queuedFromLocked(ip); n > maxQueuePerIP {
+		t.Fatalf("%d places from one address", n)
+	}
+	for c, cl := range m.byConn {
+		if m.clients[idOf(cl.userHash, cl.ip)] != cl {
+			t.Fatalf("connection %p leads to a forgotten client", c)
+		}
+	}
+}

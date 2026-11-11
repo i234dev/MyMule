@@ -127,6 +127,10 @@ func (r *REST) addWanted(w http.ResponseWriter, req *http.Request) {
 		fail(w, http.StatusConflict, err)
 		return
 	}
+	if e.Follow && len(e.Episodes) == 0 { // a whole season: its episodes
+		r.listEpisodes(req.Context(), e)
+		e, _ = r.wanted.Get(e.ID)
+	}
 	r.wake()
 	reply(w, map[string]any{"entry": e})
 }

@@ -72,6 +72,9 @@ const STRINGS = {
     "want.searched": "Searched {n} times, last on {d}: nothing good enough yet",
     "want.downloading": "Found, downloading: {f}",
     "want.done": "Downloaded: {f}",
+    "want.addedseason": "Added to the wish list: MyMule gets every episode of season {n}, the best file of each, and keeps looking for the ones it can't find yet.",
+    "season.status": "{done} of {total} downloaded · {dl} downloading · {missing} aired, still looking",
+    "season.done": "All {total} episodes downloaded",
     "want.searchnow": "Search now", "want.remove": "Remove",
     "want.waits.manual": "Waiting: will be searched for from {d} (your date)",
     "want.date": "Date…", "want.datehint": "Choose the day to start searching for it",
@@ -293,6 +296,9 @@ const STRINGS = {
     "want.searched": "Buscada {n} veces, la última el {d}: aún nada que cumpla tus preferencias",
     "want.downloading": "Encontrada, descargando: {f}",
     "want.done": "Descargada: {f}",
+    "want.addedseason": "Añadida a la lista de deseos: MyMule consigue cada episodio de la temporada {n}, el mejor archivo de cada uno, y sigue buscando los que aún no encuentre.",
+    "season.status": "{done} de {total} descargados · {dl} descargando · {missing} emitidos aún por encontrar",
+    "season.done": "Los {total} episodios descargados",
     "want.searchnow": "Buscar ahora", "want.remove": "Quitar",
     "want.waits.manual": "Esperando: se buscará desde el {d} (fecha elegida)",
     "want.date": "Fecha…", "want.datehint": "Elige el día desde el que buscarla",
@@ -1383,7 +1389,7 @@ function showWantButton(w, available) {
       await api("POST", "/api/v1/wanted", { work_id: w.id, lang: MEDIA_LANG, season: p.season, episode: p.episode });
       b.textContent = t("want.added");
       b.disabled = true;
-      showMsg($("#rel-msg"), t("want.addedmsg"), "ok");
+      showMsg($("#rel-msg"), p.season && !p.episode ? t("want.addedseason", { n: p.season }) : t("want.addedmsg"), "ok");
       loadWanted();
     } catch (err) {
       if (!(err instanceof AuthError)) showMsg($("#rel-msg"), err.message, "bad");
@@ -1432,6 +1438,10 @@ function followStatus(e) {
   const missing = eps.filter(x => x.status === "wanted" && aired(x)).length;
   const next = eps.find(x => x.status === "wanted" && !aired(x));
   const nx = next && next.airs ? t("follow.next", { s: next.season, e: next.episode, d: day(next.airs) }) : t("follow.nonext");
+  if (e.to_season) { // a whole season: done when every episode is
+    if (e.status === "done") return t("season.done", { total: eps.length });
+    return t("season.status", { done, total: eps.length, dl, missing }) + (next ? " · " + nx : "");
+  }
   return t("follow.status", { done, dl, missing, next: nx });
 }
 
@@ -1454,7 +1464,8 @@ function renderWanted() {
   }
   list.replaceChildren(...wantedList.map(e => {
     let title = e.title + (e.year ? " (" + e.year + ")" : "");
-    if (e.follow) title = t("follow.title", { t: title, s: e.from_season });
+    if (e.to_season) title += " · " + t("media.seasonn", { n: e.to_season });
+    else if (e.follow) title = t("follow.title", { t: title, s: e.from_season });
     else if (e.season) title += " · " + t("media.seasonn", { n: e.season }) + (e.episode ? " · " + t("media.episode") + " " + e.episode : "");
     const text = el("div", { class: "wanted-text" },
       el("strong", { text: title }),
@@ -1464,7 +1475,7 @@ function renderWanted() {
       text,
       el("div", { class: "wanted-actions" },
         e.status === "wanted" ? el("button", { class: "ghost small", text: t("want.date"), title: t("want.datehint"), onclick: () => editWantedDate(e, text) }) : null,
-        e.status === "wanted" || e.follow ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
+        e.status === "wanted" || (e.follow && e.status !== "done") ? el("button", { class: "ghost small", text: t("want.searchnow"), onclick: () => wantedAction("POST", e.id, "/search") }) : null,
         el("button", { class: "ghost small", text: t("want.remove"), onclick: () => wantedAction("DELETE", e.id, "") })));
   }));
 }

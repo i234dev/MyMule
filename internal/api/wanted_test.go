@@ -397,3 +397,50 @@ func (seriesSource) Available(_ context.Context, _ string, season, episode int) 
 	}
 	return meta.Availability{}, false, nil
 }
+
+// A whole season on the wish list gets every episode of it, the best file
+// of each; an episode with no file of its own takes a file with the whole
+// season; it is done when they all are, and other seasons are left alone.
+func TestWishSeason(t *testing.T) {
+	rest, _, ws, srv := wantedSetup(t, []SearchResult{
+		result("The.Show.S01E01.1080p.mkv", "A1A1456789ABCDEF0123456789ABCDEF", 9),
+		result("The.Show.S01E02.1080p.mkv", "B2B2456789ABCDEF0123456789ABCDEF", 4),
+		result("The.Show.S01.Complete.1080p.mkv", "F1F1456789ABCDEF0123456789ABCDEF", 3),
+		result("The.Show.S02E01.1080p.mkv", "C1C1456789ABCDEF0123456789ABCDEF", 7),
+	})
+	rest.media = seriesSource{}
+	var got struct{ Entry wanted.Entry }
+	if code := call(t, srv, "POST", "/api/v1/wanted", "application/json", `{"work_id":"tmdb-tv-1","season":1}`, &got); code != 200 ||
+		!got.Entry.Follow || got.Entry.ToSeason != 1 || len(got.Entry.Episodes) != 3 {
+		t.Fatalf("%d %+v", code, got.Entry)
+	}
+	id := got.Entry.ID
+	e, season, ok := ws.FollowDue(time.Now(), time.Hour)
+	if !ok || season != 1 {
+		t.Fatalf("due: %v season %d", ok, season)
+	}
+	rest.searchFollowSeason(context.Background(), e, season)
+	e, _ = ws.Get(id)
+	want := []string{"A1A1456789ABCDEF0123456789ABCDEF", "B2B2456789ABCDEF0123456789ABCDEF", "F1F1456789ABCDEF0123456789ABCDEF"}
+	for i, ep := range e.Episodes {
+		if ep.Hash != want[i] || ep.Status != wanted.Downloading {
+			t.Errorf("S01E%02d: %q %s, want %q", ep.Episode, ep.Hash, ep.Status, want[i])
+		}
+	}
+	if _, _, ok := ws.FollowDue(time.Now(), time.Hour); ok {
+		t.Fatal("something else due: only season 1 is wanted")
+	}
+	for _, h := range want[:2] {
+		rest.WantedCompleted(mustHash(t, h))
+	}
+	if e, _ = ws.Get(id); e.Status == wanted.Done {
+		t.Fatal("done with an episode still downloading")
+	}
+	rest.WantedCompleted(mustHash(t, want[2]))
+	if e, _ = ws.Get(id); e.Status != wanted.Done {
+		t.Fatalf("not done: %+v", e)
+	}
+	if _, ok := ws.FollowListDue(time.Now().Add(48*time.Hour), time.Hour); ok {
+		t.Fatal("a finished season still asks for its episodes")
+	}
+}

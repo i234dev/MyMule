@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mymule/internal/fsutil"
+	"mymule/internal/release"
 )
 
 // Status of an entry.
@@ -57,9 +58,12 @@ type Entry struct {
 	Skip []string `json:"skip,omitempty"`
 
 	// A followed series (Follow): every episode from FromSeason on, the
-	// ones already aired and those to come (see follow.go).
+	// ones already aired and those to come (see follow.go). With ToSeason
+	// (a whole season on the wish list), only the episodes up to it: the
+	// entry is Done once they all are.
 	Follow     bool              `json:"follow,omitempty"`
 	FromSeason int               `json:"from_season,omitempty"`
+	ToSeason   int               `json:"to_season,omitempty"`
 	Episodes   []Episode         `json:"episodes,omitempty"`
 	Searched   map[int]time.Time `json:"season_searched,omitempty"` // by season
 }
@@ -94,7 +98,36 @@ func Open(path string) *Store {
 	if b, err := os.ReadFile(path); err == nil {
 		json.Unmarshal(b, &s.list)
 	}
+	changed := false
+	for i := range s.list {
+		changed = toSeasonEntry(&s.list[i]) || changed
+	}
+	if changed {
+		s.saveLocked()
+	}
 	return s
+}
+
+// toSeasonEntry turns a whole season saved by an older version (one file
+// for the season, which was often a single episode) into one that gets
+// every episode. A file it already got counts for its episode; one that
+// held the whole season leaves the entry as it is.
+func toSeasonEntry(e *Entry) bool {
+	if e.Follow || e.Kind != "series" || e.Season == 0 || e.Episode != 0 {
+		return false
+	}
+	var got []Episode
+	if e.Hash != "" {
+		n := release.Parse(e.File)
+		if n.Episode == 0 {
+			return false // the season in one file
+		}
+		got = append(got, Episode{Season: e.Season, Episode: n.Episode, Status: e.Status, Hash: e.Hash, File: e.File})
+	}
+	e.Follow, e.FromSeason, e.ToSeason = true, e.Season, e.Season
+	e.Status, e.Hash, e.File, e.Episodes, e.Searched = Following, "", "", got, nil
+	e.DateChecked = time.Time{} // its episodes are asked for at once
+	return true
 }
 
 // List returns the entries, newest first.
@@ -115,8 +148,12 @@ func (s *Store) Add(e Entry) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e.ID = MakeID(e.WorkID, e.Season, e.Episode)
-	if e.Follow {
-		e.ID, e.Season, e.Episode = FollowID(e.WorkID), 0, 0
+	switch {
+	case e.Kind == "series" && e.Season > 0 && e.Episode == 0:
+		// A whole season: every episode of it (see follow.go).
+		e.Follow, e.FromSeason, e.ToSeason = true, e.Season, e.Season
+	case e.Follow:
+		e.ID, e.Season, e.Episode, e.ToSeason = FollowID(e.WorkID), 0, 0, 0
 	}
 	for _, x := range s.list {
 		if x.ID == e.ID {
@@ -278,10 +315,28 @@ func (s *Store) Completed(hash string) {
 				changed = true
 			}
 		}
+		if seasonDone(s.list[i]) {
+			s.list[i].Status = Done
+			changed = true
+		}
 	}
 	if changed {
 		s.saveLocked()
 	}
+}
+
+// seasonDone reports whether a whole season on the wish list has every
+// episode downloaded.
+func seasonDone(e Entry) bool {
+	if e.ToSeason == 0 || e.Status == Done || len(e.Episodes) == 0 {
+		return false
+	}
+	for _, ep := range e.Episodes {
+		if ep.Status != Done {
+			return false
+		}
+	}
+	return true
 }
 
 // Dropped puts an entry whose download went away (cancelled) back in the

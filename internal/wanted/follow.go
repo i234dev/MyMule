@@ -35,7 +35,7 @@ func FollowID(workID string) string { return workID + ":follow" }
 func (s *Store) SetEpisodes(id string, list []Episode, at time.Time) {
 	s.update(id, func(e *Entry) {
 		for _, n := range list {
-			if n.Season < e.FromSeason {
+			if n.Season < e.FromSeason || (e.ToSeason > 0 && n.Season > e.ToSeason) {
 				continue
 			}
 			i := slices.IndexFunc(e.Episodes, func(x Episode) bool { return x.Season == n.Season && x.Episode == n.Episode })
@@ -63,7 +63,7 @@ func (s *Store) FollowDue(now time.Time, every time.Duration) (Entry, int, bool)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range s.list {
-		if !e.Follow {
+		if !e.Follow || e.Status == Done || (e.NotBeforeIs == Manual && e.NotBefore.After(now) && !e.Force) {
 			continue
 		}
 		for _, ep := range e.Episodes {
@@ -84,7 +84,7 @@ func (s *Store) FollowListDue(now time.Time, every time.Duration) (Entry, bool) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range s.list {
-		if e.Follow && now.Sub(e.DateChecked) >= every {
+		if e.Follow && e.Status != Done && now.Sub(e.DateChecked) >= every {
 			return cloneEntry(e), true
 		}
 	}
@@ -128,6 +128,9 @@ func (s *Store) EpisodeDropped(id, hash string) {
 				ep.Skip = append(ep.Skip, hash)
 				ep.Status, ep.Hash, ep.File = Wanted, "", ""
 				delete(e.Searched, ep.Season)
+				if e.Status == Done {
+					e.Status = Following
+				}
 			}
 		}
 	})

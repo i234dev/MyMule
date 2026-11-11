@@ -267,11 +267,13 @@ flooded.
 
 `POST /api/v1/wanted` with `{"work_id": "tmdb-movie-123", "lang": "es-ES"}`
 (`work_id` as in `/api/v1/media/search`; for a series also `season` and
-`episode`, 0 for a whole season) adds an entry. With `"follow": true`
-and `from_season` (1 by default), it follows a series instead: every
-episode from that season on, aired or to come; the entry's `episodes`
-list each one with `season`, `episode`, `name`, `airs`, `status`, and
-`hash` and `file` once found. Each entry has `id`,
+`episode`, 0 for a whole season) adds an entry. A whole season gets
+every episode of it: the entry has `follow`, `from_season` and
+`to_season` set to that season, and its `status` becomes `done` when every
+episode is. With `"follow": true` and `from_season` (1 by default), it
+follows a series instead: every episode from that season on, aired or to
+come. Both list the episodes in `episodes`, each with `season`, `episode`,
+`name`, `airs`, `status`, and `hash` and `file` once found. Each entry has `id`,
 `title`, `year`, `kind`, `season`, `episode`, `status` (`wanted`,
 `downloading` or `done`), `searches`, `last_search`, and `hash` and
 `file` once found.

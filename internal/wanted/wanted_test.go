@@ -1,6 +1,7 @@
 package wanted
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -59,5 +60,37 @@ func TestStoreFull(t *testing.T) {
 	}
 	if _, err := s.Add(Entry{WorkID: "Q-last"}); err != ErrFull {
 		t.Fatalf("over the limit: %v", err)
+	}
+}
+
+// A whole season saved by an older version becomes one that gets every
+// episode: the file it took counts for its episode. One that got the whole
+// season in one file stays as it was.
+func TestOldSeasonEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wanted.json")
+	old := `[
+ {"id":"tmdb-tv-1:s3e0","work_id":"tmdb-tv-1","kind":"series","title":"The Show","season":3,"lang":"en",
+  "status":"done","hash":"A1A1456789ABCDEF0123456789ABCDEF","file":"The.Show.3x02.1080p.mkv"},
+ {"id":"tmdb-tv-2:s1e0","work_id":"tmdb-tv-2","kind":"series","title":"Other Show","season":1,"lang":"en",
+  "status":"done","hash":"B1B1456789ABCDEF0123456789ABCDEF","file":"Other.Show.S01.Complete.mkv"},
+ {"id":"tmdb-tv-3:s2e0","work_id":"tmdb-tv-3","kind":"series","title":"Third Show","season":2,"lang":"en","status":"wanted"}
+]`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Open(path)
+	e, _ := s.Get("tmdb-tv-1:s3e0")
+	if !e.Follow || e.FromSeason != 3 || e.ToSeason != 3 || e.Status != Following || len(e.Episodes) != 1 ||
+		e.Episodes[0].Episode != 2 || e.Episodes[0].Status != Done || e.Episodes[0].Hash != "A1A1456789ABCDEF0123456789ABCDEF" {
+		t.Fatalf("one episode got: %+v", e)
+	}
+	if e, _ := s.Get("tmdb-tv-2:s1e0"); e.Follow || e.Status != Done {
+		t.Fatalf("whole season in one file: %+v", e)
+	}
+	if e, _ := s.Get("tmdb-tv-3:s2e0"); !e.Follow || e.ToSeason != 2 || e.Status != Following {
+		t.Fatalf("still wanted: %+v", e)
+	}
+	if _, ok := Open(path).FollowListDue(time.Now(), time.Hour); !ok {
+		t.Fatal("converted, not saved, or its episodes not asked for")
 	}
 }

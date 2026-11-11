@@ -244,13 +244,22 @@ it when a good file shows up.
 and episode, or the whole season) and press **♡ Add to wish list**. If
 the title is not out at home yet, the page also says when it comes out.
 
+**A whole season** gets every one of its episodes, not one file: MyMule
+asks TMDB for the season's episodes and takes the best file of each, as
+the season view's **Download all** does. Episodes it can't find yet are
+looked for again; episodes still to air wait for their day. Only when an
+episode has no file of its own does it take a file with the whole season
+(offered once every episode has aired). The entry shows how many episodes
+are downloaded, and it is done when they all are. To get the seasons that
+come after it too, follow the series instead (below).
+
 **When it searches.** Not before the title comes out at home:
 
 - a movie: its first **digital or disc** release anywhere in the world
   (copies travel fast); if no such date is known yet, about 45 days after
   its cinema release, as an estimate;
-- an episode: the day it **airs**; a whole season: the day its last
-  episode airs.
+- an episode: the day it **airs**; in a whole season, each episode from
+  the day it airs.
 
 Those dates come from TMDB and are checked again every day, since they get
 announced, brought forward or put off. You can also **choose the day

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -14,6 +15,12 @@ import (
 // Followed series (see wanted/follow.go): the list of their episodes comes
 // from the movie database, and a season is searched for as a whole, the
 // best file of each episode it still needs taken.
+
+// pick is the file chosen for an episode.
+type pick struct {
+	ep   wanted.Episode
+	link ed2k.Link
+}
 
 // followLimit is how long the search for one season may take (its files'
 // ratings are asked too).
@@ -32,7 +39,7 @@ func (r *REST) listEpisodes(ctx context.Context, e wanted.Entry) {
 	}
 	var list []wanted.Episode
 	for _, season := range work.Seasons {
-		if season.Number < e.FromSeason {
+		if season.Number < e.FromSeason || (e.ToSeason > 0 && season.Number > e.ToSeason) {
 			continue
 		}
 		eps, err := sl.SeasonEpisodes(ctx, e.WorkID, season.Number, e.Lang)
@@ -51,7 +58,9 @@ func (r *REST) listEpisodes(ctx context.Context, e wanted.Entry) {
 }
 
 // searchFollowSeason searches for a season of a followed series, and
-// downloads the best file of each aired episode it still needs.
+// downloads the best file of each aired episode it still needs. Only when
+// some have no file of their own, a file with the whole season is taken
+// for them (it is only offered once every episode has aired).
 func (r *REST) searchFollowSeason(ctx context.Context, e wanted.Entry, season int) {
 	ctx, cancel := context.WithTimeout(ctx, followLimit)
 	defer cancel()
@@ -64,10 +73,6 @@ func (r *REST) searchFollowSeason(ctx context.Context, e wanted.Entry, season in
 		return
 	}
 	now := time.Now()
-	type pick struct {
-		ep   wanted.Episode
-		link ed2k.Link
-	}
 	var (
 		mu    sync.Mutex
 		picks []pick
@@ -95,8 +100,30 @@ func (r *REST) searchFollowSeason(ctx context.Context, e wanted.Entry, season in
 		}()
 	}
 	wg.Wait()
+	pack, havePack := r.seasonPack(ctx, e, season, found.releases, picks)
+	if havePack {
+		for _, ep := range e.Episodes {
+			if ep.Season != season || ep.Status != wanted.Wanted || !ep.Aired(now) ||
+				slices.ContainsFunc(picks, func(p pick) bool { return p.ep.Episode == ep.Episode }) {
+				continue
+			}
+			picks = append(picks, pick{ep, pack})
+		}
+	}
+	added := map[ed2k.Hash]bool{} // downloads started: true if it worked
 	for _, p := range picks {
-		_, err := r.addMedia(ctx, p.link, e.WorkID, e.Lang, p.ep.Season, p.ep.Episode)
+		if ok, seen := added[p.link.Hash]; seen { // the season file, for another episode
+			if ok {
+				r.wanted.EpisodeFound(e.ID, p.ep.Season, p.ep.Episode, p.link.Hash.String(), p.link.Name)
+			}
+			continue
+		}
+		episode := p.ep.Episode
+		if havePack && p.link.Hash == pack.Hash {
+			episode = 0 // organised as the whole season
+		}
+		_, err := r.addMedia(ctx, p.link, e.WorkID, e.Lang, p.ep.Season, episode)
+		added[p.link.Hash] = err == nil
 		if err != nil {
 			r.logf("wish list: %s S%02dE%02d: cannot download %s: %v", e.Title, p.ep.Season, p.ep.Episode, p.link.Name, err)
 			continue
@@ -108,4 +135,33 @@ func (r *REST) searchFollowSeason(ctx context.Context, e wanted.Entry, season in
 		}
 	}
 	r.wanted.SeasonSearched(e.ID, season, time.Now())
+}
+
+// seasonPack is a file with the whole season, for the aired episodes that
+// found no file of their own; ok is false when they all did, or no such
+// file is good enough.
+func (r *REST) seasonPack(ctx context.Context, e wanted.Entry, season int, files []Release, picks []pick) (ed2k.Link, bool) {
+	now := time.Now()
+	missing := false
+	var skip []string
+	for _, ep := range e.Episodes {
+		if ep.Season != season || ep.Status != wanted.Wanted || !ep.Aired(now) {
+			continue
+		}
+		skip = append(skip, ep.Skip...)
+		if !slices.ContainsFunc(picks, func(p pick) bool { return p.ep.Episode == ep.Episode }) {
+			missing = true
+		}
+	}
+	if !missing {
+		return ed2k.Link{}, false
+	}
+	var packs []Release
+	for _, x := range files {
+		if x.Info.Episode == 0 && (x.Info.Season == 0 || x.Info.Season == season) {
+			packs = append(packs, x)
+		}
+	}
+	label := wanted.Entry{Title: fmt.Sprintf("%s season %d", e.Title, season), Skip: skip}
+	return r.chooseWanted(ctx, packs, label)
 }

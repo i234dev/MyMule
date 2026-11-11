@@ -600,5 +600,10 @@ func checkSettings(s Settings) error {
 	if (s.ScheduleFrom == "") != (s.ScheduleTo == "") {
 		return fmt.Errorf("schedule_from and schedule_to go together: set both, or neither")
 	}
+	// The peer port is opened on the router (upnp): it must never be the
+	// API's, which is only for this computer or the local network.
+	if _, p, err := net.SplitHostPort(s.APIListen); err == nil && s.Port != 0 && p == strconv.Itoa(int(s.Port)) {
+		return fmt.Errorf("port %d is the API's (api_listen): choose another one", s.Port)
+	}
 	return mediaserver.Check(s.MediaServer, s.MediaServerURL, s.MediaServerToken)
 }

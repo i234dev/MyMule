@@ -496,7 +496,26 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 			ports = append(ports, portmap.Port{Proto: "udp", Port: settings.KadPort})
 		}
 		if len(ports) > 0 {
-			pm = portmap.New(portmap.Config{Ports: ports, Log: logf})
+			// Only the TCP port MyMule really listens on: one in use by
+			// another program (ssh, the web interface...) must not be
+			// forwarded from the Internet to it.
+			ready := func(ctx context.Context) []portmap.Port {
+				select {
+				case <-m.Listened():
+				case <-ctx.Done():
+					return nil
+				}
+				var open []portmap.Port
+				for _, p := range ports {
+					if p.Proto == "tcp" && m.ListenPort() != p.Port {
+						logf("router: not opening TCP port %d: MyMule is not listening on it", p.Port)
+						continue
+					}
+					open = append(open, p)
+				}
+				return open
+			}
+			pm = portmap.New(portmap.Config{Ports: ports, Ready: ready, Log: logf})
 			dc.Router = func() *portmap.State { s := pm.State(); return &s }
 		} else {
 			dc.Router = func() *portmap.State { return &portmap.State{Error: "no port to open (port is 0 and Kad is off)"} }

@@ -3,6 +3,7 @@ package portmap
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -352,4 +353,22 @@ func mustURL(s string) *url.URL {
 		panic(err)
 	}
 	return u
+}
+
+// With Ready, only the ports it gives are opened: none, and nothing is.
+func TestReadyNoPorts(t *testing.T) {
+	asked := false
+	m := New(Config{Ports: []Port{{Proto: "tcp", Port: 4662}},
+		Ready: func(context.Context) []Port { return nil },
+		Gateway: func() (netip.AddrPort, error) {
+			asked = true
+			return netip.AddrPort{}, errors.New("no router in tests")
+		}})
+	m.Run(context.Background())
+	if asked {
+		t.Fatal("the router was asked to open a port MyMule does not have")
+	}
+	if st := m.State(); st.Method != "" || st.Error == "" {
+		t.Fatalf("state: %+v", st)
+	}
 }

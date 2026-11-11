@@ -245,6 +245,11 @@ type File struct {
 type Manager struct {
 	cfg Config
 
+	// listened is closed once Run tried to listen on the TCP port (see
+	// Listened).
+	listened     chan struct{}
+	listenedOnce sync.Once
+
 	mu      sync.Mutex
 	closing bool // shutdown has started
 	files   map[ed2k.Hash]*File
@@ -304,11 +309,17 @@ func NewManager(cfg Config) *Manager {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 40
 	}
-	m := &Manager{cfg: cfg, files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, idents: map[*peer.Conn]*credits.Ident{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
+	m := &Manager{cfg: cfg, listened: make(chan struct{}), files: map[ed2k.Hash]*File{}, conns: map[*peer.Conn]*File{}, idents: map[*peer.Conn]*credits.Ident{}, udpAsked: map[string]time.Time{}, lastVerified: map[ed2k.Hash]int{}, kadCalled: map[netip.Addr]time.Time{}}
 	m.dlLimit = netutil.NewLimiter(cfg.DownloadLimitKBps * 1024)
 	m.callbacks.allowPrivate = cfg.allowPrivateSources
 	return m
 }
+
+// Listened is closed once Run tried to listen on the TCP port; then
+// ListenPort says whether it could (0: it could not, or no port is set).
+// Ports are only opened on the router once they are really ours: one in
+// use by another program must not be forwarded to it.
+func (m *Manager) Listened() <-chan struct{} { return m.listened }
 
 // Add registers a part file for downloading.
 func (m *Manager) Add(pf *PartFile) {
@@ -348,6 +359,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			go func() { <-ctx.Done(); ln.Close() }()
 		}
 	}
+	m.listenedOnce.Do(func() { close(m.listened) })
 
 	m.wg.Add(1)
 	go m.serverLoop(ctx)

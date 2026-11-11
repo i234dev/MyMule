@@ -32,7 +32,10 @@ const RetryAfter = 30 * time.Minute
 
 // Config says what to open.
 type Config struct {
-	Ports       []Port
+	Ports []Port
+	// Ready, if set, is called first by Run (it may wait) and gives the
+	// ports to open instead of Ports: those really open by then.
+	Ready       func(ctx context.Context) []Port
 	Description string // shown in the router's list ("MyMule")
 	Log         func(format string, args ...any)
 
@@ -103,6 +106,12 @@ func (m *Mapper) set(s State) {
 // Run opens the ports and keeps them open until ctx is done, then closes
 // them.
 func (m *Mapper) Run(ctx context.Context) {
+	if m.cfg.Ready != nil {
+		m.cfg.Ports = m.cfg.Ready(ctx)
+		if len(m.cfg.Ports) == 0 {
+			m.set(State{Error: "no port to open: MyMule could not open its ports"})
+		}
+	}
 	if len(m.cfg.Ports) == 0 {
 		return
 	}

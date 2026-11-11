@@ -220,3 +220,16 @@ func TestMediaServerTokenInEnvironment(t *testing.T) {
 		t.Error("media server changed with the token in the environment")
 	}
 }
+
+// The peer port (opened on the router) can never be the API's.
+func TestPortIsNotTheAPIs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	os.WriteFile(filepath.Join(home, SettingsFile), []byte("api_listen = 127.0.0.1:4711\n"), 0o600)
+	if err := UpdateSettings(map[string]string{"port": "4711", "upnp": "true"}, okFolder); err == nil {
+		t.Fatal("port set to the API's")
+	}
+	if err := UpdateSettings(map[string]string{"port": "4663"}, okFolder); err != nil {
+		t.Fatal(err)
+	}
+}

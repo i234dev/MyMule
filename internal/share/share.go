@@ -289,6 +289,7 @@ func (l *Library) scan(ctx context.Context) {
 		path  string
 		size  int64
 		mtime int64
+		root  string // the shared folder it was found in (see openIn)
 	}
 	var found []cand
 	l.mu.Lock()
@@ -317,7 +318,7 @@ func (l *Library) scan(ctx context.Context) {
 				return nil
 			}
 			if info, err := e.Info(); err == nil && info.Size() > 0 {
-				found = append(found, cand{path, info.Size(), info.ModTime().UnixNano()})
+				found = append(found, cand{path, info.Size(), info.ModTime().UnixNano(), root})
 			}
 			return nil
 		})
@@ -335,7 +336,7 @@ func (l *Library) scan(ctx context.Context) {
 			if err != nil || info.Size() == 0 {
 				continue
 			}
-			found = append(found, cand{filepath.Join(dir, e.Name()), info.Size(), info.ModTime().UnixNano()})
+			found = append(found, cand{filepath.Join(dir, e.Name()), info.Size(), info.ModTime().UnixNano(), dir})
 		}
 	}
 
@@ -397,7 +398,7 @@ func (l *Library) scan(ctx context.Context) {
 	l.mu.Unlock()
 	ids := make([]os.FileInfo, len(hits))
 	for i, h := range hits {
-		ids[i] = fileID(h.path, h.size, h.mtime)
+		ids[i] = treeFileID(h.root, h.path, h.size, h.mtime)
 	}
 	l.mu.Lock()
 	for i, h := range hits {
@@ -424,7 +425,7 @@ func (l *Library) scan(ctx context.Context) {
 		l.mu.Lock()
 		l.hashing, l.toHash, l.hashPct = filepath.Base(c.path), len(todo)-i, 0
 		l.mu.Unlock()
-		fh, tree, err := hashFile(c.path, c.size, func(done int64) {
+		fh, tree, hashed, err := hashFile(c.root, c.path, c.size, c.mtime, func(done int64) {
 			l.mu.Lock()
 			l.hashPct = int(done * 100 / c.size)
 			l.mu.Unlock()
@@ -439,8 +440,8 @@ func (l *Library) scan(ctx context.Context) {
 				ce.Parts = append(ce.Parts, p.String())
 			}
 		}
-		id := fileID(c.path, c.size, c.mtime)
-		if id == nil {
+		id := treeFileID(c.root, c.path, c.size, c.mtime)
+		if id == nil || !os.SameFile(id, hashed) {
 			// It changed while it was read (still being copied or
 			// downloaded by another program): the hash is of something
 			// that is not the file. The next scan tries again.
@@ -722,25 +723,69 @@ func sameAsRegistered(d *diskFile, path string) bool {
 const aichQueue = 32
 
 // hashFile computes a file's eD2K hashes and AICH tree, reading it once.
-func hashFile(path string, size int64, progress func(int64)) (*ed2k.FileHashes, *aich.Tree, error) {
-	f, err := os.Open(path)
+// hashFile hashes the file at path, found in the shared folder root (see
+// openIn), and returns what it hashed: the file's identity, to be checked
+// against what the path leads to afterwards.
+func hashFile(root, path string, size, mtime int64, progress func(int64)) (*ed2k.FileHashes, *aich.Tree, os.FileInfo, error) {
+	f, st, err := openIn(root, path, size, mtime)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer f.Close()
 	ah := aich.NewHasher(uint64(size))
 	fh, err := ed2k.HashReader(io.TeeReader(f, ah), progress)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if fh.Size != size {
-		return nil, nil, fmt.Errorf("%d bytes read, %d expected", fh.Size, size)
+		return nil, nil, nil, fmt.Errorf("%d bytes read, %d expected", fh.Size, size)
 	}
 	tree, err := ah.Tree()
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	return fh, tree, st, nil
+}
+
+// openIn opens the file at path inside the shared folder root without
+// leaving it: a link or junction anywhere in the path that leads out of
+// the folder is refused (os.Root), so someone who can write in a shared
+// folder cannot swap a folder for a link to private files while it is
+// listed or hashed. It must still be the regular file of that size and
+// date (not a FIFO, which would block the scan).
+func openIn(root, path string, size, mtime int64) (*os.File, os.FileInfo, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return nil, nil, fmt.Errorf("%s is not in %s", path, root)
+	}
+	diskAccess(path)
+	r, err := os.OpenRoot(root)
+	if err != nil {
 		return nil, nil, err
 	}
-	return fh, tree, nil
+	defer r.Close()
+	f, err := r.OpenFile(rel, os.O_RDONLY|noFollow|nonBlock, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || st.Size() != size || st.ModTime().UnixNano() != mtime {
+		f.Close()
+		return nil, nil, fmt.Errorf("%s is no longer the file that was listed", filepath.Base(path))
+	}
+	return f, st, nil
+}
+
+// treeFileID is fileID for a file of the shared folder root: the identity
+// of the file opened inside it (see openIn), or nil.
+func treeFileID(root, path string, size, mtime int64) os.FileInfo {
+	f, st, err := openIn(root, path, size, mtime)
+	if err != nil {
+		return nil
+	}
+	f.Close()
+	os.SameFile(st, st) // on Windows the file's id is read now, not on first use
+	return st
 }
 
 func aichStrings(t *aich.Tree) []string {

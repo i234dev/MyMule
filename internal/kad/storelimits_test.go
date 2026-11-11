@@ -143,7 +143,11 @@ func TestUnprovenPublishWaitsForPing(t *testing.T) {
 		WriteID(&w, file)
 		WriteID(&w, RandomID())
 		WriteTags(&w, []proto.Tag{IntTag(TagSourceType, 1), IntTag(TagSourcePort, 4662)})
-		fn.inject(from, a, rawPacket(OpPublishSourceReq, w.B))
+		k := &Keys{Secret: [32]byte{9}}
+		if from == addrOf(b) {
+			k = &b.keys
+		}
+		fn.inject(from, a, unproven(k, a, rawPacket(OpPublishSourceReq, w.B)))
 	}
 	// Forged: from an address without a node, which never answers.
 	victim := netip.AddrPortFrom(pubIP(77, false), 4672)
@@ -153,7 +157,7 @@ func TestUnprovenPublishWaitsForPing(t *testing.T) {
 	}
 	pinged := false
 	for _, d := range fn.sent[victim] {
-		if p, err := DecodePacket(d); err == nil && p.Opcode == OpPing {
+		if p, err := decodeFor(&Keys{Secret: [32]byte{9}}, a, d); err == nil && p.Opcode == OpPing {
 			pinged = true
 		}
 	}
@@ -173,7 +177,7 @@ func TestUnprovenPublishWaitsForPing(t *testing.T) {
 	// At most a few waiting per address.
 	from := netip.AddrPortFrom(pubIP(78, false), 4672)
 	for i := range maxPendingPerIP + 5 {
-		ok, _ := a.add(incoming{from: from}, pendSource, &entry{key: file, ip: from.Addr(), tcpPort: 1, udpPort: 1,
+		ok, _ := a.add(incoming{from: from, senderKey: keyOf(a)}, pendSource, &entry{key: file, ip: from.Addr(), tcpPort: 1, udpPort: 1,
 			tags: []proto.Tag{IntTag(TagSourceType, 1)}}, fn.now)
 		if ok != (i < maxPendingPerIP) {
 			t.Fatalf("publish %d waiting: %v", i, ok)
@@ -505,5 +509,58 @@ func TestKeywordSearchesPerSecond(t *testing.T) {
 	fn.now = fn.now.Add(time.Second)
 	if !ask(102, false) {
 		t.Fatal("not answered a second later")
+	}
+}
+
+// A publish from an old client (no key of its own) is not taken: our ping
+// would go out in the clear, and a PONG forged from that address would
+// prove it.
+func TestKeylessPublishDropped(t *testing.T) {
+	file := RandomID()
+	fn, a, _ := storeNode(t, file)
+	victim := netip.AddrPortFrom(pubIP(79, false), 80)
+	var w proto.Writer
+	WriteID(&w, file)
+	WriteID(&w, RandomID())
+	WriteTags(&w, []proto.Tag{IntTag(TagSourceType, 1), IntTag(TagSourcePort, 80)})
+	fn.inject(victim, a, rawPacket(OpPublishSourceReq, w.B))
+	if a.pending[victim.Addr()] != nil {
+		t.Fatal("keyless publish waits for a ping")
+	}
+	fn.inject(victim, a, rawPacket(OpPong, []byte{0x50, 0x00}))
+	if len(a.index.sources[file]) != 0 {
+		t.Fatal("forged source stored")
+	}
+}
+
+// A proven entry takes the place of a weak one in a full index; a weak
+// note never replaces a proven one.
+func TestProvenPushesOutWeak(t *testing.T) {
+	x := newIndex()
+	ip := func(i int) netip.Addr { return pubIP(400000+i, false) }
+	src := func(i int, weak bool) *entry {
+		return &entry{key: RandomID(), source: RandomID(), ip: ip(i), tcpPort: 1, udpPort: 1, weak: weak,
+			tags: []proto.Tag{IntTag(TagSourceType, 1)}, expires: t0.Add(time.Hour)}
+	}
+	n := 0
+	for ; ; n++ { // until a limit (files or entries) is reached
+		if ok, _ := x.addSource(src(n, true)); !ok {
+			break
+		}
+	}
+	if n < 1000 {
+		t.Fatalf("only %d weak sources stored", n)
+	}
+	before := x.nSource
+	if ok, _ := x.addSource(src(-2, false)); !ok || x.nSource != before {
+		t.Fatalf("proven source refused (%d stored, %d before)", x.nSource, before)
+	}
+	file := RandomID()
+	proven := &entry{key: file, source: RandomID(), ip: ip(-3), tags: []proto.Tag{IntTag(TagFileRating, 5)}}
+	x.addNote(proven)
+	weak := &entry{key: file, source: proven.source, ip: ip(-4), weak: true, tags: []proto.Tag{IntTag(TagFileRating, 1)}}
+	x.addNote(weak)
+	if len(x.notes[file]) != 1 || x.notes[file][0] != proven {
+		t.Fatal("weak note replaced a proven one")
 	}
 }

@@ -23,13 +23,17 @@ func TestUnprovenPacketWaitsWhole(t *testing.T) {
 		WriteID(&w, RandomID())
 		WriteTags(&w, []proto.Tag{StrTag(TagFileName, "Quiet Orchard.mkv"), IntTag(TagFileSize, uint64(1+i))})
 	}
-	fn.inject(x, a, rawPacket(OpPublishKeyReq, w.B))
+	k := &Keys{Secret: [32]byte{9}}
+	fn.inject(x, a, unproven(k, a, rawPacket(OpPublishKeyReq, w.B)))
+	if a.pending[x.Addr()] == nil {
+		t.Fatal("nothing waiting")
+	}
 	if n := len(a.pending[x.Addr()].items); n != filesPerPublish {
 		t.Fatalf("%d of %d waiting", n, filesPerPublish)
 	}
 	var load byte = 255
 	for _, d := range fn.sent[x] {
-		if p, err := DecodePacket(d); err == nil && p.Opcode == OpPublishRes {
+		if p, err := decodeFor(k, a, d); err == nil && p.Opcode == OpPublishRes {
 			r := proto.NewReader(p.Payload)
 			ReadID(r)
 			load = r.U8()
@@ -39,7 +43,7 @@ func TestUnprovenPacketWaitsWhole(t *testing.T) {
 		t.Fatalf("answered with load %d", load)
 	}
 	// One packet's worth waits per address, no more: a second is refused.
-	fn.inject(x, a, rawPacket(OpPublishKeyReq, w.B))
+	fn.inject(x, a, unproven(k, a, rawPacket(OpPublishKeyReq, w.B)))
 	if n := len(a.pending[x.Addr()].items); n != filesPerPublish {
 		t.Fatalf("%d waiting after a second packet", n)
 	}
@@ -53,7 +57,7 @@ func TestPendingTableFull(t *testing.T) {
 		a.pending[pubIP(10000+i, false)] = &pendingPub{at: fn.now.Add(time.Duration(i) * time.Millisecond)}
 	}
 	x := netip.AddrPortFrom(pubIP(5, false), 4672)
-	ok, _ := a.add(incoming{from: x}, pendSource, &entry{key: RandomID(), ip: x.Addr(), tcpPort: 1, udpPort: 1,
+	ok, _ := a.add(incoming{from: x, senderKey: UDPKey{Key: 1, IP: a.publicIP()}}, pendSource, &entry{key: RandomID(), ip: x.Addr(), tcpPort: 1, udpPort: 1,
 		tags: []proto.Tag{IntTag(TagSourceType, 1)}}, fn.now.Add(time.Second))
 	if !ok || a.pending[x.Addr()] == nil || len(a.pending) != maxPendingIPs {
 		t.Fatalf("not admitted (%d waiting)", len(a.pending))
@@ -85,7 +89,7 @@ func TestPendingBudget(t *testing.T) {
 		from := netip.AddrPortFrom(pubIP(20000+i, false), 4672)
 		at = at.Add(time.Millisecond)
 		for j := range maxPendingPerIP {
-			if ok, _ := a.add(incoming{from: from}, pendKeyword, big(from.Addr(), j), at); !ok {
+			if ok, _ := a.add(incoming{from: from, senderKey: keyOf(a)}, pendKeyword, big(from.Addr(), j), at); !ok {
 				t.Fatalf("publish %d/%d refused", i, j)
 			}
 		}
@@ -107,7 +111,7 @@ func TestPendingBudget(t *testing.T) {
 	// Full: a new address still gets in (and is pinged), in the place of
 	// what waited longest.
 	late := netip.AddrPortFrom(pubIP(9, false), 4672)
-	ok, _ := a.add(incoming{from: late}, pendKeyword, big(late.Addr(), 0), at)
+	ok, _ := a.add(incoming{from: late, senderKey: keyOf(a)}, pendKeyword, big(late.Addr(), 0), at)
 	pinged := false
 	for _, q := range fn.queue {
 		pinged = pinged || q.to == late
@@ -135,7 +139,7 @@ func TestPendingBudgetProved(t *testing.T) {
 	fn, a, _ := storeNode(t, key)
 	x := netip.AddrPortFrom(pubIP(91, false), 4672)
 	for i := range 3 {
-		a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", uint64(1+i), x.Addr()), fn.now)
+		a.add(incoming{from: x, senderKey: keyOf(a)}, pendKeyword, kwEntry("Quiet Orchard.mkv", uint64(1+i), x.Addr()), fn.now)
 	}
 	if a.pendingItems != 3 || a.pendingBytes <= 0 {
 		t.Fatalf("%d entries, %d bytes", a.pendingItems, a.pendingBytes)
@@ -146,8 +150,8 @@ func TestPendingBudgetProved(t *testing.T) {
 	}
 	// One that waited too long is dropped, not kept, when its address
 	// publishes again.
-	a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", 1, x.Addr()), fn.now)
-	a.add(incoming{from: x}, pendKeyword, kwEntry("Quiet Orchard.mkv", 2, x.Addr()), fn.now.Add(pendingWait+time.Second))
+	a.add(incoming{from: x, senderKey: keyOf(a)}, pendKeyword, kwEntry("Quiet Orchard.mkv", 1, x.Addr()), fn.now)
+	a.add(incoming{from: x, senderKey: keyOf(a)}, pendKeyword, kwEntry("Quiet Orchard.mkv", 2, x.Addr()), fn.now.Add(pendingWait+time.Second))
 	if a.pendingItems != 1 || len(a.pending[x.Addr()].items) != 1 {
 		t.Fatalf("%d entries waiting", a.pendingItems)
 	}

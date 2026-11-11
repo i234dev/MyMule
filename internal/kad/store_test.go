@@ -269,6 +269,25 @@ func storeNode(t *testing.T, target ID) (*fakeNet, *Node, *Node) {
 	return fn, a, b
 }
 
+// unproven obfuscates data for a as a current client that has not
+// talked to it yet sends it: with its own key for a (so a can answer it),
+// without a's key (nothing proves its address).
+func unproven(k *Keys, a *Node, data []byte) []byte {
+	return k.EncryptKad(data, addrOf(a).Addr(), a.ID(), 0)
+}
+
+// decodeFor decodes what a sent to a node with keys k (obfuscated for it).
+func decodeFor(k *Keys, a *Node, d []byte) (Packet, error) {
+	r, err := k.Decrypt(d, addrOf(a).Addr())
+	if err != nil {
+		return Packet{}, err
+	}
+	return DecodePacket(r.Data)
+}
+
+// keyOf is the key of a current client that has not talked to a yet.
+func keyOf(a *Node) UDPKey { return UDPKey{Key: 1, IP: a.publicIP()} }
+
 // proof is the receiver key a node gives with its packets to a: proof
 // that it is at the address it sends from.
 func proof(a, b *Node) uint32 { return a.keys.VerifyKey(addrOf(b).Addr()) }

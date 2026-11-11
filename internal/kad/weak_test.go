@@ -53,7 +53,7 @@ func TestPendingStoredWeak(t *testing.T) {
 	WriteID(&w, file)
 	WriteID(&w, RandomID())
 	WriteTags(&w, []proto.Tag{IntTag(TagSourceType, 1), IntTag(TagSourcePort, 4662)})
-	fn.inject(addrOf(b), a, rawPacket(OpPublishSourceReq, w.B))
+	fn.inject(addrOf(b), a, unproven(&b.keys, a, rawPacket(OpPublishSourceReq, w.B)))
 	if len(a.index.sources[file]) != 1 || !a.index.sources[file][0].weak {
 		t.Fatal("not stored weak")
 	}
@@ -163,7 +163,7 @@ func TestPendingNamesCut(t *testing.T) {
 	w.U16(1)
 	WriteID(&w, RandomID())
 	WriteTags(&w, []proto.Tag{StrTag(TagFileName, "orchard "+strings.Repeat("n", 3000)), IntTag(TagFileSize, 5)})
-	fn.inject(x, a, rawPacket(OpPublishKeyReq, w.B))
+	fn.inject(x, a, unproven(&Keys{Secret: [32]byte{9}}, a, rawPacket(OpPublishKeyReq, w.B)))
 	p := a.pending[x.Addr()]
 	if p == nil || len(p.items) != 1 || len(p.items[0].e.names[0].name) > maxNameBytes {
 		t.Fatal("long name kept while waiting")

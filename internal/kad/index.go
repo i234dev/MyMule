@@ -427,6 +427,11 @@ func (x *index) merge(e, old *entry, now time.Time) {
 			e.names = addName(e.names, cur)
 		}
 		e.trustV, e.trustAt = old.trustV, old.trustAt
+		if e.weak && hasProven(old) {
+			// A weak refresh (the address only answered a ping) changes
+			// neither the tags nor the life of what a proven node stored.
+			e.tags, e.expires = old.tags, old.expires
+		}
 	}
 	if !refresh {
 		e.publishers = append(e.publishers, publisher{ip: e.ip, last: now, weak: e.weak})
@@ -451,6 +456,16 @@ func (x *index) merge(e, old *entry, now time.Time) {
 		}
 		e.trustAt = time.Time{} // recompute
 	}
+}
+
+// hasProven reports whether a keyword entry has a proven publisher.
+func hasProven(e *entry) bool {
+	for _, p := range e.publishers {
+		if !p.weak {
+			return true
+		}
+	}
+	return false
 }
 
 func addName(names []fileName, n fileName) []fileName {
@@ -529,6 +544,13 @@ func (x *index) addNote(e *entry) (bool, byte) {
 	if !e.ip.IsValid() || (len(e.tags) == 0 && e.size == 0 && e.name() == "") {
 		return false, 0
 	}
+	if e.weak {
+		for _, o := range x.notes[e.key] {
+			if (o.ip == e.ip || o.source == e.source) && !o.weak {
+				return true, 1 // a weak note never replaces a proven one
+			}
+		}
+	}
 	e.settle()
 	return x.addTo(x.notes, &x.nNotes, maxNotesEntries, maxNotesPerFile, e,
 		func(o *entry) bool { return o.ip == e.ip || o.source == e.source })
@@ -536,6 +558,12 @@ func (x *index) addNote(e *entry) (bool, byte) {
 
 func (x *index) addTo(m map[ID][]*entry, n *int, maxTotal, perKey int, e *entry, same func(*entry) bool) (bool, byte) {
 	list, ok := m[e.key]
+	if !e.weak && (*n >= maxTotal || (!ok && len(m) >= maxKeys)) {
+		// Full: a proven entry takes the place of a weak one.
+		if x.dropWeak(m, n, e.key) {
+			list, ok = m[e.key]
+		}
+	}
 	if !ok {
 		if len(m) >= maxKeys || *n >= maxTotal || !x.room(e.cost) {
 			return false, 100
@@ -588,6 +616,38 @@ func (x *index) addTo(m map[ID][]*entry, n *int, maxTotal, perKey int, e *entry,
 	*n++
 	x.bytes += e.cost
 	return true, load
+}
+
+// weakSample is how many keys dropWeak looks at: weak entries of a flood
+// are most of a full map, so one is soon found in its random order.
+const weakSample = 256
+
+// dropWeak drops a weak entry from m (not one of keep), to make room for
+// a proven one. It reports whether it found one.
+func (x *index) dropWeak(m map[ID][]*entry, n *int, keep ID) bool {
+	seen := 0
+	for key, list := range m {
+		if seen++; seen > weakSample {
+			return false
+		}
+		if key == keep {
+			continue
+		}
+		for i := len(list) - 1; i >= 0; i-- {
+			if !list[i].weak {
+				continue
+			}
+			x.bytes -= list[i].cost
+			*n--
+			if len(list) == 1 {
+				delete(m, key)
+			} else {
+				m[key] = append(list[:i:i], list[i+1:]...)
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // clean drops what expired, every 30 minutes (expired entries are not

@@ -74,6 +74,13 @@ func (n *Node) add(in incoming, kind pendingKind, e *entry, now time.Time) (bool
 	if in.validKey {
 		return n.addNow(kind, e, now)
 	}
+	// Without the sender's key our ping would go out in the clear, and any
+	// PONG from that address, forged as easily as the publish, would
+	// prove it. Only clients older than eMule 0.49a send no key: theirs
+	// are dropped.
+	if in.senderKey.For(n.publicIP()) == 0 {
+		return false, 0
+	}
 	ip := in.from.Addr()
 	e.settle()
 	full := func() bool { return n.pendingItems >= maxPendingItems || n.pendingBytes+e.cost > maxPendingBytes }

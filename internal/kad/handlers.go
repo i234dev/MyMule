@@ -205,6 +205,11 @@ func (n *Node) hasChallenge(ip netip.Addr, now time.Time) bool {
 	return false
 }
 
+// maxChallenges bounds the pending challenges: forged HELLOs from new
+// addresses would grow the list, and it is gone through for every packet.
+// The oldest are dropped.
+const maxChallenges = 1024
+
 func (n *Node) addChallenge(c challenge) {
 	n.challenges = append(n.challenges, c)
 	kept := n.challenges[:0]
@@ -212,6 +217,9 @@ func (n *Node) addChallenge(c challenge) {
 		if c.at.Sub(o.at) <= trackWindow {
 			kept = append(kept, o)
 		}
+	}
+	if len(kept) > maxChallenges {
+		kept = append(kept[:0], kept[len(kept)-maxChallenges:]...)
 	}
 	n.challenges = kept
 }
@@ -537,8 +545,10 @@ func (n *Node) onHelloReq(in incoming, now time.Time) error {
 	switch {
 	case added && !in.validKey && h.contact.Version == 7 && !n.hasChallenge(addr.Addr(), now):
 		// Version 7 cannot acknowledge a HELLO_RES: a PING answered
-		// from that IP proves it.
-		n.send(addr, OpPing, nil, ID{}, in.senderKey.For(n.publicIP()))
+		// from that IP proves it. The PING is obfuscated for the node's
+		// ID, so its answer carries our key: a PONG forged from that
+		// address cannot answer it (see onPong).
+		n.send(addr, OpPing, nil, h.contact.ID, in.senderKey.For(n.publicIP()))
 		n.addChallenge(challenge{ip: addr.Addr(), op: OpPing, contact: h.contact.ID, at: now})
 	case n.findingExtPort() && h.contact.Version > 5:
 		n.send(addr, OpPing, nil, ID{}, in.senderKey.For(n.publicIP()))
@@ -666,12 +676,20 @@ func (n *Node) onPong(in incoming, now time.Time) error {
 		n.proved(in.from.Addr(), now) // publishes waiting for this answer
 		return nil
 	}
+	// A PONG without our key from an address we challenged may be forged:
+	// it is ignored without using up the request, so the node's real
+	// answer still counts.
+	if !in.validKey && n.hasChallenge(in.from.Addr(), now) {
+		return errBad
+	}
 	if !n.wasAsked(in.from.Addr(), OpPing, now, false) {
 		return errBad
 	}
-	if id, ok := n.takeChallenge(ID{}, in.from.Addr(), OpPing, now); ok {
-		n.table.Verify(id, in.from.Addr())
-		return nil
+	if in.validKey { // a challenge is only met with our key
+		if id, ok := n.takeChallenge(ID{}, in.from.Addr(), OpPing, now); ok {
+			n.table.Verify(id, in.from.Addr())
+			return nil
+		}
 	}
 	if n.findingExtPort() {
 		n.setExtPort(proto.NewReader(in.payload).U16(), in.from.Addr())

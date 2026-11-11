@@ -961,3 +961,53 @@ func TestNodeForgedFloodBansNobody(t *testing.T) {
 		t.Fatal("the node's own ping refused because of forged ones")
 	}
 }
+
+// A version 7 node is challenged with a PING obfuscated for its ID: a
+// PONG forged from its address (without our key) does not verify it, the
+// node's real answer (with it) does.
+func TestPingChallengeNeedsKey(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{})
+	x := netip.AddrPortFrom(pubIP(70, false), 4672)
+	xid := RandomID()
+	var w proto.Writer
+	WriteID(&w, xid)
+	w.U16(4672)
+	w.U8(7)
+	w.U8(0)
+	fn.inject(x, a, rawPacket(OpHelloReq, w.B))
+	c := a.table.Get(xid)
+	if c == nil || c.Verified {
+		t.Fatalf("contact: %+v", c)
+	}
+	for _, b := range fn.sent[x] {
+		if p, err := DecodePacket(b); err == nil && p.Opcode == OpPing {
+			t.Fatal("challenge PING sent in the clear")
+		}
+	}
+	pong := rawPacket(OpPong, []byte{0x40, 0x12})
+	fn.inject(x, a, pong)
+	if c.Verified {
+		t.Fatal("verified by a PONG without our key")
+	}
+	keyed := (&Keys{Secret: [32]byte{7}}).EncryptKad(pong, addrOf(a).Addr(), ID{}, a.keys.VerifyKey(x.Addr()))
+	fn.inject(x, a, keyed)
+	if !c.Verified {
+		t.Fatal("the node's real answer did not verify it")
+	}
+}
+
+// Forged HELLOs from many addresses cannot grow the challenge list.
+func TestChallengesBounded(t *testing.T) {
+	fn := newFakeNet()
+	a := fn.node(t, 1, Config{})
+	for i := range maxChallenges + 300 {
+		a.addChallenge(challenge{ip: pubIP(200000+i, false), op: OpPing, at: fn.now})
+	}
+	if len(a.challenges) != maxChallenges {
+		t.Fatalf("%d challenges kept", len(a.challenges))
+	}
+	if a.challenges[len(a.challenges)-1].ip != pubIP(200000+maxChallenges+299, false) {
+		t.Fatal("the newest challenge was dropped")
+	}
+}

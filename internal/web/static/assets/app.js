@@ -133,6 +133,8 @@ const STRINGS = {
     "cat.share": "Share", "cat.remove": "Remove", "cat.pick": "Category",
     "cat.none": "No category", "cat.btn": "Category",
     "cat.hintbtn": "Where the file goes when it finishes. Click to change.",
+    "upd.chip": "MyMule {v} is out",
+    "upd.hint": "A new version (you have {cur}). Click to see what is new and how to update.",
     "set.save": "Save", "set.saved": "Saved.",
     "adv.title": "Advanced settings (mymule.conf)",
     "adv.hint": "Everything in mymule.conf: ports, folders, speeds… Changes are written to the file and take effect when MyMule restarts.",
@@ -357,6 +359,8 @@ const STRINGS = {
     "cat.share": "Compartir", "cat.remove": "Quitar", "cat.pick": "Categoría",
     "cat.none": "Sin categoría", "cat.btn": "Categoría",
     "cat.hintbtn": "A dónde va el archivo cuando termine. Pulsa para cambiarla.",
+    "upd.chip": "Ya está MyMule {v}",
+    "upd.hint": "Hay una versión nueva (tienes la {cur}). Pulsa para ver qué trae y cómo actualizar.",
     "set.save": "Guardar", "set.saved": "Guardado.",
     "adv.title": "Ajustes avanzados (mymule.conf)",
     "adv.hint": "Todo lo de mymule.conf: puertos, carpetas, velocidades… Los cambios se escriben en el fichero y se aplican al reiniciar MyMule.",
@@ -704,6 +708,15 @@ function renderHeader() {
   $("#chip-down").textContent = "↓ " + speed(status.download_speed);
   $("#chip-up").textContent = "↑ " + speed(status.upload ? status.upload.speed : 0);
   $("#version").textContent = "MyMule " + status.version;
+  // A newer version is out: a link to its page (what is new, downloads).
+  const up = $("#chip-update"), u = status.update;
+  const page = u && /^https:\/\/github\.com\/i234dev\/MyMule\/releases\//.test(u.url) ? u.url : "";
+  up.hidden = !page;
+  if (page) {
+    up.textContent = t("upd.chip", { v: u.version });
+    up.title = t("upd.hint", { cur: status.version });
+    up.href = page;
+  }
 }
 
 // ---------- Downloads ----------

@@ -22,6 +22,7 @@ import (
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/stats"
+	"mymule/internal/update"
 	"mymule/internal/upload"
 	"mymule/internal/wanted"
 )
@@ -36,6 +37,7 @@ type REST struct {
 	version     string
 	mux         *http.ServeMux
 	also        func(*http.Request) bool // extra check, e.g. the web interface session
+	newer       func() *update.Release   // a newer MyMule that is out (see EnableUpdates)
 	media       meta.Source              // movie/series lookups; nil = disabled
 	prefs       *prefs.Store             // web preferences; nil = disabled
 	items       *library.Store           // downloads that are movies or episodes
@@ -57,6 +59,10 @@ type REST struct {
 // AlsoAllow accepts requests for which f returns true, in addition to the
 // API key. The web interface uses it for its session cookie.
 func (r *REST) AlsoAllow(f func(*http.Request) bool) { r.also = f }
+
+// EnableUpdates says in the status (update) whether a newer MyMule is
+// out, as newer tells.
+func (r *REST) EnableUpdates(newer func() *update.Release) { r.newer = newer }
 
 // EnableStartLink adds POST /api/v1/web/link: a one-time login link for
 // the web interface (see web.UI.StartLink). A second copy of MyMule
@@ -175,15 +181,16 @@ type RServer struct {
 
 // RStatus is the reply to GET /api/v1/status.
 type RStatus struct {
-	Version       string         `json:"version"`
-	Server        RServer        `json:"server"`
-	DownloadSpeed float64        `json:"download_speed"`
-	Downloads     []RDownload    `json:"downloads"`
-	Upload        *upload.Status `json:"upload,omitempty"`
-	Shared        *share.Status  `json:"shared,omitempty"`
-	Kad           *KadInfo       `json:"kad,omitempty"`
-	Totals        *stats.Totals  `json:"totals,omitempty"` // all time
-	Router        *RouterInfo    `json:"router,omitempty"` // ports opened on the router; absent: upnp off
+	Version       string          `json:"version"`
+	Server        RServer         `json:"server"`
+	DownloadSpeed float64         `json:"download_speed"`
+	Downloads     []RDownload     `json:"downloads"`
+	Upload        *upload.Status  `json:"upload,omitempty"`
+	Shared        *share.Status   `json:"shared,omitempty"`
+	Kad           *KadInfo        `json:"kad,omitempty"`
+	Totals        *stats.Totals   `json:"totals,omitempty"` // all time
+	Router        *RouterInfo     `json:"router,omitempty"` // ports opened on the router; absent: upnp off
+	Update        *update.Release `json:"update,omitempty"` // a newer MyMule that is out
 }
 
 // ToRDownload converts a manager status to the REST format.
@@ -234,6 +241,9 @@ func (r *REST) getStatus(w http.ResponseWriter, req *http.Request) {
 	st.Kad = KadInfoOf(r.m.KadStatus(), r.m.KadProblem())
 	st.Totals = r.m.Totals()
 	st.Router = RouterInfoOf(r.m.Router())
+	if r.newer != nil {
+		st.Update = r.newer()
+	}
 	reply(w, st)
 }
 

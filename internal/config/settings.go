@@ -80,6 +80,10 @@ type Settings struct {
 	// compatible API for Radarr, Sonarr and the like. Off by default.
 	ArrSupport bool
 
+	// UpdateCheck asks GitHub once a day whether a newer MyMule is out
+	// (only the version: nothing is downloaded). On by default.
+	UpdateCheck bool
+
 	// TMDBKey is the TMDB API key for movie/series data and posters in the
 	// web interface: "" = MyMule's own key, "off" = don't use TMDB.
 	TMDBKey string
@@ -105,6 +109,7 @@ type Settings struct {
 func Defaults() Settings {
 	return Settings{
 		Port:           4662,
+		UpdateCheck:    true,
 		Kad:            true,
 		KadPort:        4672,
 		KadNodesURL:    DefaultKadNodesURL,
@@ -215,6 +220,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.MediaServer }},
 	{"media_server_url", "Its address, e.g. http://192.168.0.10:8096 (Jellyfin/Emby) or\nhttp://192.168.0.10:32400 (Plex).",
 		func(s Settings) string { return s.MediaServerURL }},
+	{"update_check", "Look once a day for a new version of MyMule on GitHub, and tell in the\nweb interface, the log and mymule doctor when there is one. Only the\nversion number is asked for: nothing is downloaded or installed. false =\nnever ask.",
+		func(s Settings) string { return strconv.FormatBool(s.UpdateCheck) }},
 	{"media_server_token", "An API key made in Jellyfin/Emby (Dashboard > API Keys), or your Plex\ntoken.",
 		func(s Settings) string { return s.MediaServerToken }},
 	{"search_languages", "With arr_support: Radarr/Sonarr only search by the original or English\ntitle. List language codes here (e.g. es, or es, fr) to also search by the title in\nthose languages, looked up on Wikidata (only the IMDb/TMDB/TVDB id of the\nmovie or show is sent). Empty = off, no lookups.",
@@ -540,6 +547,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 				return present, fmt.Errorf("line %d: arr_support must be true or false", line)
 			}
 			s.ArrSupport = b
+		case "update_check":
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return present, fmt.Errorf("line %d: update_check must be true or false", line)
+			}
+			s.UpdateCheck = b
 		case "search_languages":
 			s.SearchLanguages = nil
 			for _, l := range strings.FieldsFunc(val, func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {

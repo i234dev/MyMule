@@ -38,6 +38,7 @@ import (
 	"mymule/internal/server"
 	"mymule/internal/share"
 	"mymule/internal/stats"
+	"mymule/internal/update"
 	"mymule/internal/upload"
 	"mymule/internal/wanted"
 	"mymule/internal/web"
@@ -101,6 +102,8 @@ type engine struct {
 	// startLink makes a one-time login link for the web interface (nil
 	// without it); see web.UI.StartLink.
 	startLink func() string
+	// updates tells whether a newer MyMule is out (nil: update_check off).
+	updates *update.Checker
 
 	// ratings: the user's ratings of files, published in Kad.
 	ratings *ratings.Store
@@ -331,6 +334,9 @@ func (e *engine) start(ctx context.Context) {
 	go e.cred.Run(ctx)
 	go e.stats.Run(ctx)
 	go e.runSchedule(ctx)
+	if e.updates != nil {
+		go e.updates.Run(ctx)
+	}
 	if e.kad != nil {
 		go e.ratings.Run(ctx, e.PublishNote, time.Minute)
 	}
@@ -541,6 +547,9 @@ func (e engineFlags) manager(tmp string, stayAlive, withKad bool) (*engine, erro
 		eng.media = r
 	}
 	eng.prefs.Protect(tmp)
+	if settings.UpdateCheck {
+		eng.updates = &update.Checker{Current: version, UserAgent: userAgent(), Log: logf}
+	}
 	eng.prefs.AllowNetworkHosts(settings.NetworkHosts)
 	eng.prefs.AllowRoots(append([]string{settings.DownloadDir}, settings.FolderRoots...)...)
 	saved, usable := eng.prefs.Get().Library, eng.prefs.Library()
@@ -1016,6 +1025,9 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableHistory(e.stats.History())
 		e.runWanted = rest.RunWanted
 		e.startLink = ui.StartLink
+		if e.updates != nil {
+			rest.EnableUpdates(e.updates.Newer)
+		}
 		rest.EnableStartLink(ui.StartLink)
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()

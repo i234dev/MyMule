@@ -83,7 +83,7 @@ func TestSettingsParse(t *testing.T) {
 		TempDir: filepath.Join(home, "tmp"), DownloadDir: abs, MaxConns: 10, Obfuscation: "required",
 		Sharing: false, ShareDownloads: false, SharedDirs: []string{filepath.Join(home, "isos"), abs},
 		UploadSlots: 5, UploadLimit: 0, APIListen: "0.0.0.0:8080", APIKey: "example-key-0123456789",
-		WebUI: true, TMDBKey: "off", ArrSupport: true, SearchLanguages: []string{"es", "pt-br"},
+		WebUI: true, TMDBKey: "off", ArrSupport: true, UpdateCheck: true, SearchLanguages: []string{"es", "pt-br"},
 		NetworkHosts: []string{"nas", "192.0.2.20"},
 		NotifyURLs:   "ntfy://mymule-example https://hooks.example.org/x", NotifyOn: []string{"completed", "error"},
 		MediaServer: "jellyfin", MediaServerURL: "http://192.0.2.30:8096", MediaServerToken: "example-token"}

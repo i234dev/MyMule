@@ -230,6 +230,12 @@ MyMule opened on the router with UPnP or NAT-PMP.
 
 No `method` and no `error`: still trying.
 
+### New version in the status
+
+With the web interface and `update_check` on, `GET /api/v1/status`
+includes `update` when a newer MyMule is out: `version` (e.g. `1.4.0`),
+`url` (its release page) and `published`.
+
 ### Settings
 
 `GET /api/v1/settings` returns `file` (the path of `mymule.conf`) and

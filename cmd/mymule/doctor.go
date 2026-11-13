@@ -1,19 +1,23 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"mymule/internal/api"
 	"mymule/internal/config"
 	"mymule/internal/download"
 	"mymule/internal/prefs"
+	"mymule/internal/update"
 )
 
 // 'mymule doctor' looks for what keeps MyMule from working well, and says
@@ -41,6 +45,7 @@ func cmdDoctor(args []string) error {
 	if configErr == nil { // the rest needs the settings
 		d.checkSettings()
 		d.checkRunning()
+		d.checkVersion()
 	}
 	return d.report()
 }
@@ -267,4 +272,46 @@ func writable(dir string) error {
 	name := f.Name()
 	f.Close()
 	return os.Remove(name)
+}
+
+// checkVersion asks GitHub whether a newer MyMule is out (with
+// update_check on), and says how to update for the way it was installed.
+func (d *doctor) checkVersion() {
+	if !settings.UpdateCheck {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	r, err := update.Latest(ctx, &http.Client{Timeout: 10 * time.Second}, update.LatestURL, userAgent())
+	switch {
+	case err != nil:
+		d.ok("Could not check for a new version (" + err.Error() + ")")
+	case update.Newer(r.Version, version):
+		d.warn("MyMule "+r.Version+" is out (you have "+strings.TrimPrefix(version, "v")+")", howToUpdate(r.URL))
+	default:
+		d.ok("MyMule " + strings.TrimPrefix(version, "v") + " is the latest version")
+	}
+}
+
+// howToUpdate says how to update MyMule the way it was installed.
+func howToUpdate(page string) string {
+	exe, _ := os.Executable()
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	low := strings.ToLower(filepath.ToSlash(exe))
+	switch {
+	case fileExists("/.dockerenv"):
+		return "Docker: docker compose pull && docker compose up -d (what is new: " + page + ")"
+	case strings.Contains(low, "/cellar/") || strings.Contains(low, "/homebrew/"):
+		return "brew upgrade mymule (what is new: " + page + ")"
+	case strings.Contains(low, "/scoop/apps/"):
+		return "scoop update mymule (what is new: " + page + ")"
+	}
+	return "Download it from " + page + " and put the new mymule program in place of this one\n(stop MyMule first; your settings and downloads stay as they are)."
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

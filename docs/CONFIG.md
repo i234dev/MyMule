@@ -50,6 +50,7 @@ notify_on = completed, wanted, error  # which ones
 media_server =         # jellyfin, emby or plex: asked to scan its libraries when files arrive
 media_server_url =     # e.g. http://192.168.0.10:8096
 media_server_token =   # Jellyfin/Emby API key, or Plex token
+update_check = true    # tell when a new MyMule is out (asks GitHub once a day); false = never
 ```
 
 Settings added in newer versions are appended to an existing file, with
@@ -227,6 +228,11 @@ What is up to you:
   gave them, so in the wrong folder (a web server's, one the system runs
   files from at login...) they could be run. Hidden files (`.something`)
   are never moved into a category's folder.
+- **New versions.** With `update_check` (on by default), MyMule asks
+  GitHub once a day for the number of the latest release and says in the
+  web interface, the log and `mymule doctor` when a newer one is out. It
+  only asks: nothing is downloaded or installed by itself. GitHub sees your
+  IP address, as with any visit; `update_check = false` stops it.
 - **Notifications leave your computer.** With `notify_urls` set, the names
   of finished downloads (and what the wish list found) are sent to the
   services you list there (ntfy, Telegram, Discord, your webhook). Use

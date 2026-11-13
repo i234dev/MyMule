@@ -36,8 +36,9 @@ download and pause, resume or cancel downloads without leaving it.
 
 `mymule doctor` looks for what keeps MyMule from working well (folders,
 free space, risky settings, ports, HighID, Kad) and says how to fix each
-thing it finds. It also runs when `mymule.conf` has an error, and says
-which line.
+thing it finds, and whether a newer MyMule is out, with how to update it
+the way it was installed (zip, Docker, Homebrew or Scoop). It also runs
+when `mymule.conf` has an error, and says which line.
 
 ## Every command
 

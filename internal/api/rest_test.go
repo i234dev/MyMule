@@ -389,3 +389,24 @@ func TestRESTCollection(t *testing.T) {
 		t.Fatalf("not a collection: %d", code)
 	}
 }
+
+// The one-time login link is given only with the API key.
+func TestStartLinkEndpoint(t *testing.T) {
+	m := download.NewManager(download.Config{TempDir: t.TempDir()})
+	rest := NewREST(m, restKey, "test")
+	rest.EnableStartLink(func() string { return "/web/start?t=abc" })
+	srv := httptest.NewServer(rest)
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/api/v1/web/link", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("without the key: %d", resp.StatusCode)
+	}
+	var got map[string]string
+	if code := call(t, srv, "POST", "/api/v1/web/link", "", "", &got); code != 200 || got["path"] != "/web/start?t=abc" {
+		t.Fatalf("%d %v", code, got)
+	}
+}

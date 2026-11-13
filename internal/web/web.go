@@ -6,11 +6,14 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -41,13 +44,21 @@ type UI struct {
 	now     func() time.Time
 
 	mu        sync.Mutex
-	revoked   map[string]int64 // session id -> expiry, for sessions logged out
-	statePath string           // where revoked is kept; empty = memory only
+	revoked   map[string]int64     // session id -> expiry, for sessions logged out
+	statePath string               // where revoked is kept; empty = memory only
+	links     map[string]time.Time // one-time login links -> expiry (see StartLink)
 }
+
+// Login links (StartLink) work once, for a short while, and only from
+// this computer.
+const (
+	linkTTL  = 2 * time.Minute
+	maxLinks = 8
+)
 
 // New creates the web interface. key must not be empty.
 func New(key, version string) *UI {
-	return &UI{key: key, version: version, now: time.Now, revoked: map[string]int64{}}
+	return &UI{key: key, version: version, now: time.Now, revoked: map[string]int64{}, links: map[string]time.Time{}}
 }
 
 // SetStateFile keeps logged-out sessions in path, so logging out still
@@ -115,6 +126,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 		})))
 	}
 	mux.HandleFunc("POST /web/login", u.login)
+	mux.HandleFunc("GET /web/start", u.start)
 	mux.HandleFunc("POST /web/logout", u.logout)
 }
 
@@ -229,6 +241,13 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"wrong key"}` + "\n"))
 		return
 	}
+	u.setSession(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"ok":true}` + "\n"))
+}
+
+// setSession gives the browser a new session cookie.
+func (u *UI) setSession(w http.ResponseWriter, r *http.Request) {
 	exp := u.now().Add(sessionTTL).Unix()
 	idb := make([]byte, 16)
 	rand.Read(idb)
@@ -238,8 +257,71 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 		Path: "/", MaxAge: int(sessionTTL.Seconds()), HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, Secure: secureRequest(r),
 	})
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"ok":true}` + "\n"))
+}
+
+// StartLink returns a path that logs the browser that opens it in, once,
+// within two minutes, and only from this computer: what MyMule opens in
+// the browser when it is started with a double-click, so nobody has to
+// look for the api_key.
+func (u *UI) StartLink() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	tok := hex.EncodeToString(b)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	now := u.now()
+	for t, exp := range u.links {
+		if !now.Before(exp) {
+			delete(u.links, t)
+		}
+	}
+	for t := range u.links { // a few at most: the oldest are dropped
+		if len(u.links) < maxLinks {
+			break
+		}
+		delete(u.links, t)
+	}
+	u.links[tok] = now.Add(linkTTL)
+	return "/web/start?t=" + tok
+}
+
+// start takes a link from StartLink: it gives the browser a session and
+// opens the interface.
+func (u *UI) start(w http.ResponseWriter, r *http.Request) {
+	tok := r.URL.Query().Get("t")
+	ok := false
+	if fromThisComputer(r) && len(tok) == 64 {
+		u.mu.Lock()
+		for t, exp := range u.links {
+			if subtle.ConstantTimeCompare([]byte(t), []byte(tok)) == 1 {
+				delete(u.links, t) // once
+				ok = u.now().Before(exp)
+			}
+		}
+		u.mu.Unlock()
+	}
+	if ok {
+		u.setSession(w, r)
+	}
+	// Used or not, the address goes: the token must not stay in the
+	// history or be reloaded. Without a session the login page shows.
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// fromThisComputer reports whether r came over the loopback interface
+// (not through a proxy, which would say who it is for).
+func fromThisComputer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil || !ip.Unmap().IsLoopback() {
+		return false
+	}
+	return r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("Forwarded") == ""
 }
 
 // logout ends the session for good: the cookie is cleared in the browser

@@ -82,9 +82,14 @@ func lockStandalone() error {
 func run() {
 	defer func() { releaseLock() }()
 	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		exitCode = 2
-		return
+		if !startedByDoubleClick() {
+			fmt.Fprint(os.Stderr, usage)
+			exitCode = 2
+			return
+		}
+		clicked = true // see clicked.go
+		os.Args = append(os.Args, "daemon")
+		defer waitIfFailed()
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
@@ -115,6 +120,9 @@ func run() {
 		for _, note := range config.ImportLegacy(settings.TempDir) {
 			fmt.Fprintln(os.Stderr, note)
 		}
+		if clicked {
+			clickedSettings()
+		}
 	}
 	switch cmd {
 	case "start":
@@ -142,6 +150,9 @@ func run() {
 	case "log":
 		err = cmdLog(args)
 	case "daemon":
+		if clicked && openRunning() {
+			return
+		}
 		if err = lockStandalone(); err == nil {
 			err = cmdDaemon(args)
 		}

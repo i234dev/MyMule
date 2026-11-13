@@ -47,7 +47,7 @@
   "brew_after": "Configurazione e download si trovano in <code>~/MyMule</code>. Per aggiornare: <code>brew upgrade mymule</code>.",
   "scoop_intro": "Con <a href=\"https://scoop.sh\">Scoop</a>:",
   "scoop_after": "Configurazione e download si trovano in <code>%USERPROFILE%\\scoop\\persist\\mymule</code>. Per aggiornare: <code>scoop update mymule</code>.",
-  "download_text": "Windows, Linux, macOS e FreeBSD, per Intel/AMD e ARM: scarica l’archivio per il tuo sistema da <a href=\"https://github.com/i234dev/MyMule/releases/latest\">Releases</a> ed estrailo dove vuoi. MyMule è portatile: configurazione e download restano accanto al programma.",
+  "download_text": "Windows, Linux, macOS e FreeBSD, per Intel/AMD e ARM: scarica l’archivio per il tuo sistema da <a href=\"https://github.com/i234dev/MyMule/releases/latest\">Releases</a> ed estrailo dove vuoi. MyMule è portatile: configurazione e download restano accanto al programma. Su Windows, estrai lo zip e fai doppio clic su <code>mymule.exe</code>: l’interfaccia web si apre nel browser.",
   "quick_title": "Primi passi",
   "quick_intro": "Senza Docker, attiva l’interfaccia web in <code>mymule.conf</code> (creato accanto al programma al primo avvio) e avvia MyMule:",
   "quick_start": "avvia il motore in background",

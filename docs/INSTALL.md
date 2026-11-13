@@ -75,9 +75,20 @@ docker run -d --name mymule --restart unless-stopped   -e PUID=1000 -e PGID=1000
 
 ## First start
 
+**On Windows**, the easiest way: unpack the Windows zip from
+[Releases](https://github.com/i234dev/MyMule/releases) into a folder of
+your own (in Documents, for example) and double-click `mymule.exe`. MyMule
+starts in a window of its own with the web interface on (for this computer
+only, unless `api_listen` in `mymule.conf` says otherwise) and opens it in
+your browser, already logged in: no commands, no key to type. Keep the
+window open while you use MyMule; closing it stops MyMule. Double-clicking
+it again while it runs just opens the web interface again. Nothing is
+written to `mymule.conf` for this: started from a console, MyMule works
+as usual.
+
 Without Docker, MyMule creates `mymule.conf` next to the executable the
-first time it runs (see [Configuration](CONFIG.md)). To use the web
-interface, turn it on there and start MyMule:
+first time it runs (see [Configuration](CONFIG.md)). Started any other
+way, to use the web interface, turn it on there and start MyMule:
 
 ```ini
 web_ui = true
@@ -167,6 +178,10 @@ gh attestation verify mymule-v1.3.4-linux-amd64.tar.gz --repo i234dev/MyMule
 The Windows and macOS binaries are not signed with a commercial
 certificate, so Windows SmartScreen or macOS Gatekeeper may warn the
 first time you run them; the attestation above is how to check them.
+For the same reason, an antivirus program may now and then guess wrong
+about a new unsigned program (detections whose name ends in `!ml` are
+such guesses); the attestation shows whether the file is the one built
+here from the published code.
 
 ## Building from source
 

@@ -58,6 +58,15 @@ type REST struct {
 // API key. The web interface uses it for its session cookie.
 func (r *REST) AlsoAllow(f func(*http.Request) bool) { r.also = f }
 
+// EnableStartLink adds POST /api/v1/web/link: a one-time login link for
+// the web interface (see web.UI.StartLink). A second copy of MyMule
+// started with a double-click asks the running one for it.
+func (r *REST) EnableStartLink(link func() string) {
+	r.mux.HandleFunc("POST /api/v1/web/link", func(w http.ResponseWriter, req *http.Request) {
+		reply(w, map[string]string{"path": link()})
+	})
+}
+
 // NewREST builds the API handler. key must not be empty.
 func NewREST(m *download.Manager, key, version string) *REST {
 	r := &REST{m: m, key: key, version: version, mux: http.NewServeMux()}

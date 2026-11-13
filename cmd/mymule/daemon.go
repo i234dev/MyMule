@@ -98,6 +98,9 @@ type engine struct {
 	// web interface).
 	wanted    *wanted.Store
 	runWanted func(context.Context)
+	// startLink makes a one-time login link for the web interface (nil
+	// without it); see web.UI.StartLink.
+	startLink func() string
 
 	// ratings: the user's ratings of files, published in Kad.
 	ratings *ratings.Store
@@ -1012,6 +1015,8 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		rest.EnableRatings(e.ratings)
 		rest.EnableHistory(e.stats.History())
 		e.runWanted = rest.RunWanted
+		e.startLink = ui.StartLink
+		rest.EnableStartLink(ui.StartLink)
 		if settings.TMDBKey != "off" {
 			dir, _ := config.Dir()
 			posters := meta.NewPosters(filepath.Join(dir, "cache", "posters"), 100<<20)
@@ -1057,6 +1062,9 @@ func startPublicAPI(m *engine, downloadDir string) func() {
 	}
 	if settings.WebUI {
 		logf("web interface on %s (log in with api_key)", webURL(ln.Addr()))
+		if clicked && m.startLink != nil {
+			showStarted(localURL(ln.Addr()), m.startLink())
+		}
 	}
 	if settings.ArrSupport {
 		logf("Radarr/Sonarr support on: Torznab at /torznab, qBittorrent API at /api/v2")
@@ -1095,6 +1103,16 @@ func newHTTPServer(h http.Handler) *http.Server {
 
 // webURL is the address to open in a browser for a listener address:
 // a wildcard address is shown as localhost.
+// localURL is the address of the web interface for a browser on this
+// computer.
+func localURL(a net.Addr) string {
+	_, port, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return "http://" + a.String()
+	}
+	return "http://127.0.0.1:" + port
+}
+
 func webURL(a net.Addr) string {
 	host, port, err := net.SplitHostPort(a.String())
 	if err != nil {

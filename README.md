@@ -59,14 +59,15 @@ how to fix it.
 
 | System | How |
 |---|---|
+| Windows, the easy way | download the Windows zip from [Releases](../../releases), unpack it and **double-click `mymule.exe`**: the web interface opens in your browser |
 | Any, with Docker (also NAS, Raspberry Pi) | see [Docker](#docker) below |
 | macOS, Linux | `brew install i234dev/tap/mymule` ([Homebrew](https://brew.sh)) |
 | Windows | `scoop bucket add mymule https://github.com/i234dev/scoop-bucket` then `scoop install mymule` ([Scoop](https://scoop.sh)) |
 | Any | download the archive for your system from [Releases](../../releases) and unpack it |
 
-Then turn the web interface on in `mymule.conf` (created next to the
-program on the first run), start MyMule and open <http://127.0.0.1:4711/>,
-logging in with the `api_key` from the same file:
+Started any other way, turn the web interface on in `mymule.conf`
+(created next to the program on the first run), start MyMule and open
+<http://127.0.0.1:4711/>, logging in with the `api_key` from the same file:
 
 ```ini
 web_ui = true

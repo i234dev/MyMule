@@ -468,3 +468,47 @@ func TestLinkSignedWithSigningKey(t *testing.T) {
 		t.Fatal("still signed with the api_key")
 	}
 }
+
+// The SID cookie is Secure when the app reached MyMule over HTTPS
+// (directly or through a proxy that says so), so a client never sends it
+// over plain HTTP; over plain HTTP on the local network it still works.
+func TestSIDSecureOverHTTPS(t *testing.T) {
+	fx := newFixture(t)
+	h := fx.srv.Config.Handler
+	login := func(addr string, proxyHTTPS bool) *http.Cookie {
+		t.Helper()
+		r := httptest.NewRequest("POST", addr, strings.NewReader(url.Values{"password": {testKey}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if proxyHTTPS {
+			r.Header.Set("X-Forwarded-Proto", "https")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		for _, c := range w.Result().Cookies() {
+			if c.Name == "SID" {
+				return c
+			}
+		}
+		t.Fatalf("%s: no SID (%d %s)", addr, w.Code, w.Body.String())
+		return nil
+	}
+	if c := login("https://mymule.example/api/v2/auth/login", false); !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("over HTTPS: %+v", c)
+	}
+	if c := login("http://mymule.example/api/v2/auth/login", true); !c.Secure {
+		t.Fatal("through an HTTPS proxy: not Secure")
+	}
+	plain := login("http://127.0.0.1:4711/api/v2/auth/login", false)
+	if plain.Secure {
+		t.Fatal("plain HTTP: Secure (the cookie would never come back)")
+	}
+	// A client keeping the HTTPS cookie never sends it over HTTP.
+	jar, _ := cookiejar.New(nil)
+	secure := login("https://mymule.example/api/v2/auth/login", false)
+	https, _ := url.Parse("https://mymule.example/")
+	http8080, _ := url.Parse("http://mymule.example:8080/")
+	jar.SetCookies(https, []*http.Cookie{secure})
+	if len(jar.Cookies(http8080)) != 0 {
+		t.Fatal("the SID would be sent over plain HTTP")
+	}
+}

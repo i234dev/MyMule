@@ -123,7 +123,7 @@ func (a *Adapter) qLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.sessions[sid] = now.Add(sessionTTL)
 	a.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: "SID", Value: sid, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "SID", Value: sid, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: overHTTPS(r)})
 	io.WriteString(w, "Ok.")
 }
 
@@ -134,7 +134,7 @@ func (a *Adapter) qLogout(w http.ResponseWriter, r *http.Request) {
 		delete(a.sessions, c.Value)
 		a.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: "SID", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "SID", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: overHTTPS(r)})
 	io.WriteString(w, "Ok.")
 }
 
@@ -541,4 +541,12 @@ func (a *Adapter) qTransfer(w http.ResponseWriter, r *http.Request) {
 		speed += f.Speed
 	}
 	writeJSON(w, map[string]any{"dl_info_speed": int64(speed), "up_info_speed": 0, "connection_status": "connected"})
+}
+
+// overHTTPS reports whether the client reached us over HTTPS, directly or
+// through a reverse proxy that says so: then the SID cookie is Secure, so
+// that the client never sends it over plain HTTP. (Trusting the proxy's
+// header can only make the cookie stricter.) As the web interface's.
+func overHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }

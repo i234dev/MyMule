@@ -104,10 +104,10 @@ type FolderCheck func(abs string) error
 // without error, or nothing is written. Changes take effect when MyMule
 // restarts.
 //
-// A changed folder (temp_dir, download_dir, shared_dirs) outside the data
-// folder must pass check, the rules library folders follow: whoever holds
-// the API key must not be able to share the users' folders or have
-// downloads land in a system folder. Without check, folders cannot be
+// A changed folder (temp_dir, download_dir, shared_dirs) must pass check,
+// inside the data folder too: whoever holds the API key must not be able
+// to share the users' folders or have downloads land in a system folder,
+// a hidden one or one a link leads to. Without check, folders cannot be
 // changed.
 func UpdateSettings(values map[string]string, check FolderCheck) error {
 	editMu.Lock()
@@ -191,9 +191,8 @@ func checkMediaServer(values map[string]string, cur, next Settings, lookup func(
 
 // checkFolders applies check to the folders of next (the settings after
 // the change) that cur (before it) did not have (see UpdateSettings).
-// Folders inside the data folder are MyMule's own, as the default temp
-// and downloads are; folders already in mymule.conf were put there by
-// whoever edits it, and are not checked again.
+// Folders already in mymule.conf were put there by whoever edits it, and
+// are not checked again; every other one is, inside the data folder too.
 func checkFolders(next, cur Settings, base string, check FolderCheck) error {
 	had := map[string]bool{}
 	for _, d := range append([]string{cur.TempDir, cur.DownloadDir}, cur.SharedDirs...) {
@@ -205,7 +204,10 @@ func checkFolders(next, cur Settings, base string, check FolderCheck) error {
 	}{{"temp_dir", []string{next.TempDir}}, {"download_dir", []string{next.DownloadDir}}, {"shared_dirs", next.SharedDirs}} {
 		for _, d := range f.dirs {
 			abs := absUnder(base, d)
-			if d == "" || had[abs] || insideDir(abs, base) {
+			// Only what mymule.conf already had is left alone: a new
+			// folder is checked even when written inside the data
+			// folder, which it may leave through a link, or be hidden.
+			if d == "" || had[abs] {
 				continue
 			}
 			if check == nil {
@@ -217,13 +219,6 @@ func checkFolders(next, cur Settings, base string, check FolderCheck) error {
 		}
 	}
 	return nil
-}
-
-// insideDir reports whether p is inside dir (not dir itself).
-func insideDir(p, dir string) bool {
-	rel, err := filepath.Rel(dir, p)
-	return err == nil && rel != "." && rel != ".." && !filepath.IsAbs(rel) &&
-		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // setLine sets key to value in a mymule.conf text: every line of key is

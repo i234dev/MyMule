@@ -103,11 +103,17 @@ func TestUpdateSettingsFolders(t *testing.T) {
 	if err := UpdateSettings(map[string]string{"download_dir": other}, nil); err == nil {
 		t.Error("folder changed without a check")
 	}
+	// Folders already in mymule.conf are not checked again; a new one is,
+	// inside the data folder too.
 	checked = nil
-	if err := UpdateSettings(map[string]string{"temp_dir": "temp", "shared_dirs": "videos;" + outside, "download_dir": outside}, check); err != nil {
+	record := func(abs string) error {
+		checked = append(checked, abs)
+		return nil
+	}
+	if err := UpdateSettings(map[string]string{"temp_dir": "temp", "shared_dirs": "videos;" + outside, "download_dir": outside}, record); err != nil {
 		t.Fatal(err)
 	}
-	if len(checked) != 0 {
+	if len(checked) != 1 || checked[0] != filepath.Join(home, "videos") {
 		t.Fatalf("checked %v", checked)
 	}
 	if err := UpdateSettings(map[string]string{"shared_dirs": "."}, check); err == nil {
@@ -231,5 +237,33 @@ func TestPortIsNotTheAPIs(t *testing.T) {
 	}
 	if err := UpdateSettings(map[string]string{"port": "4663"}, okFolder); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A new folder written inside the data folder still follows the folder
+// rules: it may be a link out of it, or a hidden folder. Refused, nothing
+// is written.
+func TestUpdateSettingsInsideDataFolderChecked(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MYMULE_HOME", home)
+	p := filepath.Join(home, SettingsFile)
+	os.WriteFile(p, []byte("# empty\n"), 0o600)
+	before, _ := os.ReadFile(p)
+	var checked []string
+	refuse := func(abs string) error {
+		checked = append(checked, abs)
+		return errors.New("refused by the folder rules")
+	}
+	for _, d := range []string{"escape", ".hidden-startup"} {
+		checked = nil
+		if err := UpdateSettings(map[string]string{"download_dir": d}, refuse); err == nil {
+			t.Errorf("%s: written", d)
+		}
+		if len(checked) != 1 || checked[0] != filepath.Join(home, d) {
+			t.Errorf("%s: checked %v", d, checked)
+		}
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatal("mymule.conf changed")
 	}
 }

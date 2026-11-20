@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -57,7 +58,18 @@ type storeEntry struct {
 	Category  string `json:"category,omitempty"`
 	Added     int64  `json:"added,omitempty"`
 	Completed int64  `json:"completed,omitempty"`
+	// What a finished download of an app was, so that it is still shown
+	// after a restart (or "clear finished") until the app imports and
+	// deletes it: the download list itself forgets finished files.
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	Path string `json:"path,omitempty"`
 }
+
+// rememberFinished is how long a finished download of an app is still
+// shown once the download list has forgotten it. The apps import within
+// minutes; this only bounds the state file if one never deletes it.
+const rememberFinished = 30 * 24 * time.Hour
 
 type storeData struct {
 	Downloads  map[string]*storeEntry `json:"downloads"`  // by ed2k hash
@@ -124,10 +136,52 @@ func (a *Adapter) infoHashLocked(f download.FileStatus) string {
 	return h
 }
 
+// downloads returns the download list plus the finished downloads of the
+// apps that it no longer holds (see storeEntry), oldest first among those.
+func (a *Adapter) downloads() []download.FileStatus {
+	_, files := a.cfg.Manager.Status()
+	present := make(map[string]bool, len(files))
+	for _, f := range files {
+		present[f.Hash.String()] = true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append(files, a.rememberedLocked(present, time.Now())...)
+}
+
+// rememberedLocked returns the remembered finished downloads that are
+// not in present, and forgets those older than rememberFinished.
+func (a *Adapter) rememberedLocked(present map[string]bool, now time.Time) []download.FileStatus {
+	var out []download.FileStatus
+	changed := false
+	for key, e := range a.store.Downloads {
+		if present[key] || e.Completed == 0 || e.Path == "" || e.Category == "" {
+			continue
+		}
+		h, err := ed2k.ParseHash(key)
+		if err != nil {
+			continue
+		}
+		if now.Sub(time.Unix(e.Completed, 0)) > rememberFinished {
+			delete(a.store.Downloads, key)
+			delete(a.hashes, h)
+			changed = true
+			continue
+		}
+		out = append(out, download.FileStatus{Hash: h, Name: e.Name, Size: e.Size, Done: e.Size,
+			Finished: true, Path: e.Path})
+	}
+	if changed {
+		a.saveLocked()
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // findByInfoHash maps qBittorrent "hashes" (info hashes, separated by
 // '|', or "all") to downloads.
 func (a *Adapter) findByInfoHash(list string) []download.FileStatus {
-	_, files := a.cfg.Manager.Status()
+	files := a.downloads()
 	if list == "all" {
 		return files
 	}

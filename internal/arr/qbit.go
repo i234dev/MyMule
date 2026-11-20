@@ -195,9 +195,19 @@ func (a *Adapter) torrentLocked(f download.FileStatus) map[string]any {
 		if f.Path != "" {
 			content, savePath = f.Path, filepath.Dir(f.Path)
 		}
+		changed := false
 		if e.Completed == 0 {
 			e.Completed = now
 			a.store.Downloads[f.Hash.String()] = e
+			changed = true
+		}
+		// Remember an app's finished download, to keep showing it after
+		// the download list forgets it (see storeEntry).
+		if e.Category != "" && f.Path != "" && (e.Name != f.Name || e.Size != f.Size || e.Path != f.Path) {
+			e.Name, e.Size, e.Path = f.Name, f.Size, f.Path
+			changed = true
+		}
+		if changed {
 			a.saveLocked()
 		}
 		completion = e.Completed
@@ -263,7 +273,7 @@ func (a *Adapter) qInfo(w http.ResponseWriter, r *http.Request) {
 			want[x] = true
 		}
 	}
-	_, files := a.cfg.Manager.Status()
+	files := a.downloads()
 	out := []map[string]any{}
 	a.mu.Lock()
 	for _, f := range files {
@@ -514,7 +524,7 @@ func (a *Adapter) qPause(paused bool) http.HandlerFunc {
 // ---- sync / transfer ----
 
 func (a *Adapter) qMaindata(w http.ResponseWriter, r *http.Request) {
-	_, files := a.cfg.Manager.Status()
+	files := a.downloads()
 	torrents := map[string]any{}
 	var speed float64
 	a.mu.Lock()

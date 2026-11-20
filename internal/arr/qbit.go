@@ -159,11 +159,18 @@ func (a *Adapter) qAuthorized(r *http.Request) bool {
 // ---- info ----
 
 func (a *Adapter) qPreferences(w http.ResponseWriter, r *http.Request) {
+	// Finished downloads are reported as paused (pausedUP) with a ratio of
+	// 0. With a share limit of ratio 0 they have reached it, which is how
+	// the apps tell that they may move the file and remove the download.
+	ratioEnabled, ratio := false, -1
+	if !a.cfg.SharesFinished {
+		ratioEnabled, ratio = true, 0
+	}
 	writeJSON(w, map[string]any{
 		"save_path":                a.cfg.DownloadDir,
 		"temp_path_enabled":        false,
-		"max_ratio_enabled":        false,
-		"max_ratio":                -1,
+		"max_ratio_enabled":        ratioEnabled,
+		"max_ratio":                ratio,
 		"max_ratio_act":            0,
 		"max_seeding_time_enabled": false,
 		"max_seeding_time":         -1,

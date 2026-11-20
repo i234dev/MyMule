@@ -49,6 +49,8 @@ type Adapter struct {
 
 	lookup titleLookup // nil when Languages is empty
 	cache  titleCache
+
+	results resultCache // full answers of Torznab searches, for paging
 }
 
 type storeEntry struct {

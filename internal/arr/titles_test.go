@@ -67,6 +67,8 @@ func TestLocalizedSearch(t *testing.T) {
 	}
 
 	// Id only: English is looked up too. The lookup is cached per languages.
+	// (Same searches as above, so forget the answer to see them run again.)
+	fx.a.results = resultCache{}
 	fx.searches = nil
 	_, body := get(t, http.DefaultClient, base+"?t=movie&imdbid=tt1234567&apikey="+testKey)
 	if got := keywords(fx); !reflect.DeepEqual(got, []string{"Example Movie", "Película de Ejemplo"}) {

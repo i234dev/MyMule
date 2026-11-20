@@ -2,6 +2,7 @@ package arr
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -178,53 +180,16 @@ func (a *Adapter) tzSearch(w http.ResponseWriter, r *http.Request, t string) {
 		items = []tzItem{{link: ed2k.Link{Name: "MyMule indexer test - search with a query to get real results",
 			Size: 1024, Hash: ed2k.Hash{0x4D, 0x79, 0x4D, 0x75, 0x6C, 0x65}}, sources: 1, cat: catOther}}
 	} else {
-		var ftype string
-		switch t {
-		case "movie", "tvsearch":
-			ftype = server.TypeVideo
-		case "music", "audio":
-			ftype = server.TypeAudio
-		case "book":
-			ftype = server.TypeDocument
-		}
-		// One eD2K search per title, one after another: global (UDP)
-		// answers don't say which search they belong to.
-		var results []api.SearchResult
-		seen := map[ed2k.Hash]bool{}
-		for i, text := range queries {
-			res, err := a.search(r.Context(), server.Query{Keywords: text, Type: ftype}, true)
-			if err != nil {
-				if i == 0 {
-					torznabError(w, http.StatusServiceUnavailable, 900, "search failed: "+err.Error())
-					return
-				}
-				break
-			}
-			for _, x := range res {
-				if !seen[x.Hash] {
-					seen[x.Hash] = true
-					results = append(results, x)
-				}
-			}
-		}
-		for _, res := range results {
-			// Results nobody shares can never complete; some servers
-			// also list such entries as filler. Leave them out.
-			if res.Sources == 0 {
-				continue
-			}
-			if !matchesEpisode(res.Name, season, ep) {
-				continue
-			}
-			cat := category(res.Name, res.Type)
-			if t == "tvsearch" && cat == catMovies {
-				cat = catTV
-			}
-			if len(wantCats) > 0 && !wantCats[cat] {
-				continue
-			}
-			items = append(items, tzItem{link: ed2k.Link{Name: res.Name, Size: int64(res.Size), Hash: res.Hash},
-				sources: res.Sources, complete: res.Complete, cat: cat})
+		// The apps ask for the answer page by page (offset, limit): keep
+		// the whole answer for a while instead of searching again for
+		// every page.
+		var err error
+		items, err = a.results.do(r.Context(), resultKey(t, queries, season, ep, wantCats), func() ([]tzItem, bool, error) {
+			return a.searchItems(r.Context(), t, queries, season, ep, wantCats)
+		})
+		if err != nil {
+			torznabError(w, http.StatusServiceUnavailable, 900, "search failed: "+err.Error())
+			return
 		}
 	}
 	if offset < len(items) {
@@ -236,6 +201,73 @@ func (a *Adapter) tzSearch(w http.ResponseWriter, r *http.Request, t string) {
 		items = items[:limit]
 	}
 	a.writeFeed(w, r, items)
+}
+
+// resultKey identifies a search for the cache: everything that shapes the
+// answer except the page the app asks for (offset, limit).
+func resultKey(t string, queries []string, season, ep int, cats map[int]bool) string {
+	list := make([]int, 0, len(cats))
+	for c := range cats {
+		list = append(list, c)
+	}
+	sort.Ints(list)
+	return fmt.Sprintf("%s|%q|%d|%d|%v", t, queries, season, ep, list)
+}
+
+// searchItems runs the eD2K searches of a Torznab request and returns the
+// whole answer. complete is false when a search after the first one failed:
+// the answer is then good enough to send but not to remember.
+func (a *Adapter) searchItems(ctx context.Context, t string, queries []string, season, ep int, wantCats map[int]bool) (items []tzItem, complete bool, err error) {
+	var ftype string
+	switch t {
+	case "movie", "tvsearch":
+		ftype = server.TypeVideo
+	case "music", "audio":
+		ftype = server.TypeAudio
+	case "book":
+		ftype = server.TypeDocument
+	}
+	// One eD2K search per title, one after another: global (UDP)
+	// answers don't say which search they belong to.
+	complete = true
+	var results []api.SearchResult
+	seen := map[ed2k.Hash]bool{}
+	for i, text := range queries {
+		res, err := a.search(ctx, server.Query{Keywords: text, Type: ftype}, true)
+		if err != nil {
+			if i == 0 {
+				return nil, false, err
+			}
+			complete = false
+			break
+		}
+		for _, x := range res {
+			if !seen[x.Hash] {
+				seen[x.Hash] = true
+				results = append(results, x)
+			}
+		}
+	}
+	for _, res := range results {
+		// Results nobody shares can never complete; some servers
+		// also list such entries as filler. Leave them out.
+		if res.Sources == 0 {
+			continue
+		}
+		if !matchesEpisode(res.Name, season, ep) {
+			continue
+		}
+		cat := category(res.Name, res.Type)
+		if t == "tvsearch" && cat == catMovies {
+			cat = catTV
+		}
+		if len(wantCats) > 0 && !wantCats[cat] {
+			continue
+		}
+		items = append(items, tzItem{link: ed2k.Link{Name: res.Name, Size: int64(res.Size), Hash: res.Hash},
+			sources: res.Sources, complete: res.Complete, cat: cat})
+	}
+	return items, complete, nil
 }
 
 func (a *Adapter) baseURL(r *http.Request) string {

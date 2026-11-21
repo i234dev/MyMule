@@ -166,14 +166,21 @@ func (a *Adapter) qPreferences(w http.ResponseWriter, r *http.Request) {
 	if !a.cfg.SharesFinished {
 		ratioEnabled, ratio = true, 0
 	}
+	// Shared: once a finished download has been shared for ShareFor (its
+	// seeding_time), it has reached its seeding goal and the apps remove
+	// it. qBittorrent counts this limit in minutes.
+	seedEnabled, seedMinutes := false, int64(-1)
+	if a.cfg.SharesFinished && a.cfg.ShareFor > 0 {
+		seedEnabled, seedMinutes = true, int64(a.cfg.ShareFor/time.Minute)
+	}
 	writeJSON(w, map[string]any{
 		"save_path":                a.cfg.DownloadDir,
 		"temp_path_enabled":        false,
 		"max_ratio_enabled":        ratioEnabled,
 		"max_ratio":                ratio,
 		"max_ratio_act":            0,
-		"max_seeding_time_enabled": false,
-		"max_seeding_time":         -1,
+		"max_seeding_time_enabled": seedEnabled,
+		"max_seeding_time":         seedMinutes,
 		"queueing_enabled":         false,
 		"dht":                      false,
 		"auto_tmm_enabled":         false,
@@ -196,6 +203,7 @@ func (a *Adapter) torrentLocked(f download.FileStatus) map[string]any {
 	content := filepath.Join(savePath, download.SanitizeName(f.Name))
 	state, eta := "stalledDL", int64(infiniteETA)
 	completion := int64(-1)
+	seeding := int64(0) // seconds shared since it finished
 	switch {
 	case f.Finished:
 		state, eta, progress = "pausedUP", 0, 1
@@ -218,6 +226,7 @@ func (a *Adapter) torrentLocked(f download.FileStatus) map[string]any {
 			a.saveLocked()
 		}
 		completion = e.Completed
+		seeding = max(0, now-completion)
 	case f.Paused:
 		state = "pausedDL"
 	case f.Downloading > 0 || f.Speed > 0:
@@ -255,7 +264,7 @@ func (a *Adapter) torrentLocked(f download.FileStatus) map[string]any {
 		"num_incomplete":     0,
 		"ratio":              0,
 		"ratio_limit":        -2,
-		"seeding_time":       0,
+		"seeding_time":       seeding,
 		"seeding_time_limit": -2,
 		"priority":           0,
 		"force_start":        false,
@@ -318,7 +327,7 @@ func (a *Adapter) qProperties(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"save_path": t["save_path"], "total_size": f.Size, "total_downloaded": f.Done, "dl_speed": t["dlspeed"],
 		"eta": t["eta"], "addition_date": t["added_on"], "completion_date": t["completion_on"],
-		"seeding_time": 0, "share_ratio": 0, "piece_size": pieceLength, "pieces_num": (f.Size + pieceLength - 1) / pieceLength,
+		"seeding_time": t["seeding_time"], "share_ratio": 0, "piece_size": pieceLength, "pieces_num": (f.Size + pieceLength - 1) / pieceLength,
 		"seeds": f.Downloading, "seeds_total": f.Sources, "peers": 0, "peers_total": 0, "comment": "",
 	})
 }

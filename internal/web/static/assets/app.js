@@ -172,6 +172,7 @@ const STRINGS = {
     "key.network_hosts": "Allowed network folder hosts", "key.web_ui": "Web interface",
     "key.folder_roots": "Where folders for downloads may be",
     "key.tmdb_api_key": "TMDB key", "key.arr_support": "Radarr/Sonarr support", "key.search_languages": "Extra search languages",
+    "key.arr_share_days": "Days Radarr/Sonarr downloads stay shared",
     "obf.true": "When the other side supports it", "obf.required": "Always (fewer sources)", "obf.false": "Never",
     "add.placeholder": "Paste ed2k:// links here",
     "add.submit": "Add",
@@ -398,6 +399,7 @@ const STRINGS = {
     "key.network_hosts": "Equipos de carpetas de red permitidos", "key.web_ui": "Interfaz web",
     "key.folder_roots": "Dónde puede haber carpetas de descargas",
     "key.tmdb_api_key": "Clave de TMDB", "key.arr_support": "Soporte de Radarr/Sonarr", "key.search_languages": "Idiomas de búsqueda extra",
+    "key.arr_share_days": "Días que se comparten las descargas de Radarr/Sonarr",
     "obf.true": "Cuando el otro lado la admite", "obf.required": "Siempre (menos fuentes)", "obf.false": "Nunca",
     "add.placeholder": "Pega aquí enlaces ed2k://",
     "add.submit": "Añadir",
@@ -2129,7 +2131,7 @@ const ADV_GROUPS = [
   ["dirs", ["temp_dir", "download_dir", "sharing", "share_downloads", "shared_dirs"]],
   ["speed", ["upload_slots", "upload_limit", "download_limit", "schedule_from", "schedule_to", "schedule_upload_limit", "schedule_download_limit"]],
   ["notify", ["notify_urls", "notify_on", "media_server", "media_server_url", "media_server_token"]],
-  ["other", ["nick", "tmdb_api_key", "arr_support", "search_languages"]],
+  ["other", ["nick", "tmdb_api_key", "arr_support", "arr_share_days", "search_languages"]],
   ["access", ["api_listen", "api_key", "api_hosts", "network_hosts", "folder_roots", "web_ui"]],
 ];
 let advLoaded = {}; // key -> value as loaded

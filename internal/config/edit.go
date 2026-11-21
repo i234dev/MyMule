@@ -45,7 +45,7 @@ var lockedSettings = map[string]bool{
 }
 
 var boolSettings = map[string]bool{"kad": true, "upnp": true, "sharing": true, "share_downloads": true, "web_ui": true, "arr_support": true, "update_check": true}
-var intSettings = map[string]bool{"port": true, "kad_port": true, "max_conns": true, "upload_slots": true, "upload_limit": true, "download_limit": true}
+var intSettings = map[string]bool{"port": true, "kad_port": true, "max_conns": true, "upload_slots": true, "upload_limit": true, "download_limit": true, "arr_share_days": true}
 
 // maxSettingValue bounds a value written from the API.
 const maxSettingValue = 4096

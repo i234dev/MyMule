@@ -80,6 +80,12 @@ type Settings struct {
 	// compatible API for Radarr, Sonarr and the like. Off by default.
 	ArrSupport bool
 
+	// ArrShareDays is how many days a finished download of Radarr, Sonarr
+	// and the like stays shared before the app may remove it (it then
+	// deletes the file from the download folder, keeping its copy in the
+	// library). 0 = until the app removes it by hand.
+	ArrShareDays int
+
 	// UpdateCheck asks GitHub once a day whether a newer MyMule is out
 	// (only the version: nothing is downloaded). On by default.
 	UpdateCheck bool
@@ -110,6 +116,7 @@ func Defaults() Settings {
 	return Settings{
 		Port:           4662,
 		UpdateCheck:    true,
+		ArrShareDays:   7,
 		Kad:            true,
 		KadPort:        4672,
 		KadNodesURL:    DefaultKadNodesURL,
@@ -220,6 +227,8 @@ var settingsDoc = []setting{
 		func(s Settings) string { return s.MediaServer }},
 	{"media_server_url", "Its address, e.g. http://192.168.0.10:8096 (Jellyfin/Emby) or\nhttp://192.168.0.10:32400 (Plex).",
 		func(s Settings) string { return s.MediaServerURL }},
+	{"arr_share_days", "With arr_support and share_downloads: how many days a finished download of\nRadarr, Sonarr and the like stays shared with other eD2K users. Then the\napp may remove it: it deletes the file from the download folder and\nkeeps its copy in the library. 0 = until the app removes it by hand\n(the file and its copy stay).",
+		func(s Settings) string { return strconv.Itoa(s.ArrShareDays) }},
 	{"update_check", "Look once a day for a new version of MyMule on GitHub, and tell in the\nweb interface, the log and mymule doctor when there is one. Only the\nversion number is asked for: nothing is downloaded or installed. false =\nnever ask.",
 		func(s Settings) string { return strconv.FormatBool(s.UpdateCheck) }},
 	{"media_server_token", "An API key made in Jellyfin/Emby (Dashboard > API Keys), or your Plex\ntoken.",
@@ -500,6 +509,12 @@ func parseSettings(text string, s *Settings) (map[string]bool, error) {
 					s.SharedDirs = append(s.SharedDirs, d)
 				}
 			}
+		case "arr_share_days":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 0 || n > 365 {
+				return present, fmt.Errorf("line %d: arr_share_days must be between 0 and 365", line)
+			}
+			s.ArrShareDays = n
 		case "upload_slots":
 			n, err := strconv.Atoi(val)
 			if err != nil || n < 1 || n > 50 {

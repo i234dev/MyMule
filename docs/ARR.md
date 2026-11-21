@@ -128,6 +128,26 @@ title in your country keeps that title.
 In the app, also set the language you want in the quality profile
 (*Settings* → *Profiles*), so it prefers releases in that language.
 
+## 6. Finished downloads: shared for a week, then moved
+
+After importing a download, the apps leave it in the client while it is
+still "seeding", and remove it (moving the file, or deleting the original
+next to their copy) once it reached its seeding goal. MyMule tells them
+that goal:
+
+- **Shared** (`share_downloads = true`, the default): a finished download
+  stays shared with other eD2K users for `arr_share_days` days (7 by
+  default), so it keeps helping the network; then the app removes it from
+  the download folder and keeps its copy in the library. Set
+  `arr_share_days = 0` to keep sharing until you remove it yourself (the
+  original and the app's copy both stay).
+- **Not shared** (`share_downloads = false`): there is nothing to wait
+  for, so the app moves the file into the library right away.
+
+MyMule keeps showing a finished download to the app across restarts until
+the app removes it (for 30 days at most), so a restart does not leave
+files that were never imported.
+
 ## How it works
 
 - A search in the app becomes an eD2K search on **all known servers**,

@@ -33,8 +33,12 @@ type Config struct {
 	// move the file into the library and delete the download, instead of
 	// copying it and leaving the original in DownloadDir for good.
 	SharesFinished bool
-	StorePath      string // small JSON file with categories (arr.json)
-	Log            func(format string, args ...any)
+	// ShareFor: with SharesFinished, how long a finished download stays
+	// shared before the apps may remove it (they are told it reached its
+	// seeding time); 0 = until removed by hand.
+	ShareFor  time.Duration
+	StorePath string // small JSON file with categories (arr.json)
+	Log       func(format string, args ...any)
 
 	// Languages (e.g. "es") whose titles are also searched for, looked up
 	// on Wikidata from the ids the apps send. Empty = no lookups.

@@ -1041,6 +1041,7 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		signKey, _ := config.SigningKey(settings.APIKey)
 		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, SignKey: signKey, DownloadDir: downloadDir,
 			SharesFinished: settings.Sharing && settings.ShareDownloads,
+			ShareFor:       time.Duration(settings.ArrShareDays) * 24 * time.Hour,
 			StorePath:      store, Log: logf, Languages: settings.SearchLanguages,
 			UserAgent: userAgent()}).Routes(mux)
 	}

@@ -45,6 +45,7 @@ web_ui = false         # true: web interface at http://127.0.0.1:4711/
 tmdb_api_key =         # empty: MyMule's TMDB key; your own key; or off
 arr_support = false    # true: Radarr/Sonarr/Prowlarr support (see ARR.md)
 search_languages =     # e.g. es: Radarr/Sonarr also search by Spanish titles
+arr_share_days = 7     # days a finished Radarr/Sonarr download stays shared before the app moves it; 0 = until removed by hand
 notify_urls =          # notifications: ntfy://topic, tgram://BOT_TOKEN/CHAT_ID, discord://ID/TOKEN, https://webhook
 notify_on = completed, wanted, error  # which ones
 media_server =         # jellyfin, emby or plex: asked to scan its libraries when files arrive

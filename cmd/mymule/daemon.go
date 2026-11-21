@@ -1040,7 +1040,8 @@ func publicRoutes(e *engine, downloadDir string) http.Handler {
 		store, _ := config.Path("arr.json")
 		signKey, _ := config.SigningKey(settings.APIKey)
 		arr.New(arr.Config{Manager: m, REST: rest, Key: settings.APIKey, SignKey: signKey, DownloadDir: downloadDir,
-			StorePath: store, Log: logf, Languages: settings.SearchLanguages,
+			SharesFinished: settings.Sharing && settings.ShareDownloads,
+			StorePath:      store, Log: logf, Languages: settings.SearchLanguages,
 			UserAgent: userAgent()}).Routes(mux)
 	}
 	return authlimit.HostCheck(settings.APIHosts, mux)

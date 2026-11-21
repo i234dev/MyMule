@@ -27,8 +27,14 @@ type Config struct {
 	// (config.SigningKey); nil = the API key.
 	SignKey     []byte
 	DownloadDir string // where finished files end up
-	StorePath   string // small JSON file with categories (arr.json)
-	Log         func(format string, args ...any)
+	// SharesFinished: finished files stay shared with other eD2K users
+	// (sharing and share_downloads on). When false, the apps are told
+	// that finished downloads have reached their seeding goal, so they
+	// move the file into the library and delete the download, instead of
+	// copying it and leaving the original in DownloadDir for good.
+	SharesFinished bool
+	StorePath      string // small JSON file with categories (arr.json)
+	Log            func(format string, args ...any)
 
 	// Languages (e.g. "es") whose titles are also searched for, looked up
 	// on Wikidata from the ids the apps send. Empty = no lookups.
